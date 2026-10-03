@@ -57,6 +57,8 @@ swift test
 open dist/MacOSX.app
 ```
 
+本机已安装时直接运行 `open /Applications/MacOSX.app`。上面的命令用于构建开发副本；已安装副本的后续更新走 OTA，不用开发副本手工覆盖。
+
 `Resources/update-public-key.txt` 是公开的更新验签公钥，可以提交。签名用私钥保存在 Keychain 的 Sparkle `macos-x` account；克隆代码不意味着拥有发布签名能力。开发/CI 可显式禁用更新；正常发布构建不能缺少公钥。
 
 构建和发布脚本参数以各脚本的 `--help` 为准。发布前核对版本递增、来源 commit、档案签名、appcast 地址及包内容，再上传 GitHub Release。签名私钥不通过命令行字符串传递。
@@ -79,7 +81,8 @@ open dist/MacOSX.app
 - 60 秒未操作面板的采样：RSS 均值约 37.1 MiB，峰值约 38.3 MiB；CPU 累计计时在采样精度下未测到增量。这只是未操作状态基线，不代表启用权限后的窗口切换性能。
 - 应用包磁盘占用约 3.1 MiB，压缩档案约 1.0 MiB；当前仅为 Apple Silicon 构建。
 - `0.0.1 / build 3` 的应用构建、安装副本代码签名、更新包与更新源签名验证：通过。此前对同一发布流程验证过修改档案一位或更新源标题后均被拒绝。签名工具已能访问本项目 Keychain 密钥，不需要额外授权 `generate_appcast`。
-- [GitHub CI](https://github.com/anjing-le/macos-x/actions/runs/37098672897)：发布来源 `f96683d696ec5ad93b5f3e48bb8f3d4e58557730` 的测试与构建通过；CI 明确禁用 OTA，不持有签名私钥。
-- 先前的 `0.1.0 / build 2` 已完成在线资源验签和实际 Sparkle 解析验证；本机正式起始版本调整为 `0.0.1 / build 3`，公开更新资源正在准备。
+- [GitHub CI](https://github.com/anjing-le/macos-x/actions/runs/37105208993)：`0.0.1` 发布来源 `18a8a66ea8df400c904f1131a7667014e3fe8183` 的测试与构建通过；CI 明确禁用 OTA，不持有签名私钥。
+- [v0.0.1 本机初始版本](https://github.com/anjing-le/macos-x/releases/tag/v0.0.1) 已公开发布并显式设为 Latest。通过应用使用的公开 latest 地址重新下载，zip、appcast 和 SHA-256 文件与本地逐字节一致；在线档案与更新源验签通过；档案内元数据和可执行文件与本机安装副本一致。更新源版本为 `0.0.1 / build 3`。
+- 原 `v0.1.0 / build 2` 保留为准备阶段 prerelease，已退出稳定更新通道；正式路线从 `0.0.1` 开始。
 - 真实 OTA 安装、重启与升级后行为：尚未验证；发布资源和签名验证不能替代这项实测。
 - Developer ID 签名、公证、多显示器、跨 Spaces 及完整回归：未验证。
