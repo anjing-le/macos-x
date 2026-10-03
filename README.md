@@ -77,6 +77,7 @@ open dist/MacOSX.app
 - 60 秒未操作面板的采样：RSS 均值约 37.1 MiB，峰值约 38.3 MiB；CPU 累计计时在采样精度下未测到增量。这只是未操作状态基线，不代表启用权限后的窗口切换性能。
 - 应用包磁盘占用约 3.1 MiB，压缩档案约 1.0 MiB；当前仅为 Apple Silicon 构建。
 - 正式 0.1.0 / build 2 更新包与更新源：签名验证通过；修改档案一位或更新源标题后均被拒绝。解压后的整包代码签名完整性检查通过。签名工具已能访问本项目 Keychain 密钥，不需要额外授权 `generate_appcast`。
-- [GitHub CI](https://github.com/anjing-le/macos-x/actions)：已提交版本的测试与构建通过；CI 明确禁用 OTA，不持有签名私钥。
-- 在线发布资源：待上传并核对；真实 OTA 安装、重启与升级后行为尚未验证。
+- [GitHub CI](https://github.com/anjing-le/macos-x/actions/runs/37098672897)：发布来源 `f96683d696ec5ad93b5f3e48bb8f3d4e58557730` 的测试与构建通过；CI 明确禁用 OTA，不持有签名私钥。
+- [v0.1.0 开发版本](https://github.com/anjing-le/macos-x/releases/tag/v0.1.0) 已公开发布。通过应用使用的公开 latest 地址重新下载，zip、appcast 与 SHA-256 文件均与本地逐字节一致；在线下载的档案与更新源再次验签通过。实际 Sparkle 2.10.0 解析器也接受该更新源。
+- 真实 OTA 安装、重启与升级后行为：尚未验证；发布资源和签名验证不能替代这项实测。
 - Developer ID 签名、公证、多显示器、跨 Spaces 及完整回归：未验证。
