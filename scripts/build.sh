@@ -4,8 +4,8 @@ set -euo pipefail
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 configuration=release
 output_dir="$root_dir/dist"
-version=0.0.3
-build_number=5
+version=0.0.4
+build_number=6
 sign_identity="${MACOSX_SIGN_IDENTITY:--}"
 updates_enabled=true
 feed_url="${MACOSX_FEED_URL:-https://github.com/anjing-le/macos-x/releases/latest/download/appcast.xml}"
@@ -13,7 +13,7 @@ feed_url="${MACOSX_FEED_URL:-https://github.com/anjing-le/macos-x/releases/lates
 usage() {
     cat <<'USAGE'
 Usage: scripts/build.sh [--disable-updates] [--configuration debug|release]
-       [--version 0.0.3] [--build-number 5] [--output-dir path]
+       [--version 0.0.4] [--build-number 6] [--output-dir path]
        [--sign-identity "Developer ID Application: ..."]
 Default: host architecture, OTA enabled, local ad hoc signing.
 Set MACOSX_FEED_URL at build time for an alternate HTTPS appcast.
@@ -82,6 +82,7 @@ PY
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks" "$app/Contents/Resources"
 cp "$bin_dir/MacOSX" "$app/Contents/MacOS/MacOSX"
 cp "$root_dir/Resources/Sparkle-LICENSE.txt" "$app/Contents/Resources/Sparkle-LICENSE.txt"
+cp "$root_dir/Resources/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
 # ditto preserves framework symlinks and executable permissions.
 /usr/bin/ditto "$sparkle" "$app/Contents/Frameworks/Sparkle.framework"
 
@@ -94,6 +95,7 @@ info = {
     'CFBundleIdentifier': 'cc.anjing.macos-x',
     'CFBundleExecutable': 'MacOSX',
     'CFBundlePackageType': 'APPL',
+    'CFBundleIconFile': 'AppIcon.icns',
     'CFBundleShortVersionString': version,
     'CFBundleVersion': build,
     'LSMinimumSystemVersion': '14.0',
