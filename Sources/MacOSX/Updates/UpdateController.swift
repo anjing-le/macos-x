@@ -2,23 +2,23 @@ import AppKit
 import OSLog
 import Sparkle
 
-/// Sparkle owns its scheduler, download verification and installation UI.
+/// Sparkle owns scheduling, verification and installation; our driver owns presentation.
 /// An unconfigured development executable never starts network update checks.
 @MainActor
 final class UpdateController: NSObject {
     private let logger = Logger(subsystem: "cc.anjing.macos-x", category: "updates")
-    private var controller: SPUStandardUpdaterController?
+    private var updater: SPUUpdater?
 
     override init() {
         super.init()
     }
 
     var canCheckForUpdates: Bool {
-        controller?.updater.canCheckForUpdates ?? false
+        updater?.canCheckForUpdates ?? false
     }
 
     func start() {
-        guard controller == nil else { return }
+        guard updater == nil else { return }
         let info = Bundle.main.infoDictionary ?? [:]
         guard info["MacOSXUpdatesEnabled"] as? Bool == true else {
             logger.info("Updates are disabled in this build.")
@@ -36,17 +36,18 @@ final class UpdateController: NSObject {
             logger.error("Invalid update configuration; updater will remain disabled.")
             return
         }
-        let updater = SPUStandardUpdaterController(
-            startingUpdater: false,
-            updaterDelegate: nil,
-            userDriverDelegate: nil
-        )
-        controller = updater
-        updater.startUpdater()
+        let created = SPUUpdater(hostBundle: .main, applicationBundle: .main,
+                                 userDriver: UpdateUserDriver(), delegate: nil)
+        do {
+            try created.start()
+            updater = created
+        } catch {
+            logger.error("Unable to start the updater: \(error.localizedDescription)")
+        }
     }
 
     @objc func checkForUpdates(_ sender: Any?) {
         guard canCheckForUpdates else { return }
-        controller?.checkForUpdates(sender)
+        updater?.checkForUpdates()
     }
 }
