@@ -1,0 +1,15 @@
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test core
+        run: swift test --disable-keychain
+      - name: Build a development app with OTA explicitly disabled
+        run: scripts/build.sh --disable-updates
