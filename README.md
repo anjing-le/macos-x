@@ -62,22 +62,24 @@ open dist/MacOSX.app
 构建和发布脚本参数以各脚本的 `--help` 为准。发布前核对版本递增、来源 commit、档案签名、appcast 地址及包内容，再上传 GitHub Release。签名私钥不通过命令行字符串传递。
 
 ```sh
-./scripts/build.sh --version 0.1.0 --build-number 2
+./scripts/build.sh --version 0.0.1 --build-number 3
 ./scripts/release.sh dist/MacOSX.app dist/releases
 ```
 
 发布脚本只准备资源，不自动上传。它使用 Sparkle 官方 `sign_update` 签档案和更新源，再验签；单条完整更新包，不生成增量包。输出 zip、签名 `appcast.xml` 和 SHA-256 文件，作为同一版本 GitHub Release 的资源上传。版本与 build number 后续都必须递增，稳定通道的 Release 不能标记为 prerelease。
+
+正式版本从 `0.0.1` 开始；此前的 `0.1.0 / build 2` 是准备阶段的预览包。内部 build number 从 `3` 延续递增，因为 Sparkle 用它判断升级顺序；后续例如 `0.0.2 / build 4`。本机初次安装到 `/Applications/MacOSX.app`，之后通过菜单栏“检查更新…”或自动检查取得更新，由用户确认安装。
 
 ## 当前验证状态
 
 - 仓库：`anjing-le/macos-x`，公开；本地 Git author/committer 已配置为 `anjing-le`。
 - 本机环境：Apple Silicon，macOS 27.0.1，Swift 6.1.2。
 - Release 构建、应用内嵌 framework/rpath、整包代码签名完整性检查、3 个选择状态回归测试：通过；最终编译没有警告。
-- 本机应用进程启动并持续运行：通过；窗口切换、缩略图与热键交互尚未取得实机证据。
+- 本机 `0.0.1 / build 3` 已安装至 `/Applications/MacOSX.app` 并启动；窗口切换、缩略图与热键交互尚未取得实机证据。
 - 60 秒未操作面板的采样：RSS 均值约 37.1 MiB，峰值约 38.3 MiB；CPU 累计计时在采样精度下未测到增量。这只是未操作状态基线，不代表启用权限后的窗口切换性能。
 - 应用包磁盘占用约 3.1 MiB，压缩档案约 1.0 MiB；当前仅为 Apple Silicon 构建。
-- 正式 0.1.0 / build 2 更新包与更新源：签名验证通过；修改档案一位或更新源标题后均被拒绝。解压后的整包代码签名完整性检查通过。签名工具已能访问本项目 Keychain 密钥，不需要额外授权 `generate_appcast`。
+- `0.0.1 / build 3` 的应用构建、安装副本代码签名、更新包与更新源签名验证：通过。此前对同一发布流程验证过修改档案一位或更新源标题后均被拒绝。签名工具已能访问本项目 Keychain 密钥，不需要额外授权 `generate_appcast`。
 - [GitHub CI](https://github.com/anjing-le/macos-x/actions/runs/37098672897)：发布来源 `f96683d696ec5ad93b5f3e48bb8f3d4e58557730` 的测试与构建通过；CI 明确禁用 OTA，不持有签名私钥。
-- [v0.1.0 开发版本](https://github.com/anjing-le/macos-x/releases/tag/v0.1.0) 已公开发布。通过应用使用的公开 latest 地址重新下载，zip、appcast 与 SHA-256 文件均与本地逐字节一致；在线下载的档案与更新源再次验签通过。实际 Sparkle 2.10.0 解析器也接受该更新源。
+- 先前的 `0.1.0 / build 2` 已完成在线资源验签和实际 Sparkle 解析验证；本机正式起始版本调整为 `0.0.1 / build 3`，公开更新资源正在准备。
 - 真实 OTA 安装、重启与升级后行为：尚未验证；发布资源和签名验证不能替代这项实测。
 - Developer ID 签名、公证、多显示器、跨 Spaces 及完整回归：未验证。

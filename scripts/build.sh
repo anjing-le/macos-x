@@ -4,8 +4,8 @@ set -euo pipefail
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 configuration=release
 output_dir="$root_dir/dist"
-version=0.1.0
-build_number=2
+version=0.0.1
+build_number=3
 sign_identity="${MACOSX_SIGN_IDENTITY:--}"
 updates_enabled=true
 feed_url="${MACOSX_FEED_URL:-https://github.com/anjing-le/macos-x/releases/latest/download/appcast.xml}"
@@ -13,7 +13,7 @@ feed_url="${MACOSX_FEED_URL:-https://github.com/anjing-le/macos-x/releases/lates
 usage() {
     cat <<'USAGE'
 Usage: scripts/build.sh [--disable-updates] [--configuration debug|release]
-       [--version 0.1.0] [--build-number 2] [--output-dir path]
+       [--version 0.0.1] [--build-number 3] [--output-dir path]
        [--sign-identity "Developer ID Application: ..."]
 Default: host architecture, OTA enabled, local ad hoc signing.
 Set MACOSX_FEED_URL at build time for an alternate HTTPS appcast.
