@@ -3,37 +3,27 @@ import AppKit
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private let updates = UpdateController()
-    private var window: NSWindow?
+    private var client: ToolboxWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
         updates.start()
-        showBlankWindow()
+        showClient()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        showBlankWindow()
+        showClient()
         return true
     }
 
-    private func showBlankWindow() {
-        if window == nil {
-            let blank = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 960, height: 640),
-                styleMask: [.titled, .closable, .miniaturizable, .resizable],
-                backing: .buffered,
-                defer: false
+    private func showClient() {
+        if client == nil {
+            client = ToolboxWindowController(
+                onCheckUpdates: { [weak self] in self?.checkUpdates() },
+                canCheckUpdates: { [weak self] in self?.updates.canCheckForUpdates ?? false }
             )
-            blank.title = "macos-x"
-            blank.backgroundColor = .white
-            blank.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 960, height: 640))
-            blank.isReleasedWhenClosed = false
-            blank.minSize = NSSize(width: 320, height: 240)
-            blank.center()
-            window = blank
         }
-        window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        client?.present()
     }
 
     private func buildMenu() {
