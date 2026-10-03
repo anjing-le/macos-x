@@ -61,6 +61,13 @@ open dist/MacOSX.app
 
 构建和发布脚本参数以各脚本的 `--help` 为准。发布前核对版本递增、来源 commit、档案签名、appcast 地址及包内容，再上传 GitHub Release。签名私钥不通过命令行字符串传递。
 
+```sh
+./scripts/build.sh --version 0.1.0 --build-number 2
+./scripts/release.sh dist/MacOSX.app dist/releases
+```
+
+发布脚本只准备资源，不自动上传。它使用 Sparkle 官方 `sign_update` 签档案和更新源，再验签；单条完整更新包，不生成增量包。输出 zip、签名 `appcast.xml` 和 SHA-256 文件，作为同一版本 GitHub Release 的资源上传。版本与 build number 后续都必须递增，稳定通道的 Release 不能标记为 prerelease。
+
 ## 当前验证状态
 
 - 仓库：`anjing-le/macos-x`，公开；本地 Git author/committer 已配置为 `anjing-le`。
@@ -69,7 +76,7 @@ open dist/MacOSX.app
 - 本机应用进程启动并持续运行：通过；窗口切换、缩略图与热键交互尚未取得实机证据。
 - 60 秒未操作面板的采样：RSS 均值约 37.1 MiB，峰值约 38.3 MiB；CPU 累计计时在采样精度下未测到增量。这只是未操作状态基线，不代表启用权限后的窗口切换性能。
 - 应用包磁盘占用约 3.1 MiB，压缩档案约 1.0 MiB；当前仅为 Apple Silicon 构建。
-- 独立签名测试：正确档案验签通过，翻转一位后被拒绝。正式 appcast 生成正在等待系统 Keychain 授权。
-- [GitHub CI](https://github.com/anjing-le/macos-x/actions)：首个代码提交的测试与构建已通过；CI 明确禁用 OTA，不持有签名私钥。
-- 在线发布资源及真实 OTA 升级：尚未验证；正式 appcast 生成需要先在系统 Keychain 授权框中允许官方 `generate_appcast` 访问本项目签名密钥。若系统要求密码，只能由本机用户输入。
+- 正式 0.1.0 / build 2 更新包与更新源：签名验证通过；修改档案一位或更新源标题后均被拒绝。解压后的整包代码签名完整性检查通过。签名工具已能访问本项目 Keychain 密钥，不需要额外授权 `generate_appcast`。
+- [GitHub CI](https://github.com/anjing-le/macos-x/actions)：已提交版本的测试与构建通过；CI 明确禁用 OTA，不持有签名私钥。
+- 在线发布资源：待上传并核对；真实 OTA 安装、重启与升级后行为尚未验证。
 - Developer ID 签名、公证、多显示器、跨 Spaces 及完整回归：未验证。
