@@ -1,0 +1,2 @@
+# Preserve the upstream license text verbatim, including its original whitespace.
+Resources/Sparkle-LICENSE.txt -whitespace
