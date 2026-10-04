@@ -5,8 +5,8 @@ if [[ "${1:-}" == "--help" ]]; then
     echo "Usage: scripts/release.sh [MacOSX.app] [output-directory]"
     echo "Prepare a complete update archive, signed appcast and SHA-256 file; do not upload."
     echo "Signing key: login Keychain account macos-x (override MACOSX_SPARKLE_ACCOUNT)."
-    echo "App must have a stable Apple Development or Developer ID Application signature."
-    echo "Optionally set MACOSX_EXPECTED_TEAM_ID to pin the publisher's Apple Team ID."
+    echo "App must match the pinned local certificate, or use an Apple certificate signature."
+    echo "Apple releases require MACOSX_EXPECTED_TEAM_ID when a local certificate is pinned."
     exit 0
 fi
 
@@ -19,28 +19,54 @@ keychain_account="${MACOSX_SPARKLE_ACCOUNT:-macos-x}"
 
 /usr/bin/codesign --verify --deep --strict "$app"
 # Read release metadata and enforce that this is an update-enabled application.
-version="$(python3 - "$app/Contents/Info.plist" "$root_dir/Resources/update-public-key.txt" <<'PY'
-import os, pathlib, plistlib, re, subprocess, sys, urllib.parse
+version="$(python3 - "$app/Contents/Info.plist" "$root_dir/Resources/update-public-key.txt" \
+    "$root_dir/Resources/code-signing-certificate.cer" <<'PY'
+import hashlib, os, pathlib, plistlib, re, subprocess, sys, tempfile, urllib.parse
 with open(sys.argv[1], 'rb') as source:
     info = plistlib.load(source)
 app = str(pathlib.Path(sys.argv[1]).parent.parent)
 signing = subprocess.run(['/usr/bin/codesign', '--display', '--verbose=4', '--requirements', '-', app],
     check=True, text=True, capture_output=True)
 metadata = signing.stdout + '\n' + signing.stderr
-if re.search(r'^Signature=adhoc\s*$', metadata, re.MULTILINE) or not re.search(
-    r'^Authority=(?:Apple Development|Developer ID Application): .+$', metadata, re.MULTILINE):
-    raise SystemExit('Release requires an Apple Development or Developer ID Application certificate; ad hoc signing is not allowed')
-team = re.search(r'^TeamIdentifier=([A-Z0-9]{10})\s*$', metadata, re.MULTILINE)
+if re.search(r'^Signature=adhoc\s*$', metadata, re.MULTILINE):
+    raise SystemExit('Release requires a certificate signature; ad hoc signing is not allowed')
 requirement = re.search(r'^designated =>\s*(.+)$', metadata, re.MULTILINE)
-if (team is None or requirement is None or re.search(r'\bcdhash\b', requirement.group(1), re.IGNORECASE)
+if (requirement is None or re.search(r'\bcdhash\b', requirement.group(1), re.IGNORECASE)
     or 'identifier "cc.anjing.macos-x"' not in requirement.group(1)
     or info.get('CFBundleIdentifier') != 'cc.anjing.macos-x'):
-    raise SystemExit('Release requires the production bundle identifier, an Apple Team ID and a stable designated requirement without cdhash')
-expected_team = os.environ.get('MACOSX_EXPECTED_TEAM_ID', '').strip()
-if expected_team and (not re.fullmatch(r'[A-Z0-9]{10}', expected_team) or expected_team != team.group(1)):
-    raise SystemExit('Release Apple Team ID does not match MACOSX_EXPECTED_TEAM_ID')
-# Authority text alone is insufficient: require a cryptographically valid Apple-issued chain.
-subprocess.run(['/usr/bin/codesign', '--verify', '--strict', '--test-requirement', '=anchor apple generic', app], check=True)
+    raise SystemExit('Release requires the production bundle identifier and a stable designated requirement without cdhash')
+with tempfile.TemporaryDirectory(prefix='macos-x-signature-') as directory:
+    prefix = str(pathlib.Path(directory) / 'certificate-')
+    subprocess.run(['/usr/bin/codesign', '--display', '--extract-certificates=' + prefix, app],
+        check=True, capture_output=True)
+    leaf = pathlib.Path(prefix + '0').read_bytes()
+certificate_path = pathlib.Path(sys.argv[3])
+local = certificate_path.is_file() and hashlib.sha256(leaf).digest() == hashlib.sha256(certificate_path.read_bytes()).digest()
+if local:
+    details = subprocess.check_output(['/usr/bin/openssl', 'x509', '-inform', 'DER', '-in', str(certificate_path),
+        '-noout', '-subject', '-issuer', '-email', '-nameopt', 'RFC2253'], text=True).splitlines()
+    fields = dict(line.split('=', 1) for line in details if '=' in line)
+    if (fields.get('subject', '').strip() != 'CN=macos-x' or fields.get('issuer', '').strip() != 'CN=macos-x'
+        or len(details) != 2):
+        raise SystemExit('Pinned local certificate must be self-issued with only CN=macos-x and no email')
+    local_requirement = re.fullmatch(r'identifier "cc\.anjing\.macos-x" and certificate leaf = H"([0-9a-fA-F]{40})"',
+        requirement.group(1).strip())
+    if local_requirement is None or local_requirement.group(1).lower() != hashlib.sha1(leaf).hexdigest():
+        raise SystemExit('Local release designated requirement must bind the production identifier to the pinned certificate')
+    flags = re.search(r'\bflags=0x([0-9a-fA-F]+)', metadata)
+    if flags is None or int(flags.group(1), 16) & 0x10000:
+        raise SystemExit('Local release must retain the non-hardened runtime baseline')
+else:
+    if not re.search(r'^Authority=(?:Apple Development|Developer ID Application): .+$', metadata, re.MULTILINE):
+        raise SystemExit('Release leaf certificate does not match the pinned local certificate or an Apple identity')
+    team = re.search(r'^TeamIdentifier=([A-Z0-9]{10})\s*$', metadata, re.MULTILINE)
+    expected_team = os.environ.get('MACOSX_EXPECTED_TEAM_ID', '').strip()
+    if certificate_path.is_file() and not expected_team:
+        raise SystemExit('Default release requires the pinned local certificate; Apple release requires an explicit MACOSX_EXPECTED_TEAM_ID')
+    if team is None or expected_team and (not re.fullmatch(r'[A-Z0-9]{10}', expected_team) or expected_team != team.group(1)):
+        raise SystemExit('Release requires an Apple Team ID matching MACOSX_EXPECTED_TEAM_ID when set')
+    # Authority text alone is insufficient: require a valid Apple-issued chain.
+    subprocess.run(['/usr/bin/codesign', '--verify', '--strict', '--test-requirement', '=anchor apple generic', app], check=True)
 key = pathlib.Path(sys.argv[2]).read_text().strip()
 if info.get('MacOSXUpdatesEnabled') is not True or info.get('SUPublicEDKey') != key:
     raise SystemExit('Release requires an OTA-enabled app containing the repository public key')

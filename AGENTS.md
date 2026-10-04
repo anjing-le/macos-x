@@ -8,7 +8,9 @@
 - 截图/录屏采用 ScreenCaptureKit；未编辑截图不自动写入剪贴板。标注后的复制、保存、贴图共用导出；图像、标注历史、贴图数量及录屏队列均有上限。停止/移除/退出必须结束录屏并等待 MP4 封装；不默认录制麦克风、系统音频或保存截图历史。
 - 卡片 hover 参考 anjing-anjing 的 TracksGrid：淡图标默认居中，悬停时图标淡出、名称浮现并轻微缩放；保持键盘可操作及减少动态效果支持。
 - OTA 使用 Sparkle 的 Ed25519 签名校验，单一稳定通道，用户确认安装。私钥不得进入仓库、日志或 app；签名校验失败不得降级为未验证安装。
-- OTA 发布必须显式使用固定的 Apple 签名身份，禁止临时签名或缺失身份时回退；本机自用阶段使用现有 Apple Development 证书，公开推广前另行配置 Developer ID 与公证。保持 bundle identifier 和签名身份要求稳定，并验证不同构建的身份要求一致。截图权限以用户主动操作后的实际 ScreenCaptureKit 结果为准，预检查不得单独阻断截图；拒绝权限只呈现应用内引导，明确点击后才请求权限或打开系统设置。
+- OTA 发布必须显式使用固定代码签名证书，禁止临时签名或缺失身份时回退。本机自用采用不含个人邮箱的本地证书，实际叶证书必须匹配 `Resources/code-signing-certificate.cer`；私钥只保存在本机专用钥匙串，禁止入库或日志。保持 bundle identifier 和签名身份要求稳定，并验证不同构建的身份要求一致；不修改系统信任、不关闭系统保护、不额外添加 `disable-library-validation`。本地证书沿用旧版无 hardened runtime 的配置；Apple 证书路径保留 runtime。Developer ID、公证与 App Store 上架各自独立，不作为本机 GitHub OTA 的前提。
+- 本机签名钥匙串为 `~/Library/Application Support/macos-x/signing/local-code-signing.keychain-db`，口令保存在登录钥匙串的 service `cc.anjing.macos-x.local-code-signing-keychain`、account `macos-x` 条目。仅在构建时解锁此钥匙串，签名身份使用仓库 DER 的 SHA1；不得输出口令、重新生成同名证书或把钥匙串加入系统信任。
+- 截图权限以用户主动操作后的实际 ScreenCaptureKit 结果为准，预检查不得单独阻断截图；拒绝权限只呈现应用内引导，明确点击后才请求权限或打开系统设置。
 - 更新界面由原生 `SPUUserDriver` / `UpdatePanel` 呈现；下载、验签、解压和安装仍由 Sparkle 执行。回调只消费一次，解压后不得再调用下载取消；安装准备阶段“取消”使用 `.skip`，不得用允许退出后安装的 `.dismiss` 冒充取消。
 - 用户本机应用安装在 `/Applications/MacOSX.app`，版本从 `0.0.1 / build 3` 开始。后续通过同仓库 GitHub Releases OTA 更新；默认不手工覆盖本机已安装副本。显示版本和内部构建号都递增。
 - OTA 由用户亲自检查更新并确认安装。开发验证使用隔离的预览副本，发布过程中不替用户升级。
