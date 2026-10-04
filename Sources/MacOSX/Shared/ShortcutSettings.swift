@@ -23,7 +23,11 @@ final class ShortcutStore {
         for other in ShortcutAction.allCases where other != action {
             if candidate.conflicts(with: binding(for: other)) { return "与“\(other.title)”重复" }
         }
-        guard candidate.kind == .chord else { return nil }
+        if candidate.kind == .doubleModifier {
+            // Modifier-only system gestures do not expose an exclusive Carbon
+            // registration. Keep Control double-taps away from Dictation.
+            return [59, 62].contains(candidate.keyCode) ? "请用 Option 双击或组合键，避免听写冲突" : nil
+        }
         // App-menu shortcuts are not returned by CopySymbolicHotKeys. Keep
         // common typing/navigation combinations out of the global registrar.
         if candidate.modifiers == 8 || candidate.modifiers == 12 {
@@ -131,7 +135,7 @@ final class ShortcutPicker: NSStackView {
         label.widthAnchor.constraint(equalToConstant: 52).isActive = true
         row.addArrangedSubview(label)
         if allowsDoubleTap {
-            mode.addItems(withTitles: ["双击右 Option", "双击右 Control", "双击左 Option", "双击左 Control", "组合键"])
+            mode.addItems(withTitles: ["双击右 Option", "双击左 Option", "组合键"])
             mode.target = self; mode.action = #selector(selectTriggerMode)
             mode.setAccessibilityLabel("唤起方式")
             row.addArrangedSubview(mode)
@@ -150,8 +154,8 @@ final class ShortcutPicker: NSStackView {
         recorder.title = editingChord ? "设置快捷键…" : binding.displayName
         recorder.isHidden = binding.kind == .doubleModifier && !editingChord
         if binding.kind == .doubleModifier && !editingChord {
-            mode.selectItem(at: [UInt16(61), 62, 58, 59].firstIndex(of: binding.keyCode) ?? 0)
-        } else { mode.selectItem(at: 4) }
+            mode.selectItem(at: [UInt16(61), 58].firstIndex(of: binding.keyCode) ?? 0)
+        } else { mode.selectItem(at: 2) }
         notice.isHidden = notice.stringValue.isEmpty
     }
     private func propose(_ value: ShortcutBinding) {
@@ -160,9 +164,9 @@ final class ShortcutPicker: NSStackView {
     }
     @objc private func selectTriggerMode() {
         let index = mode.indexOfSelectedItem
-        if index < 4 {
+        if index < 2 {
             editingChord = false
-            propose(.init(kind: .doubleModifier, keyCode: [61, 62, 58, 59][index], modifiers: 0, keyLabel: ""))
+            propose(.init(kind: .doubleModifier, keyCode: [61, 58][index], modifiers: 0, keyLabel: ""))
         } else if binding.kind == .doubleModifier {
             editingChord = true
             notice.stringValue = ""; refresh()
