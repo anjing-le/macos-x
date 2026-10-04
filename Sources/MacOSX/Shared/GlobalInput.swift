@@ -4,16 +4,23 @@ import ApplicationServices
 import MacOSXCore
 
 enum ShortcutAction: UInt32, CaseIterable, Sendable {
-    case wheel = 1, capture, pin, recording
+    case wheel = 1, capture, pin, recording, togglePins
     var title: String {
-        switch self { case .wheel: return "颜文字"; case .capture: return "截图"; case .pin: return "贴图"; case .recording: return "录屏" }
+        switch self {
+        case .wheel: return "颜文字"
+        case .capture: return "截图"
+        case .pin: return "贴图"
+        case .recording: return "录屏"
+        case .togglePins: return "显隐贴图"
+        }
     }
     var defaultBinding: ShortcutBinding {
         switch self {
         case .wheel: return .init(kind: .doubleModifier, keyCode: 61, modifiers: 0, keyLabel: "")
-        case .capture: return .init(keyCode: 1, modifiers: 5, keyLabel: "S")
-        case .pin: return .init(keyCode: 35, modifiers: 5, keyLabel: "P")
+        case .capture: return .init(keyCode: 122, modifiers: 0, keyLabel: "F1")
+        case .pin: return .init(keyCode: 99, modifiers: 0, keyLabel: "F3")
         case .recording: return .init(keyCode: 15, modifiers: 5, keyLabel: "R")
+        case .togglePins: return .init(keyCode: 99, modifiers: 4, keyLabel: "F3")
         }
     }
 }

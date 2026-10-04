@@ -120,6 +120,7 @@ final class CaptureCanvas: NSView {
     var tool: CaptureTool = .rectangle
     var ink = CaptureInk.red
     var lineWidth: CGFloat = 3
+    var imageInset: CGFloat = 12
     var onAnnotation: ((CaptureAnnotation) -> Void)?
     var onErase: ((CGPoint, CGFloat) -> Void)?
     var onText: ((CGPoint, CGFloat, CaptureInk) -> Void)?
@@ -132,7 +133,8 @@ final class CaptureCanvas: NSView {
     required init?(coder: NSCoder) { nil }
 
     private var imageRect: CGRect {
-        let scale = min((bounds.width - 24) / CGFloat(base.width), (bounds.height - 24) / CGFloat(base.height))
+        let scale = min((bounds.width - imageInset * 2) / CGFloat(base.width),
+                        (bounds.height - imageInset * 2) / CGFloat(base.height))
         let size = CGSize(width: CGFloat(base.width) * max(scale, 0.01), height: CGFloat(base.height) * max(scale, 0.01))
         return CGRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2, width: size.width, height: size.height)
     }

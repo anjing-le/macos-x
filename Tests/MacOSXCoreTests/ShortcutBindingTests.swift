@@ -15,6 +15,16 @@ final class ShortcutBindingTests: XCTestCase {
         XCTAssertFalse(ShortcutBinding(keyCode: 61, modifiers: 2, keyLabel: "Option").isValid)
         XCTAssertTrue(ShortcutBinding(kind: .doubleModifier, keyCode: 61, modifiers: 0, keyLabel: "").isValid)
     }
+    func testFunctionKeysAllowSnippingWithoutInterceptingBareTyping() {
+        XCTAssertTrue(ShortcutBinding(keyCode: 122, modifiers: 0, keyLabel: "F1").isValid)
+        XCTAssertTrue(ShortcutBinding(keyCode: 99, modifiers: 4, keyLabel: "F3").isValid)
+        XCTAssertTrue(ShortcutBinding(keyCode: 90, modifiers: 0, keyLabel: "F20").isValid)
+        XCTAssertFalse(ShortcutBinding(keyCode: 36, modifiers: 0, keyLabel: "Return").isValid)
+        XCTAssertFalse(ShortcutBinding(keyCode: 0, modifiers: 4, keyLabel: "A").isValid)
+        XCTAssertFalse(ShortcutBinding(keyCode: 127, modifiers: 0, keyLabel: "F1").isValid)
+        XCTAssertFalse(ShortcutBinding(keyCode: 99, modifiers: 0, keyLabel: "F3")
+            .conflicts(with: .init(keyCode: 99, modifiers: 4, keyLabel: "F3")))
+    }
     func testTwoCompleteTapsAndNoTripleRetrigger() {
         var r = ModifierDoubleTap()
         XCTAssertFalse(r.update(isDown: true, timestamp: 1))

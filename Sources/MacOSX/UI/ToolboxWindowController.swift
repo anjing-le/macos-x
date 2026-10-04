@@ -277,7 +277,7 @@ final class ToolboxWindowController: NSWindowController, NSToolbarDelegate {
         switch tool {
         case .kaomoji: views.append(modules.shortcutPicker(.wheel))
         case .capture:
-            for action in [ShortcutAction.capture, .pin, .recording] { views.append(modules.shortcutPicker(action)) }
+            for action in [ShortcutAction.capture, .pin, .togglePins, .recording] { views.append(modules.shortcutPicker(action)) }
         case .windowSwitcher:
             let shortcut = NSTextField(labelWithString: "⌘Tab  ·  ⇧ 反向  ·  松开切换")
             shortcut.font = .systemFont(ofSize: 12); shortcut.textColor = .secondaryLabelColor

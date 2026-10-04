@@ -17,7 +17,13 @@ public struct ShortcutBinding: Codable, Equatable, Sendable {
     public var isValid: Bool {
         guard keyCode <= 126, modifiers <= 15 else { return false }
         if kind == .doubleModifier { return [58, 59, 61, 62].contains(keyCode) }
-        return modifiers & 9 != 0 && ![54, 55, 56, 57, 58, 59, 60, 61, 62, 63].contains(keyCode)
+        return (isFunctionKey || modifiers & 9 != 0)
+            && ![54, 55, 56, 57, 58, 59, 60, 61, 62, 63].contains(keyCode)
+    }
+
+    public var isFunctionKey: Bool {
+        [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111,
+         105, 107, 113, 106, 64, 79, 80, 90].contains(keyCode)
     }
 
     public var displayName: String {

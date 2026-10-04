@@ -19,7 +19,7 @@ final class ShortcutStore {
     private func key(_ action: ShortcutAction) -> String { "shortcut.\(action.rawValue)" }
 
     func conflict(_ candidate: ShortcutBinding, action: ShortcutAction) -> String? {
-        guard candidate.isValid else { return "请使用 Control 或 Command 加一个按键" }
+        guard candidate.isValid else { return "请使用 F1–F20，或 Control / Command 组合键" }
         for other in ShortcutAction.allCases where other != action {
             if candidate.conflicts(with: binding(for: other)) { return "与“\(other.title)”重复" }
         }
@@ -30,7 +30,7 @@ final class ShortcutStore {
         }
         // App-menu shortcuts are not returned by CopySymbolicHotKeys. Keep
         // common typing/navigation combinations out of the global registrar.
-        if candidate.modifiers == 8 || candidate.modifiers == 12 {
+        if !candidate.isFunctionKey && (candidate.modifiers == 8 || candidate.modifiers == 12) {
             return "这是系统或应用常用组合，请换一个"
         }
         if candidate.keyCode == 53 && candidate.modifiers == 10 {
@@ -103,7 +103,8 @@ private final class ShortcutRecorder: NSButton {
             | (flags.contains(.shift) ? 4 : 0) | (flags.contains(.command) ? 8 : 0)
         let labels: [UInt16: String] = [49: "Space", 48: "Tab", 36: "Return", 51: "⌫", 117: "⌦",
             123: "←", 124: "→", 125: "↓", 126: "↑", 122: "F1", 120: "F2", 99: "F3", 118: "F4",
-            96: "F5", 97: "F6", 98: "F7", 100: "F8", 101: "F9", 109: "F10", 103: "F11", 111: "F12"]
+            96: "F5", 97: "F6", 98: "F7", 100: "F8", 101: "F9", 109: "F10", 103: "F11", 111: "F12",
+            105: "F13", 107: "F14", 113: "F15", 106: "F16", 64: "F17", 79: "F18", 80: "F19", 90: "F20"]
         let name = labels[event.keyCode] ?? (event.charactersIgnoringModifiers?.uppercased() ?? "键 \(event.keyCode)")
         let binding = ShortcutBinding(keyCode: event.keyCode, modifiers: modifiers, keyLabel: name)
         finish(); onBinding?(binding)
@@ -146,6 +147,7 @@ final class ShortcutPicker: NSStackView {
         addArrangedSubview(notice)
         recorder.onRecording = recordingChanged
         recorder.onBinding = { [weak self] value in self?.propose(value) }
+        recorder.toolTip = "点击修改；功能键可能需要同时按 Fn，Escape 取消"
         refresh()
     }
     required init?(coder: NSCoder) { nil }

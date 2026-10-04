@@ -18,6 +18,7 @@ final class CaptureModule {
     private var captureRevision: UInt64 = 0
     private var captureTicket: CaptureImageService.Ticket?
     private var clipboardInFlight = false
+    private var lastRegion: CGRect?
     private enum RecordingState { case idle, checking, choosing, starting, recording, finishing }
     private var recordingState: RecordingState = .idle
     private var recordingPanel: NSSavePanel?
@@ -37,7 +38,7 @@ final class CaptureModule {
     func stop() {
         running = false; generation &+= 1
         images.cancel(); captureTicket?.cancel(); captureTicket = nil
-        selection.dismiss(); editor?.close(); editor = nil; pins.closeAll()
+        selection.dismiss(); editor?.close(); editor = nil; pins.closeAll(); lastRegion = nil
         recordingPanel?.cancel(nil); recordingPanel = nil
         if recordingState == .checking || recordingState == .choosing { recordingState = .idle }
         if recordingState != .idle { recordingState = .finishing; updateRecordButton() }
@@ -65,19 +66,50 @@ final class CaptureModule {
                 switch result {
                 case .failure(let error): self.handle(error)
                 case .success(let frames):
-                    self.setStatus("拖选区域 · Enter 全屏 · Esc 取消")
-                    self.selection.present(frames) { [weak self] region in
+                    self.setStatus("⌘C 复制 · ⌥ 取色 · Esc 取消")
+                    self.selection.present(frames, previousRegion: self.lastRegion,
+                                           windows: frames.first?.windows ?? []) { [weak self] result in
                         guard let self, self.running, self.generation == expected, self.captureRevision == captureRevision else { return }
-                        guard let region else { self.setStatus("已取消截图。"); return }
-                        self.work.async { [weak self] in
-                            let image = autoreleasepool { CaptureImageService.composite(frames, selection: region) }
-                            DispatchQueue.main.async { [weak self] in
-                                guard let self, self.running, self.generation == expected, self.captureRevision == captureRevision else { return }
-                                guard let image else { self.handle(CaptureFailure.oversized); return }
-                                self.openEditor(image)
-                            }
-                        }
+                        self.finishSelection(result, frames: frames, generation: expected, revision: captureRevision)
                     }
+                }
+            }
+        }
+    }
+
+    private func finishSelection(_ result: CaptureSelection.Result, frames: [CaptureFrame],
+                                 generation expected: UInt64, revision: UInt64) {
+        let region: CGRect
+        switch result {
+        case .cancel: setStatus("已取消截图。"); return
+        case .color(let value):
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(value, forType: .string)
+            setStatus("已复制 \(value)"); return
+        case .copy(let rect), .pin(let rect), .edit(let rect): region = rect
+        }
+        let ticket = captureTicket, tool = selection.selectedTool
+        setStatus("正在处理…")
+        work.async { [weak self] in
+            guard ticket?.valid == true else { return }
+            let image = autoreleasepool { CaptureImageService.composite(frames, selection: region) }
+            let data: Data?
+            if case .copy = result, let image { data = autoreleasepool { CaptureEditor.pngData(image) } }
+            else { data = nil }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.running, self.generation == expected,
+                      self.captureRevision == revision, ticket?.valid == true else { return }
+                guard let image else { self.selection.dismiss(); self.handle(CaptureFailure.oversized); return }
+                switch result {
+                case .copy:
+                    guard let data else { self.setStatus("截图编码失败，未修改剪贴板。"); return }
+                    NSPasteboard.general.clearContents(); NSPasteboard.general.setData(data, forType: .png)
+                    self.lastRegion = region; self.setStatus("已复制截图。")
+                case .pin:
+                    self.lastRegion = region; self.pins.add(image, at: region)
+                case .edit:
+                    self.openEditor(image, at: region, tool: tool)
+                case .color, .cancel: break
                 }
             }
         }
@@ -85,6 +117,7 @@ final class CaptureModule {
 
     func pinClipboard() {
         guard running, !terminating, !clipboardInFlight else { return }
+        if pins.restoreLastClosed() { return }
         let expected = generation
         let board = NSPasteboard.general
         let data = board.data(forType: .png) ?? board.data(forType: .tiff)
@@ -101,6 +134,11 @@ final class CaptureModule {
                 else { self.setStatus("剪贴板过大或无法读取。") }
             }
         }
+    }
+
+    func togglePins() {
+        guard running, !terminating else { return }
+        pins.toggleAll()
     }
 
     func toggleRecording() {
@@ -168,11 +206,13 @@ final class CaptureModule {
         }
     }
 
-    private func openEditor(_ image: CGImage) {
-        let editor = CaptureEditor(image: image)
-        editor.onPin = { [weak self] in self?.pins.add($0) }
+    private func openEditor(_ image: CGImage, at region: CGRect, tool: CaptureTool) {
+        let editor = CaptureEditor(image: image, selectionFrame: region, initialTool: tool)
+        editor.onExport = { [weak self] in self?.lastRegion = region }
+        editor.onPin = { [weak self] in self?.lastRegion = region; self?.pins.add($0, at: region) }
         editor.onClose = { [weak self, weak editor] in
-            guard self?.editor === editor else { return }; self?.editor = nil
+            guard let self, self.editor === editor else { return }
+            self.editor = nil; self.selection.dismiss()
         }
         self.editor = editor; editor.present()
         setStatus("Enter / ⌘C 复制")

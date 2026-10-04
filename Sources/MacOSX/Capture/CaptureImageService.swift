@@ -10,6 +10,12 @@ struct CaptureScreen {
 struct CaptureFrame {
     let screen: CaptureScreen
     let image: CGImage
+    let windows: [CGRect]
+    let sampler: CapturePixelSampler?
+
+    init(screen: CaptureScreen, image: CGImage, windows: [CGRect] = [], sampler: CapturePixelSampler? = nil) {
+        self.screen = screen; self.image = image; self.windows = windows; self.sampler = sampler
+    }
 }
 
 enum CaptureFailure: LocalizedError {
@@ -77,12 +83,15 @@ final class CaptureImageService {
                 guard let content else { self.finish(request, .failure(error ?? CaptureFailure.unavailable)); return }
                 let totalPixels = request.screens.reduce(CGFloat(0)) { $0 + $1.frame.width * $1.frame.height * $1.scale * $1.scale }
                 let reduction = min(1, sqrt(32_000_000 / max(1, totalPixels)))
-                self.captureDisplay(request, displays: content.displays, index: 0, reduction: reduction, frames: [])
+                let windows = Self.windowRegions(primaryTop: request.screens.first?.frame.maxY ?? 0)
+                self.captureDisplay(request, displays: content.displays, windows: windows,
+                                    index: 0, reduction: reduction, frames: [])
             }
         }
     }
 
-    private func captureDisplay(_ request: Request, displays: [SCDisplay], index: Int, reduction: CGFloat, frames: [CaptureFrame]) {
+    private func captureDisplay(_ request: Request, displays: [SCDisplay], windows: [CGRect],
+                                index: Int, reduction: CGFloat, frames: [CaptureFrame]) {
         guard request.ticket.valid else { finish(request, .failure(CaptureFailure.cancelled)); return }
         guard index < request.screens.count else { finish(request, frames.isEmpty ? .failure(CaptureFailure.unavailable) : .success(frames)); return }
         let screen = request.screens[index]
@@ -98,9 +107,27 @@ final class CaptureImageService {
             self?.queue.async { [weak self] in
                 guard let self else { return }
                 guard let image else { self.finish(request, .failure(error ?? CaptureFailure.unavailable)); return }
-                self.captureDisplay(request, displays: displays, index: index + 1, reduction: reduction,
-                                    frames: frames + [CaptureFrame(screen: screen, image: image)])
+                guard request.ticket.valid else { self.finish(request, .failure(CaptureFailure.cancelled)); return }
+                let sampler = CapturePixelSampler(image: image)
+                self.captureDisplay(request, displays: displays, windows: windows, index: index + 1, reduction: reduction,
+                                    frames: frames + [CaptureFrame(screen: screen, image: image,
+                                                                 windows: windows, sampler: sampler)])
             }
+        }
+    }
+
+    /// One ordered metadata snapshot per user capture, never an idle scan or AX query.
+    private static func windowRegions(primaryTop: CGFloat) -> [CGRect] {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                   kCGNullWindowID) as? [[String: Any]] else { return [] }
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        return list.prefix(256).compactMap { item in
+            guard (item[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
+                  (item[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value != ownPID,
+                  let bounds = item[kCGWindowBounds as String] as? [String: Any],
+                  let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary),
+                  rect.width > 1, rect.height > 1 else { return nil }
+            return CGRect(x: rect.minX, y: primaryTop - rect.maxY, width: rect.width, height: rect.height)
         }
     }
 
@@ -144,8 +171,9 @@ enum CaptureRaster {
     static func context(width: Int, height: Int) -> CGContext? {
         guard width > 0, height > 0, width <= 16_000, height <= 16_000,
               width <= maximumPixels / height else { return nil }
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
         return CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                         space: CGColorSpaceCreateDeviceRGB(),
+                         space: space,
                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)
     }
     static func downsample(_ image: CGImage, maximumPixels: Int) -> CGImage? {

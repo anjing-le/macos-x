@@ -28,6 +28,7 @@ final class ModuleCoordinator {
             case .capture: self.capture?.capture()
             case .pin: self.capture?.pinClipboard()
             case .recording: self.capture?.toggleRecording()
+            case .togglePins: self.capture?.togglePins()
             }
         }
         input.onAdvance = { [weak self] reverse in self?.switcher?.advance(reverse: reverse) }
@@ -172,7 +173,9 @@ final class ModuleCoordinator {
             let usesTap = shortcuts.binding(for: .wheel).kind == .doubleModifier
             return issues[.wheel] ?? (usesTap && !needsAccessibility(tool) ? tapIssue : nil)
         }
-        if tool == .capture { return [ShortcutAction.capture, .pin, .recording].compactMap { issues[$0] }.first }
+        if tool == .capture {
+            return [ShortcutAction.capture, .pin, .togglePins, .recording].compactMap { issues[$0] }.first
+        }
         return needsAccessibility(tool) ? nil : tapIssue
     }
 
