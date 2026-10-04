@@ -38,7 +38,6 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             state = .starting; lifetime = self; wantsStop = false; interrupted = nil
             finishStarted = false; failureInProgress = false
             onStarted = started; onFinished = finished; self.destination = destination
-            guard CGPreflightScreenCaptureAccess() else { fail(CaptureFailure.permission); return }
             SCShareableContent.getExcludingDesktopWindows(true, onScreenWindowsOnly: true) { [weak self] content, error in
                 self?.queue.async { [weak self] in
                     guard let self, self.session == expected, self.state == .starting else { return }
@@ -127,7 +126,7 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         queue.async { [self] in
             guard self.stream === stream, state == .recording || state == .starting else { return }
-            interrupted = error
+            interrupted = CaptureFailure.screenCaptureError(error)
             end(alreadyStopped: true)
         }
     }
@@ -142,7 +141,7 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                 self?.queue.async { [weak self] in
                     guard let self, self.session == expected, self.stream === stream,
                           self.state == .finishing, !self.failureInProgress else { return }
-                    if let error, self.interrupted == nil { self.interrupted = error }
+                    if let error, self.interrupted == nil { self.interrupted = CaptureFailure.screenCaptureError(error) }
                     self.finishFile()
                 }
             }
@@ -199,6 +198,7 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 
     private func fail(_ error: Error, streamAlreadyStopped: Bool = false) {
         guard state != .idle, !failureInProgress else { return }
+        let error = CaptureFailure.screenCaptureError(error)
         failureInProgress = true; state = .finishing
         let expected = session
         let started = onStarted, finished = onFinished

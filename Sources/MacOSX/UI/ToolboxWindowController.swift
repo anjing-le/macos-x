@@ -218,6 +218,11 @@ final class ToolboxWindowController: NSWindowController, NSToolbarDelegate {
             self.settingsHeader?.refresh()
             self.content.needsLayout = true
         }
+        modules.onScreenCapturePermissionNeeded = { [weak self] in
+            guard let self, self.added.tools.contains(.capture) else { return }
+            self.showSettings(.capture)
+            self.present()
+        }
         modules.reconcile(added.tools)
         showHome()
     }

@@ -5,6 +5,7 @@ import MacOSXCore
 @MainActor
 final class ModuleCoordinator {
     var onStateChanged: ((Tool) -> Void)?
+    var onScreenCapturePermissionNeeded: (() -> Void)?
     private let defaults: UserDefaults
     let shortcuts: ShortcutStore
     private let input = GlobalInput()
@@ -76,7 +77,7 @@ final class ModuleCoordinator {
         case .capture:
             if capture == nil {
                 capture = CaptureModule()
-                capture?.onPermissionNeeded = { [weak self] in self?.requestScreenCapture() }
+                capture?.onPermissionNeeded = { [weak self] in self?.onScreenCapturePermissionNeeded?() }
                 capture?.onStatusChange = { [weak self] _ in self?.onStateChanged?(.capture) }
             }
         case .windowSwitcher:
@@ -170,7 +171,9 @@ final class ModuleCoordinator {
         (tool == .windowSwitcher || (tool == .kaomoji && shortcuts.binding(for: .wheel).kind == .doubleModifier))
             && !AXIsProcessTrusted()
     }
-    func needsScreenCapture(_ tool: Tool) -> Bool { tool == .capture && !CGPreflightScreenCaptureAccess() }
+    func needsScreenCapture(_ tool: Tool) -> Bool {
+        tool == .capture && capture?.hasConfirmedScreenCaptureAccess != true && !CGPreflightScreenCaptureAccess()
+    }
     func issue(for tool: Tool) -> String? {
         if !isEnabled(tool) { return nil }
         if tool == .kaomoji {
@@ -191,8 +194,9 @@ final class ModuleCoordinator {
         }
     }
     func requestScreenCapture() {
-        _ = CGRequestScreenCaptureAccess()
-        if !CGPreflightScreenCaptureAccess(),
+        guard !terminating, capture?.hasConfirmedScreenCaptureAccess != true else { return }
+        let granted = CGRequestScreenCaptureAccess()
+        if !granted,
             let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
             NSWorkspace.shared.open(url)
         }
@@ -230,7 +234,7 @@ final class ModuleSettingsHeader: NSStackView {
     private let tool: Tool
     private let toggle = MinimalToggle(title: "", target: nil, action: nil)
     private let accessibility = MinimalButton(title: "允许辅助功能", target: nil, action: nil, style: .standard)
-    private let screenCapture = MinimalButton(title: "允许屏幕录制", target: nil, action: nil, style: .standard)
+    private let screenCapture = MinimalButton(title: "屏幕权限", target: nil, action: nil, style: .standard)
     private let issue = NSTextField(labelWithString: "")
 
     init(tool: Tool, module: ModuleCoordinator) {

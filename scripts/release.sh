@@ -5,6 +5,8 @@ if [[ "${1:-}" == "--help" ]]; then
     echo "Usage: scripts/release.sh [MacOSX.app] [output-directory]"
     echo "Prepare a complete update archive, signed appcast and SHA-256 file; do not upload."
     echo "Signing key: login Keychain account macos-x (override MACOSX_SPARKLE_ACCOUNT)."
+    echo "App must have a stable Apple Development or Developer ID Application signature."
+    echo "Optionally set MACOSX_EXPECTED_TEAM_ID to pin the publisher's Apple Team ID."
     exit 0
 fi
 
@@ -18,9 +20,27 @@ keychain_account="${MACOSX_SPARKLE_ACCOUNT:-macos-x}"
 /usr/bin/codesign --verify --deep --strict "$app"
 # Read release metadata and enforce that this is an update-enabled application.
 version="$(python3 - "$app/Contents/Info.plist" "$root_dir/Resources/update-public-key.txt" <<'PY'
-import pathlib, plistlib, re, sys, urllib.parse
+import os, pathlib, plistlib, re, subprocess, sys, urllib.parse
 with open(sys.argv[1], 'rb') as source:
     info = plistlib.load(source)
+app = str(pathlib.Path(sys.argv[1]).parent.parent)
+signing = subprocess.run(['/usr/bin/codesign', '--display', '--verbose=4', '--requirements', '-', app],
+    check=True, text=True, capture_output=True)
+metadata = signing.stdout + '\n' + signing.stderr
+if re.search(r'^Signature=adhoc\s*$', metadata, re.MULTILINE) or not re.search(
+    r'^Authority=(?:Apple Development|Developer ID Application): .+$', metadata, re.MULTILINE):
+    raise SystemExit('Release requires an Apple Development or Developer ID Application certificate; ad hoc signing is not allowed')
+team = re.search(r'^TeamIdentifier=([A-Z0-9]{10})\s*$', metadata, re.MULTILINE)
+requirement = re.search(r'^designated =>\s*(.+)$', metadata, re.MULTILINE)
+if (team is None or requirement is None or re.search(r'\bcdhash\b', requirement.group(1), re.IGNORECASE)
+    or 'identifier "cc.anjing.macos-x"' not in requirement.group(1)
+    or info.get('CFBundleIdentifier') != 'cc.anjing.macos-x'):
+    raise SystemExit('Release requires the production bundle identifier, an Apple Team ID and a stable designated requirement without cdhash')
+expected_team = os.environ.get('MACOSX_EXPECTED_TEAM_ID', '').strip()
+if expected_team and (not re.fullmatch(r'[A-Z0-9]{10}', expected_team) or expected_team != team.group(1)):
+    raise SystemExit('Release Apple Team ID does not match MACOSX_EXPECTED_TEAM_ID')
+# Authority text alone is insufficient: require a cryptographically valid Apple-issued chain.
+subprocess.run(['/usr/bin/codesign', '--verify', '--strict', '--test-requirement', '=anchor apple generic', app], check=True)
 key = pathlib.Path(sys.argv[2]).read_text().strip()
 if info.get('MacOSXUpdatesEnabled') is not True or info.get('SUPublicEDKey') != key:
     raise SystemExit('Release requires an OTA-enabled app containing the repository public key')

@@ -21,6 +21,13 @@ struct CaptureFrame {
 enum CaptureFailure: LocalizedError {
     case permission, cancelled, unavailable, oversized, emptyClipboard
     case message(String)
+    /// Only ScreenCaptureKit's documented refusal is an authorization failure.
+    /// A false CoreGraphics preflight is advisory, not a capture result.
+    static func screenCaptureError(_ error: Error) -> Error {
+        let value = error as NSError
+        return value.domain == SCStreamErrorDomain && value.code == SCStreamError.Code.userDeclined.rawValue
+            ? CaptureFailure.permission : error
+    }
     var errorDescription: String? {
         switch self {
         case .permission: return "需要屏幕录制权限；授权后再试。"
@@ -75,7 +82,6 @@ final class CaptureImageService {
         pending = nil
         guard request.ticket.valid else { beginNext(); return }
         busy = true
-        guard CGPreflightScreenCaptureAccess() else { finish(request, .failure(CaptureFailure.permission)); return }
         SCShareableContent.getExcludingDesktopWindows(true, onScreenWindowsOnly: true) { [weak self] content, error in
             self?.queue.async { [weak self] in
                 guard let self else { return }
@@ -133,6 +139,7 @@ final class CaptureImageService {
 
     private func finish(_ request: Request, _ result: Result<[CaptureFrame], Error>) {
         busy = false
+        let result = result.mapError(CaptureFailure.screenCaptureError)
         if request.ticket.valid {
             DispatchQueue.main.async { if request.ticket.valid { request.completion(result) } }
         }

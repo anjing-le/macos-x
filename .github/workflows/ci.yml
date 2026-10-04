@@ -13,6 +13,8 @@ jobs:
         run: swift test --disable-keychain
       - name: Check screenshot pixel sampling and selection geometry
         run: zsh tools/run-capture-regression.sh
+      - name: Check capture permission results and cancellation
+        run: zsh tools/run-capture-access-regression.sh
       - name: Check pinned-image transforms and clipboard color cards
         run: zsh tools/run-pin-regression.sh
       - name: Build a development app with OTA explicitly disabled

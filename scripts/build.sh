@@ -4,18 +4,20 @@ set -euo pipefail
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 configuration=release
 output_dir="$root_dir/dist"
-version=0.0.8
-build_number=10
-sign_identity="${MACOSX_SIGN_IDENTITY:--}"
+version=0.0.9
+build_number=11
+sign_identity="${MACOSX_SIGN_IDENTITY:-}"
 updates_enabled=true
 feed_url="${MACOSX_FEED_URL:-https://github.com/anjing-le/macos-x/releases/latest/download/appcast.xml}"
 
 usage() {
     cat <<'USAGE'
 Usage: scripts/build.sh [--disable-updates] [--configuration debug|release]
-       [--version 0.0.8] [--build-number 10] [--output-dir path]
-       [--sign-identity "Developer ID Application: ..."]
-Default: host architecture, OTA enabled, local ad hoc signing.
+       [--version 0.0.9] [--build-number 11] [--output-dir path]
+       [--sign-identity "Apple Development: ..." | "Developer ID Application: ..."]
+Default: host architecture, OTA enabled; an explicit certificate identity is required.
+Set MACOSX_SIGN_IDENTITY or --sign-identity; OTA builds never fall back to ad hoc.
+--disable-updates allows local ad hoc signing for development/CI.
 Set MACOSX_FEED_URL at build time for an alternate HTTPS appcast.
 USAGE
 }
@@ -38,6 +40,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 [[ "$configuration" == release || "$configuration" == debug ]] || { echo "Invalid configuration" >&2; exit 1; }
+
+if [[ "$updates_enabled" == true && ( -z "$sign_identity" || "$sign_identity" == - ) ]]; then
+    echo "OTA requires an explicit Apple Development or Developer ID Application identity via MACOSX_SIGN_IDENTITY or --sign-identity; ad hoc signing is not allowed." >&2
+    exit 1
+fi
+[[ -n "$sign_identity" ]] || sign_identity=-
+if [[ "$sign_identity" != - && "$sign_identity" != "Developer ID Application:"* && "$sign_identity" != "Apple Development:"* ]]; then
+    echo "Use a Developer ID Application or Apple Development identity, or - only with --disable-updates." >&2
+    exit 1
+fi
 
 # Validate before compiling: an OTA-enabled build requires a real public key.
 python3 - "$root_dir/Resources/update-public-key.txt" "$feed_url" "$version" "$build_number" "$updates_enabled" <<'PY'
@@ -122,9 +134,6 @@ PY
 sign_options=(--force --sign "$sign_identity" --preserve-metadata=identifier,entitlements)
 app_sign_options=(--force --sign "$sign_identity" --identifier cc.anjing.macos-x)
 if [[ "$sign_identity" != - ]]; then
-    [[ "$sign_identity" == "Developer ID Application:"* || "$sign_identity" == "Apple Development:"* ]] || {
-        echo "Use a Developer ID Application or Apple Development identity, or - for ad hoc" >&2; exit 1;
-    }
     sign_options+=(--options runtime --timestamp)
     app_sign_options+=(--options runtime --timestamp)
 fi
