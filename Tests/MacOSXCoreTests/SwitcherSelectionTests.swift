@@ -29,4 +29,20 @@ final class SwitcherSelectionTests: XCTestCase {
         XCTAssertNotNil(selection.selectedWindowID)
         XCTAssertEqual(selection.windowIDs, [10, 20, 30])
     }
+    func testStartingFromDesktopOrUnknownWindowDoesNotSkipMostRecent() {
+        let desktop = SwitcherSelection(windowIDs: [10, 20, 30], focusedWindowID: nil, reverse: false)
+        let unknown = SwitcherSelection(windowIDs: [10, 20, 30], focusedWindowID: 99, reverse: false)
+        XCTAssertEqual(desktop.selectedWindowID, 10)
+        XCTAssertEqual(unknown.selectedWindowID, 10)
+        let reverse = SwitcherSelection(windowIDs: [10, 20, 30], focusedWindowID: nil, reverse: true)
+        XCTAssertEqual(reverse.selectedWindowID, 30)
+    }
+
+    func testStartingFromKnownFocusedWindowCyclesToItsNeighbour() {
+        let forward = SwitcherSelection(windowIDs: [10, 20, 30], focusedWindowID: 20, reverse: false)
+        let reverse = SwitcherSelection(windowIDs: [10, 20, 30], focusedWindowID: 20, reverse: true)
+        XCTAssertEqual(forward.selectedWindowID, 30)
+        XCTAssertEqual(reverse.selectedWindowID, 10)
+    }
+
 }

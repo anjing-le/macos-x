@@ -1,137 +1,125 @@
 import AppKit
 
-@MainActor
-final class SwitcherPanel {
+/// Icons only: selecting windows never requires screen-recording permission.
+@MainActor final class SwitcherPanel {
     private final class Panel: NSPanel {
-        override var canBecomeKey: Bool { false }
+        var acceptsPreviewKeyboard = false
+        var onMove: ((Int) -> Void)?
+        var onConfirm: (() -> Void)?
+        var onCancel: (() -> Void)?
+        override var canBecomeKey: Bool { acceptsPreviewKeyboard }
         override var canBecomeMain: Bool { false }
+
+        override func keyDown(with event: NSEvent) {
+            guard acceptsPreviewKeyboard else { super.keyDown(with: event); return }
+            switch event.keyCode {
+            case 53: onCancel?()
+            case 36, 76: onConfirm?()
+            case 123, 126: onMove?(-1)
+            case 124, 125: onMove?(1)
+            default: super.keyDown(with: event)
+            }
+        }
+
+        override func cancelOperation(_ sender: Any?) {
+            if acceptsPreviewKeyboard { onCancel?() } else { super.cancelOperation(sender) }
+        }
+
+        override func resignKey() {
+            super.resignKey()
+            // A preview closes when the user clicks back into another window.
+            if acceptsPreviewKeyboard { onCancel?() }
+        }
     }
-    private let panel: NSPanel
+    private let panel: Panel
     private let canvas = SwitcherCanvas()
-    var onChoose: ((CGWindowID) -> Void)? {
-        didSet { canvas.onChoose = onChoose }
-    }
+    var onChoose: ((CGWindowID) -> Void)? { didSet { canvas.onChoose = onChoose } }
+    var onMove: ((Int) -> Void)? { didSet { panel.onMove = onMove } }
+    var onConfirm: (() -> Void)? { didSet { panel.onConfirm = onConfirm } }
+    var onCancel: (() -> Void)? { didSet { panel.onCancel = onCancel } }
     var isVisible: Bool { panel.isVisible }
-    var displayedWindows: [SwitcherWindow] { canvas.displayedWindows }
 
     init() {
-        panel = Panel(contentRect: NSRect(x: 0, y: 0, width: 880, height: 400),
+        panel = Panel(contentRect: NSRect(x: 0, y: 0, width: 640, height: 148),
             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.level = .floating
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.hidesOnDeactivate = false
+        panel.level = .floating; panel.isOpaque = false; panel.backgroundColor = .clear
+        panel.hasShadow = true; panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
-        panel.contentView = canvas
-        panel.isReleasedWhenClosed = false
+        panel.contentView = canvas; panel.isReleasedWhenClosed = false
     }
 
-    func show(windows: [SwitcherWindow], selectedID: CGWindowID?, thumbnails: [CGWindowID: NSImage]) {
-        let screen = NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) }) ?? NSScreen.main
+    func show(windows: [SwitcherWindow], selectedID: CGWindowID?, preview: Bool) {
+        let screen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main
         let area = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1200, height: 800)
-        let columns = max(1, min(4, Int((area.width - 64) / 220)))
-        let rows = max(1, min(3, Int((area.height - 126) / 166)))
-        canvas.configure(windows: windows, selectedID: selectedID, thumbnails: thumbnails,
-                         columns: columns, capacity: min(12, columns * rows))
-        let size = canvas.preferredSize
-        panel.setFrame(NSRect(x: area.midX - size.width / 2, y: area.midY - size.height / 2,
-                              width: size.width, height: size.height), display: true)
-        panel.orderFrontRegardless()
+        let capacity = max(1, min(8, Int((area.width - 72) / 108)))
+        canvas.configure(windows, selectedID, capacity)
+        let width = CGFloat(min(capacity, max(1, windows.count))) * 108 + 32
+        panel.setFrame(NSRect(x: area.midX - width / 2, y: area.midY - 74, width: width, height: 148), display: true)
+        panel.acceptsPreviewKeyboard = preview
+        if preview {
+            // Preview is an explicit local UI action. Normal Cmd+Tab never takes key focus.
+            panel.makeKeyAndOrderFront(nil)
+            panel.makeFirstResponder(nil)
+        } else { panel.orderFrontRegardless() }
     }
 
-    func updateSelection(_ selectedID: CGWindowID?, thumbnails: [CGWindowID: NSImage]) {
-        canvas.selectedID = selectedID
-        canvas.thumbnails = thumbnails
-        canvas.needsDisplay = true
-    }
-
-    func hide() { panel.orderOut(nil) }
-    func clear() { hide(); canvas.configure(windows: [], selectedID: nil, thumbnails: [:], columns: 4, capacity: 12) }
+    func hide() { panel.acceptsPreviewKeyboard = false; panel.orderOut(nil) }
+    func clear() { hide(); canvas.configure([], nil, 8) }
 }
 
-@MainActor
-private final class SwitcherCanvas: NSView {
-    var windows: [SwitcherWindow] = []
-    var selectedID: CGWindowID?
-    var thumbnails: [CGWindowID: NSImage] = [:]
+@MainActor private final class SwitcherCanvas: NSView {
+    private var windows = [SwitcherWindow]()
+    private var selectedID: CGWindowID?
+    private var capacity = 8
     var onChoose: ((CGWindowID) -> Void)?
-    private var columns = 4
-    private var capacity = 12
     override var isFlipped: Bool { true }
+    private var pageStart: Int { (windows.firstIndex { $0.id == selectedID } ?? 0) / capacity * capacity }
+    private var page: [SwitcherWindow] { Array(windows.dropFirst(pageStart).prefix(capacity)) }
 
-    private var pageStart: Int {
-        let index = windows.firstIndex(where: { $0.id == selectedID }) ?? 0
-        return index / capacity * capacity
-    }
-    var displayedWindows: [SwitcherWindow] { Array(windows.dropFirst(pageStart).prefix(capacity)) }
-    var preferredSize: NSSize {
-        let count = min(capacity, windows.count)
-        let rows = max(1, (count + columns - 1) / columns)
-        return NSSize(width: CGFloat(columns) * 216 + 40, height: CGFloat(rows) * 166 + 90)
-    }
-
-    func configure(windows: [SwitcherWindow], selectedID: CGWindowID?, thumbnails: [CGWindowID: NSImage], columns: Int, capacity: Int) {
-        self.windows = windows; self.selectedID = selectedID; self.thumbnails = thumbnails; self.columns = columns
-        self.capacity = capacity
+    func configure(_ windows: [SwitcherWindow], _ selectedID: CGWindowID?, _ capacity: Int) {
+        self.windows = windows; self.selectedID = selectedID; self.capacity = max(1, capacity)
         needsDisplay = true
+        setAccessibilityLabel("窗口切换")
+        setAccessibilityValue(windows.first { $0.id == selectedID }.map { $0.applicationName + "，" + $0.title })
     }
 
-    private func cellRect(_ index: Int) -> NSRect {
-        NSRect(x: 20 + CGFloat(index % columns) * 216, y: 50 + CGFloat(index / columns) * 166, width: 208, height: 158)
-    }
+    private func cell(_ index: Int) -> NSRect { NSRect(x: 16 + CGFloat(index) * 108, y: 12, width: 100, height: 100) }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.windowBackgroundColor.withAlphaComponent(0.97).setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: 18, yRadius: 18).fill()
-        drawText("窗口切换", in: NSRect(x: 24, y: 17, width: bounds.width - 48, height: 22), font: .boldSystemFont(ofSize: 15), color: .labelColor)
-        for (index, window) in displayedWindows.enumerated() {
-            let cell = cellRect(index)
-            let selected = window.id == selectedID
-            (selected ? NSColor.controlAccentColor.withAlphaComponent(0.14) : NSColor.controlBackgroundColor).setFill()
-            NSBezierPath(roundedRect: cell, xRadius: 10, yRadius: 10).fill()
-            if selected {
-                NSColor.controlAccentColor.setStroke()
-                let outline = NSBezierPath(roundedRect: cell.insetBy(dx: 1, dy: 1), xRadius: 9, yRadius: 9)
-                outline.lineWidth = 2; outline.stroke()
-            }
-            let preview = NSRect(x: cell.minX + 10, y: cell.minY + 8, width: cell.width - 20, height: 104)
-            if let image = thumbnails[window.id] {
-                drawImage(image, fitting: preview)
-            } else if let icon = window.icon {
-                drawImage(icon, fitting: preview.insetBy(dx: 57, dy: 18))
+        NSColor.windowBackgroundColor.withAlphaComponent(0.98).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 16, yRadius: 16).fill()
+        for (index, window) in page.enumerated() {
+            let rect = cell(index)
+            if window.id == selectedID {
+                NSColor.controlAccentColor.withAlphaComponent(0.16).setFill()
+                NSBezierPath(roundedRect: rect, xRadius: 10, yRadius: 10).fill()
             }
             if let icon = window.icon {
-                icon.draw(in: NSRect(x: cell.minX + 10, y: cell.minY + 119, width: 18, height: 18),
+                icon.draw(in: NSRect(x: rect.midX - 24, y: rect.minY + 10, width: 48, height: 48),
                           from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
             }
-            drawText(window.title, in: NSRect(x: cell.minX + 34, y: cell.minY + 117, width: cell.width - 44, height: 18),
-                     font: .systemFont(ofSize: 12, weight: .medium), color: .labelColor)
-            drawText(window.applicationName, in: NSRect(x: cell.minX + 10, y: cell.minY + 138, width: cell.width - 20, height: 16),
-                     font: .systemFont(ofSize: 10), color: .secondaryLabelColor)
+            text(window.title, rect: NSRect(x: rect.minX + 5, y: rect.minY + 65, width: 90, height: 17),
+                 font: .systemFont(ofSize: 11, weight: window.id == selectedID ? .medium : .regular), color: .labelColor)
+            text(window.isMinimized ? "已最小化" : window.applicationName,
+                 rect: NSRect(x: rect.minX + 5, y: rect.minY + 83, width: 90, height: 14),
+                 font: .systemFont(ofSize: 9), color: .secondaryLabelColor)
         }
-        let footer = "Option + Tab 下一窗口 · Shift 反向 · 松开 Option 切换 · Esc 取消    \(windows.count) 个窗口"
-        drawText(footer, in: NSRect(x: 24, y: bounds.height - 29, width: bounds.width - 48, height: 17),
-                 font: .systemFont(ofSize: 10), color: .secondaryLabelColor)
+        let selected = windows.first { $0.id == selectedID }
+        let index = windows.firstIndex { $0.id == selectedID }.map { $0 + 1 } ?? 0
+        text(selected?.title ?? "", rect: NSRect(x: 20, y: 123, width: max(0, bounds.width - 90), height: 16),
+             font: .systemFont(ofSize: 11), color: .secondaryLabelColor, centered: false)
+        text("\(index)/\(windows.count)", rect: NSRect(x: bounds.width - 64, y: 123, width: 44, height: 16),
+             font: .monospacedDigitSystemFont(ofSize: 10, weight: .regular), color: .tertiaryLabelColor)
     }
 
-    private func drawText(_ text: String, in rect: NSRect, font: NSFont, color: NSColor) {
+    private func text(_ string: String, rect: NSRect, font: NSFont, color: NSColor, centered: Bool = true) {
         let style = NSMutableParagraphStyle(); style.lineBreakMode = .byTruncatingTail
-        (text as NSString).draw(in: rect, withAttributes: [.font: font, .foregroundColor: color, .paragraphStyle: style])
-    }
-
-    private func drawImage(_ image: NSImage, fitting rect: NSRect) {
-        guard image.size.width > 0, image.size.height > 0 else { return }
-        let ratio = min(rect.width / image.size.width, rect.height / image.size.height)
-        let size = NSSize(width: image.size.width * ratio, height: image.size.height * ratio)
-        image.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height),
-                   from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        style.alignment = centered ? .center : .left
+        (string as NSString).draw(in: rect, withAttributes: [.font: font, .foregroundColor: color, .paragraphStyle: style])
     }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        for (index, window) in displayedWindows.enumerated() where cellRect(index).contains(point) {
-            onChoose?(window.id); return
-        }
+        for (index, window) in page.enumerated() where cell(index).contains(point) { onChoose?(window.id); return }
     }
 }

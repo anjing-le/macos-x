@@ -3,6 +3,7 @@ import AppKit
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private let updates = UpdateController()
+    private let modules = ModuleCoordinator()
     private var client: ToolboxWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -16,9 +17,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return true
     }
 
+    func applicationWillTerminate(_ notification: Notification) { modules.stop() }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        modules.prepareToTerminate { sender.reply(toApplicationShouldTerminate: true) }
+        return .terminateLater
+    }
+
     private func showClient() {
         if client == nil {
             client = ToolboxWindowController(
+                modules: modules,
                 onCheckUpdates: { [weak self] in self?.checkUpdates() },
                 canCheckUpdates: { [weak self] in self?.updates.canCheckForUpdates ?? false }
             )
@@ -39,6 +48,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         appMenu.addItem(quit)
         appItem.submenu = appMenu
         menuBar.addItem(appItem)
+        let editItem = NSMenuItem()
+        let edit = NSMenu(title: "编辑")
+        for (title, selector, key) in [("撤销", "undo:", "z"), ("剪切", "cut:", "x"),
+            ("复制", "copy:", "c"), ("粘贴", "paste:", "v"), ("全选", "selectAll:", "a")] {
+            edit.addItem(NSMenuItem(title: title, action: Selector(selector), keyEquivalent: key))
+        }
+        editItem.submenu = edit; menuBar.addItem(editItem)
         NSApp.mainMenu = menuBar
     }
 

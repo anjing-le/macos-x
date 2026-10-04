@@ -22,7 +22,7 @@ enum Tool: String, CaseIterable, Hashable {
     }
 }
 
-/// Adding an entry stores a choice, without constructing or running a module.
+/// Home entries are the explicit opt-in boundary for native modules.
 @MainActor
 private final class AddedTools {
     private let defaults: UserDefaults
@@ -88,6 +88,7 @@ private final class ToolboxContent: NSView {
     let grid = CardGrid()
     private let scroll = NSScrollView()
     private let detail = NSStackView()
+    private let detailDocument = DetailDocument()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -107,14 +108,7 @@ private final class ToolboxContent: NSView {
         detail.orientation = .vertical
         detail.alignment = .leading
         detail.spacing = 24
-        detail.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(detail)
-        NSLayoutConstraint.activate([
-            detail.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 36),
-            detail.topAnchor.constraint(equalTo: topAnchor, constant: 36),
-            detail.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -36)
-        ])
-        detail.isHidden = true
+        detailDocument.addSubview(detail)
         updateBackground()
     }
 
@@ -134,8 +128,7 @@ private final class ToolboxContent: NSView {
 
     func showCards(_ cards: [ToolCard]) {
         clearDetail()
-        detail.isHidden = true
-        scroll.isHidden = false
+        scroll.documentView = grid
         grid.setCards(cards)
         scroll.contentView.scroll(to: .zero)
         needsLayout = true
@@ -146,9 +139,10 @@ private final class ToolboxContent: NSView {
     func showDetail(_ views: [NSView]) {
         grid.setCards([])
         clearDetail()
-        scroll.isHidden = true
-        detail.isHidden = false
+        scroll.documentView = detailDocument
         views.forEach(detail.addArrangedSubview)
+        scroll.contentView.scroll(to: .zero)
+        needsLayout = true
         layoutSubtreeIfNeeded()
         window?.recalculateKeyViewLoop()
     }
@@ -162,10 +156,24 @@ private final class ToolboxContent: NSView {
 
     override func layout() {
         super.layout()
-        guard !scroll.isHidden else { return }
-        grid.arrange(width: scroll.contentView.bounds.width, minimumHeight: scroll.contentView.bounds.height)
+        let width = scroll.contentView.bounds.width
+        let height = scroll.contentView.bounds.height
+        if scroll.documentView === grid {
+            grid.arrange(width: width, minimumHeight: height)
+        } else {
+            let inset: CGFloat = width < 480 ? 24 : 36
+            let contentWidth = max(220, min(640, width - inset * 2))
+            detail.frame = NSRect(x: inset, y: inset, width: contentWidth, height: max(0, detail.fittingSize.height))
+            detail.layoutSubtreeIfNeeded()
+            let contentHeight = detail.fittingSize.height
+            detail.frame.size.height = contentHeight
+            detailDocument.frame = NSRect(x: 0, y: 0, width: width, height: max(height, contentHeight + inset * 2))
+        }
     }
 }
+
+@MainActor
+private final class DetailDocument: NSView { override var isFlipped: Bool { true } }
 
 @MainActor
 final class ToolboxWindowController: NSWindowController, NSToolbarDelegate {
@@ -180,8 +188,11 @@ final class ToolboxWindowController: NSWindowController, NSToolbarDelegate {
     private var page: Page = .home
     private let onCheckUpdates: () -> Void
     private let canCheckUpdates: () -> Bool
+    private let modules: ModuleCoordinator
+    private var settingsHeader: ModuleSettingsHeader?
 
-    init(onCheckUpdates: @escaping () -> Void, canCheckUpdates: @escaping () -> Bool) {
+    init(modules: ModuleCoordinator, onCheckUpdates: @escaping () -> Void, canCheckUpdates: @escaping () -> Bool) {
+        self.modules = modules
         self.onCheckUpdates = onCheckUpdates
         self.canCheckUpdates = canCheckUpdates
         let window = NSWindow(
@@ -202,6 +213,12 @@ final class ToolboxWindowController: NSWindowController, NSToolbarDelegate {
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = false
         window.toolbar = toolbar
+        modules.onStateChanged = { [weak self] tool in
+            guard let self, case let .settings(current) = self.page, current == tool else { return }
+            self.settingsHeader?.refresh()
+            self.content.needsLayout = true
+        }
+        modules.reconcile(added.tools)
         showHome()
     }
 
@@ -227,6 +244,7 @@ final class ToolboxWindowController: NSWindowController, NSToolbarDelegate {
     }
 
     private func showHome() {
+        settingsHeader = nil
         navigate(.home, title: "macos-x")
         var cards = added.tools.map { tool in
             ToolCard(title: tool.title, symbol: tool.symbol) { [weak self] in
@@ -245,6 +263,7 @@ final class ToolboxWindowController: NSWindowController, NSToolbarDelegate {
             ToolCard(title: tool.title, symbol: tool.symbol) { [weak self] in
                 guard let self else { return }
                 self.added.add(tool)
+                self.modules.reconcile(self.added.tools)
                 self.showHome()
             }
         })
@@ -252,14 +271,25 @@ final class ToolboxWindowController: NSWindowController, NSToolbarDelegate {
 
     private func showSettings(_ tool: Tool) {
         navigate(.settings(tool), title: tool.title)
-        let pending = NSTextField(labelWithString: "功能待接入")
-        pending.font = .systemFont(ofSize: 13)
-        pending.textColor = .secondaryLabelColor
+        let header = ModuleSettingsHeader(tool: tool, module: modules)
+        settingsHeader = header
+        var views: [NSView] = [header]
+        switch tool {
+        case .kaomoji: views.append(modules.shortcutPicker(.wheel))
+        case .capture:
+            for action in [ShortcutAction.capture, .pin, .recording] { views.append(modules.shortcutPicker(action)) }
+        case .windowSwitcher:
+            let shortcut = NSTextField(labelWithString: "⌘Tab  ·  ⇧ 反向  ·  松开切换")
+            shortcut.font = .systemFont(ofSize: 12); shortcut.textColor = .secondaryLabelColor
+            views.append(shortcut)
+        }
+        views.append(modules.settingsView(for: tool))
         let remove = NSButton(title: "移除", target: self, action: #selector(removeCurrentTool))
         remove.isBordered = false
         remove.font = .systemFont(ofSize: 13)
         remove.toolTip = "从首页移除这张卡片"
-        content.showDetail([pending, remove])
+        views.append(remove)
+        content.showDetail(views)
     }
 
     @objc private func goBack() { showHome() }
@@ -267,6 +297,7 @@ final class ToolboxWindowController: NSWindowController, NSToolbarDelegate {
     @objc private func removeCurrentTool() {
         guard case let .settings(tool) = page else { return }
         added.remove(tool)
+        modules.reconcile(added.tools)
         showHome()
     }
 

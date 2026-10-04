@@ -12,8 +12,7 @@ let package = Package(
         .target(name: "MacOSXCore"),
         .executableTarget(
             name: "MacOSX",
-            dependencies: [.product(name: "Sparkle", package: "Sparkle")],
-            exclude: ["WindowSwitcher"],
+            dependencies: ["MacOSXCore", .product(name: "Sparkle", package: "Sparkle")],
             linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
         ),
         .testTarget(name: "MacOSXCoreTests", dependencies: ["MacOSXCore"])

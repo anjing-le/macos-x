@@ -1,0 +1,67 @@
+import Foundation
+
+/// A portable representation shared by persistence, conflict checks and input.
+public struct ShortcutBinding: Codable, Equatable, Sendable {
+    public enum Kind: String, Codable, Sendable { case chord, doubleModifier }
+    public var kind: Kind
+    public var keyCode: UInt16
+    /// Control=1, Option=2, Shift=4, Command=8. Device-specific flags are excluded.
+    public var modifiers: UInt8
+    public var keyLabel: String
+
+    public init(kind: Kind = .chord, keyCode: UInt16, modifiers: UInt8, keyLabel: String) {
+        self.kind = kind; self.keyCode = keyCode; self.modifiers = modifiers & 15
+        self.keyLabel = String(keyLabel.prefix(24))
+    }
+
+    public var isValid: Bool {
+        guard keyCode <= 126, modifiers <= 15 else { return false }
+        if kind == .doubleModifier { return [58, 59, 61, 62].contains(keyCode) }
+        return modifiers & 9 != 0 && ![54, 55, 56, 57, 58, 59, 60, 61, 62, 63].contains(keyCode)
+    }
+
+    public var displayName: String {
+        if kind == .doubleModifier {
+            let names: [UInt16: String] = [58: "左 Option", 61: "右 Option", 59: "左 Control", 62: "右 Control"]
+            return "双击 " + (names[keyCode] ?? "修饰键")
+        }
+        return (modifiers & 1 != 0 ? "⌃" : "") + (modifiers & 2 != 0 ? "⌥" : "")
+            + (modifiers & 4 != 0 ? "⇧" : "") + (modifiers & 8 != 0 ? "⌘" : "") + keyLabel
+    }
+
+    public func conflicts(with other: ShortcutBinding) -> Bool {
+        kind == other.kind && keyCode == other.keyCode && (kind == .doubleModifier || modifiers == other.modifiers)
+    }
+}
+
+/// Two complete short taps; holding, typing, mixed modifiers or clock regression
+/// cancel the sequence. The recognizer does not swallow modifier events.
+public struct ModifierDoubleTap: Sendable {
+    private var downAt: Double?
+    private var previousRelease: Double?
+    public let interval: Double
+    public let maximumHold: Double
+    public init(interval: Double = 0.34, maximumHold: Double = 0.25) {
+        self.interval = interval; self.maximumHold = maximumHold
+    }
+    public mutating func reset() { downAt = nil; previousRelease = nil }
+    public mutating func update(isDown: Bool, timestamp: Double) -> Bool {
+        guard timestamp.isFinite else { reset(); return false }
+        if isDown {
+            guard downAt == nil else { reset(); return false }
+            if let previousRelease, timestamp < previousRelease { reset() }
+            downAt = timestamp
+            return false
+        }
+        guard let down = downAt, timestamp >= down, timestamp - down <= maximumHold else {
+            reset(); return false
+        }
+        downAt = nil
+        if let previous = previousRelease, timestamp >= previous, timestamp - previous <= interval {
+            previousRelease = nil
+            return true
+        }
+        previousRelease = timestamp
+        return false
+    }
+}

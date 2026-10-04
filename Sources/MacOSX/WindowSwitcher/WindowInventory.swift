@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import MacOSXCore
 
 struct SwitcherWindow {
     let id: CGWindowID
@@ -8,264 +9,323 @@ struct SwitcherWindow {
     let applicationName: String
     let icon: NSImage?
     let element: AXUIElement
-    let bounds: CGRect
+    let isMinimized: Bool
 }
 
 struct WindowInventorySnapshot {
     let windows: [SwitcherWindow]
     let focusedID: CGWindowID?
     let mappingAvailable: Bool
+    let accessibilityTrusted: Bool
+    static let empty = Self(windows: [], focusedID: nil, mappingAvailable: true, accessibilityTrusted: true)
 }
 
-/// All cross-application AX reads run on this one queue. Observers invalidate the
-/// inventory; they never scan from their main-run-loop callback. No polling timer.
+/// Serial AX I/O, event-driven invalidation, no polling. Main-thread callbacks only publish caches.
 final class WindowInventory {
     private let queue = DispatchQueue(label: "cc.anjing.macos-x.window-inventory", qos: .userInitiated)
     private let lock = NSLock()
     private var epoch: UInt64 = 0
-    private var scanRevision: UInt64 = 0
-    private var focusRevision: UInt64 = 0
+    private var scanTicket: UInt64 = 0
+    private var focusTicket: UInt64 = 0
     private var active = false
-    private var observers: [pid_t: ObserverRegistration] = [:] // queue only
-    private var recency: [CGWindowID: UInt64] = [:] // queue only, capped
-    private var counter: UInt64 = 0
-    var onInvalidation: (() -> Void)? // configured before start, read on main
+    private var focusReadQueued = false
+    private var pendingFocusedPID: pid_t?
+    private var observers: [pid_t: Registration] = [:] // worker queue only
+    private var cached: [pid_t: [SwitcherWindow]] = [:]
+    private var recency = WindowRecency(capacity: 256)
+    private var focusedID: CGWindowID?
+    var onInvalidation: (() -> Void)? // configured before start, invoked on main
+    var onConfirmedFocus: ((CGWindowID) -> Void)?
 
-    private final class ObserverRegistration {
+    private final class Registration {
         weak var inventory: WindowInventory?
         let pid: pid_t
         let epoch: UInt64
         let observer: AXObserver
         let application: AXUIElement
         var windows: [CGWindowID: AXUIElement] = [:]
-        init(inventory: WindowInventory, pid: pid_t, epoch: UInt64, observer: AXObserver, application: AXUIElement) {
+        init(_ inventory: WindowInventory, _ pid: pid_t, _ epoch: UInt64, _ observer: AXObserver, _ app: AXUIElement) {
             self.inventory = inventory; self.pid = pid; self.epoch = epoch
-            self.observer = observer; self.application = application
+            self.observer = observer; application = app
         }
     }
 
+    deinit { Self.detach(Array(observers.values)) }
+
     func start() {
-        lock.lock(); epoch &+= 1; active = true; lock.unlock()
+        lock.lock(); epoch &+= 1; active = true; focusReadQueued = false; pendingFocusedPID = nil; lock.unlock()
     }
 
     func stop() {
-        lock.lock(); active = false; epoch &+= 1; scanRevision &+= 1; focusRevision &+= 1; lock.unlock()
+        lock.lock(); active = false; epoch &+= 1; scanTicket &+= 1; focusTicket &+= 1; pendingFocusedPID = nil; lock.unlock()
         queue.async { [self] in
             let old = Array(observers.values)
-            observers.removeAll(); recency.removeAll(); counter = 0
-            DispatchQueue.main.async {
-                for registration in old {
-                    CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(registration.observer), .commonModes)
-                }
-                // `old` retains observer contexts through removal from their run loop.
-            }
+            observers.removeAll(); cached.removeAll(); recency = WindowRecency(); focusedID = nil
+            Self.detach(old)
         }
-    }
-
-    private func currentEpoch() -> UInt64? {
-        lock.lock(); defer { lock.unlock() }
-        return active ? epoch : nil
-    }
-
-    private func isCurrent(_ expectedEpoch: UInt64, revision: UInt64? = nil) -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        return active && epoch == expectedEpoch && (revision == nil || scanRevision == revision)
     }
 
     func invalidateScans() {
-        lock.lock(); scanRevision &+= 1; focusRevision &+= 1; lock.unlock()
+        lock.lock(); scanTicket &+= 1; lock.unlock()
     }
 
-    private func isCurrentFocus(_ expectedEpoch: UInt64, _ revision: UInt64) -> Bool {
+    private func valid(_ expected: UInt64, scan: UInt64? = nil, focus: UInt64? = nil) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        return active && epoch == expectedEpoch && focusRevision == revision
+        return active && epoch == expected && (scan == nil || scanTicket == scan) && (focus == nil || focusTicket == focus)
     }
 
     func refresh(frontmostPID: pid_t?, completion: @escaping (WindowInventorySnapshot) -> Void) {
-        lock.lock()
-        guard active else { lock.unlock(); return }
-        let expectedEpoch = epoch
-        scanRevision &+= 1
-        let revision = scanRevision
-        lock.unlock()
+        lock.lock(); guard active else { lock.unlock(); return }
+        let generation = epoch; scanTicket &+= 1; let ticket = scanTicket; lock.unlock()
         queue.async { [weak self] in
-            guard let self, self.isCurrent(expectedEpoch, revision: revision) else { return }
-            let snapshot = self.scan(frontmostPID: frontmostPID, expectedEpoch: expectedEpoch, revision: revision)
-            guard self.isCurrent(expectedEpoch, revision: revision) else { return }
+            guard let self, self.valid(generation, scan: ticket) else { return }
+            let result = self.scan(frontmostPID: frontmostPID, generation: generation, ticket: ticket)
+            guard self.valid(generation, scan: ticket) else { return }
             DispatchQueue.main.async { [weak self] in
-                guard self?.isCurrent(expectedEpoch, revision: revision) == true else { return }
-                completion(snapshot)
-            }
-        }
-    }
-
-    func focus(_ window: SwitcherWindow, completion: @escaping (Bool) -> Void) {
-        lock.lock()
-        guard active else { lock.unlock(); return }
-        let expectedEpoch = epoch
-        focusRevision &+= 1
-        scanRevision &+= 1 // interrupt a scan before its next AX window read
-        let revision = focusRevision
-        lock.unlock()
-        queue.async { [weak self] in
-            guard let self, self.isCurrentFocus(expectedEpoch, revision) else { return }
-            // Raise THIS AX element. Application activation is an OS request and
-            // may be refused; success here is not proof of foreground focus.
-            let raise = AXUIElementPerformAction(window.element, kAXRaiseAction as CFString)
-            guard self.isCurrentFocus(expectedEpoch, revision) else { return }
-            let activation = NSRunningApplication(processIdentifier: window.pid)?.activate(options: []) ?? false
-            // One delayed verification allows the advisory activation request to
-            // land. This is a bounded follow-up, not a foreground polling loop.
-            self.queue.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                guard let self, self.isCurrentFocus(expectedEpoch, revision) else { return }
-                let app = AXUIElementCreateApplication(window.pid)
-                AXUIElementSetMessagingTimeout(app, 0.15)
-                let focused = self.attribute(app, kAXFocusedWindowAttribute) as! AXUIElement?
-                let focusedID = focused.flatMap { PrivateWindowBridge.windowID(of: $0) }
-                let landed = raise == .success && activation && focusedID == window.id
-                    && NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid
-                DispatchQueue.main.async { [weak self] in
-                    guard self?.isCurrentFocus(expectedEpoch, revision) == true else { return }
-                    completion(landed)
-                }
+                guard self?.valid(generation, scan: ticket) == true else { return }
+                completion(result)
             }
         }
     }
 
     func applicationActivated(_ pid: pid_t) {
-        guard let expectedEpoch = currentEpoch() else { return }
-        recordApplicationFocus(pid, expectedEpoch)
-    }
-
-    private func recordApplicationFocus(_ pid: pid_t, _ expectedEpoch: UInt64) {
+        lock.lock(); guard active else { lock.unlock(); return }
+        pendingFocusedPID = pid
+        guard !focusReadQueued else { lock.unlock(); return }
+        focusReadQueued = true; let generation = epoch; lock.unlock()
+        // At most one pending focus observation plus the one currently reading AX.
         queue.async { [weak self] in
-            guard let self, self.isCurrent(expectedEpoch) else { return }
-            let application = AXUIElementCreateApplication(pid)
-            AXUIElementSetMessagingTimeout(application, 0.15)
-            if let focused = self.attribute(application, kAXFocusedWindowAttribute),
-               let id = PrivateWindowBridge.windowID(of: focused as! AXUIElement) { self.recordFocus(id) }
+            guard let self else { return }
+            self.lock.lock()
+            guard self.active, self.epoch == generation, let latestPID = self.pendingFocusedPID else { self.lock.unlock(); return }
+            self.focusReadQueued = false; self.lock.unlock()
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == latestPID else { return }
+            let app = AXUIElementCreateApplication(latestPID)
+            AXUIElementSetMessagingTimeout(app, 0.15)
+            if let element = self.elementAttribute(app, kAXFocusedWindowAttribute),
+               let id = PrivateWindowBridge.windowID(of: element),
+               NSWorkspace.shared.frontmostApplication?.processIdentifier == latestPID {
+                self.confirmFocus(id, generation: generation)
+            }
         }
     }
 
-    private func scan(frontmostPID: pid_t?, expectedEpoch: UInt64, revision: UInt64) -> WindowInventorySnapshot {
+    /// Public AX restore/raise plus application activation, then bounded actual-focus verification.
+    func focus(_ window: SwitcherWindow, completion: @escaping (Bool) -> Void) {
+        lock.lock(); guard active else { lock.unlock(); return }
+        let generation = epoch; focusTicket &+= 1; scanTicket &+= 1; let ticket = focusTicket; lock.unlock()
+        queue.async { [weak self] in
+            guard let self, self.valid(generation, focus: ticket) else { return }
+            guard AXIsProcessTrusted() else { self.deliverFocus(false, generation, ticket, completion); return }
+            AXUIElementSetMessagingTimeout(window.element, 0.15)
+            if self.attribute(window.element, kAXMinimizedAttribute) as? Bool == true {
+                guard self.valid(generation, focus: ticket) else { return }
+                guard AXUIElementSetAttributeValue(window.element, kAXMinimizedAttribute as CFString, kCFBooleanFalse) == .success else {
+                    self.deliverFocus(false, generation, ticket, completion); return
+                }
+            }
+            guard self.valid(generation, focus: ticket), let application = NSRunningApplication(processIdentifier: window.pid), !application.isTerminated else {
+                self.deliverFocus(false, generation, ticket, completion); return
+            }
+            _ = application.activate(options: [])
+            let app = AXUIElementCreateApplication(window.pid)
+            AXUIElementSetMessagingTimeout(app, 0.15)
+            guard self.valid(generation, focus: ticket) else { return }
+            _ = AXUIElementSetAttributeValue(app, kAXFocusedWindowAttribute as CFString, window.element)
+            guard self.valid(generation, focus: ticket) else { return }
+            _ = AXUIElementPerformAction(window.element, kAXRaiseAction as CFString)
+            self.queue.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+                guard let self, self.valid(generation, focus: ticket) else { return }
+                let focused = self.elementAttribute(app, kAXFocusedWindowAttribute)
+                let landed = focused.flatMap { PrivateWindowBridge.windowID(of: $0) } == window.id
+                    && NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid
+                if landed { self.confirmFocus(window.id, generation: generation) }
+                self.deliverFocus(landed, generation, ticket, completion)
+            }
+        }
+    }
+
+    private func deliverFocus(_ result: Bool, _ generation: UInt64, _ ticket: UInt64, _ completion: @escaping (Bool) -> Void) {
+        DispatchQueue.main.async { [weak self] in
+            guard self?.valid(generation, focus: ticket) == true else { return }
+            completion(result)
+        }
+    }
+
+    private func confirmFocus(_ id: CGWindowID, generation: UInt64) {
+        guard valid(generation) else { return }
+        focusedID = id; recency.recordFocus(id)
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.valid(generation) else { return }
+            self.onConfirmedFocus?(id)
+        }
+    }
+
+    private func scan(frontmostPID: pid_t?, generation: UInt64, ticket: UInt64) -> WindowInventorySnapshot {
+        guard AXIsProcessTrusted() else {
+            return .init(windows: [], focusedID: nil, mappingAvailable: PrivateWindowBridge.isAvailable, accessibilityTrusted: false)
+        }
         guard PrivateWindowBridge.isAvailable else {
-            return WindowInventorySnapshot(windows: [], focusedID: nil, mappingAvailable: false)
+            return .init(windows: [], focusedID: nil, mappingAvailable: false, accessibilityTrusted: true)
         }
+        // Only WindowServer metadata; no pixels, screenshot APIs or screen-recording permission.
         let descriptions = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-        var visible: [CGWindowID: CGRect] = [:]
-        var rank: [CGWindowID: Int] = [:]
-        var pids = Set<pid_t>()
-        for (index, info) in descriptions.enumerated() {
+        var visible = Set<CGWindowID>(); var rank: [CGWindowID: Int] = [:]; var visiblePIDs = Set<pid_t>()
+        for (index, info) in descriptions.prefix(2048).enumerated() {
             guard (info[kCGWindowLayer as String] as? Int) == 0,
-                  (info[kCGWindowAlpha as String] as? Double ?? 1) > 0,
                   let id = info[kCGWindowNumber as String] as? UInt32,
-                  let pid = info[kCGWindowOwnerPID as String] as? Int32,
-                  pid != ProcessInfo.processInfo.processIdentifier,
-                  let boundsDictionary = info[kCGWindowBounds as String] as? [String: Any],
-                  let bounds = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary),
-                  bounds.width > 0, bounds.height > 0 else { continue }
-            visible[id] = bounds; rank[id] = index; pids.insert(pid)
+                  let pid = info[kCGWindowOwnerPID as String] as? Int32 else { continue }
+            visible.insert(id); rank[id] = index; visiblePIDs.insert(pid)
         }
-        var result: [SwitcherWindow] = []
-        var focusedID: CGWindowID?
-        for pid in pids.sorted() {
-            guard isCurrent(expectedEpoch, revision: revision) else { break }
-            let appElement = AXUIElementCreateApplication(pid)
-            AXUIElementSetMessagingTimeout(appElement, 0.15)
-            let application = NSRunningApplication(processIdentifier: pid)
-            let elements = attribute(appElement, kAXWindowsAttribute) as? [AXUIElement] ?? []
-            if pid == frontmostPID, let focused = attribute(appElement, kAXFocusedWindowAttribute) {
-                focusedID = PrivateWindowBridge.windowID(of: focused as! AXUIElement)
-            }
-            var observedWindows: [CGWindowID: AXUIElement] = [:]
-            for element in elements {
-                guard isCurrent(expectedEpoch, revision: revision) else { break }
+        let applications = NSWorkspace.shared.runningApplications.filter {
+            $0.activationPolicy == .regular && !$0.isTerminated && !$0.isHidden
+
+        }.sorted {
+            if $0.processIdentifier == frontmostPID && $1.processIdentifier != frontmostPID { return true }
+            if $1.processIdentifier == frontmostPID { return false }
+            let l = visiblePIDs.contains($0.processIdentifier), r = visiblePIDs.contains($1.processIdentifier)
+            return l == r ? $0.processIdentifier < $1.processIdentifier : l
+        }
+        let eligible = Array(applications.prefix(64))
+        let pids = Set(eligible.map(\.processIdentifier))
+        for pid in Set(observers.keys).subtracting(pids) { removeObserver(pid) }
+        cached = cached.filter { pids.contains($0.key) }
+        let deadline = ProcessInfo.processInfo.systemUptime + 2
+        var currentFocusedID: CGWindowID?
+        for application in eligible {
+            guard valid(generation, scan: ticket), ProcessInfo.processInfo.systemUptime < deadline else { break }
+            let pid = application.processIdentifier
+            let app = AXUIElementCreateApplication(pid); AXUIElementSetMessagingTimeout(app, 0.15)
+            guard let elements = attribute(app, kAXWindowsAttribute) as? [AXUIElement] else { continue }
+            var windows = [SwitcherWindow](); var observed = [CGWindowID: AXUIElement](); var complete = true
+            for element in elements.prefix(40) {
+                guard valid(generation, scan: ticket), ProcessInfo.processInfo.systemUptime < deadline else { complete = false; break }
                 AXUIElementSetMessagingTimeout(element, 0.15)
-                guard let id = PrivateWindowBridge.windowID(of: element), let bounds = visible[id],
-                      attribute(element, kAXSubroleAttribute) as? String == kAXStandardWindowSubrole,
-                      (attribute(element, kAXMinimizedAttribute) as? Bool) != true else { continue }
-                observedWindows[id] = element
-                let title = attribute(element, kAXTitleAttribute) as? String ?? ""
-                result.append(SwitcherWindow(id: id, pid: pid, title: title.isEmpty ? "无标题窗口" : title,
-                    applicationName: application?.localizedName ?? "应用", icon: application?.icon,
-                    element: element, bounds: bounds))
+                guard let id = PrivateWindowBridge.windowID(of: element) else { continue }
+                // One AX round trip for these window properties, rather than four on a slow app.
+                var properties: CFArray?
+                let names = [kAXSubroleAttribute, kAXRoleAttribute, kAXMinimizedAttribute, kAXTitleAttribute] as CFArray
+                guard AXUIElementCopyMultipleAttributeValues(element, names, AXCopyMultipleAttributeOptions(rawValue: 0), &properties) == .success,
+                      let values = properties as? [Any], values.count == 4 else { continue }
+                let subrole = values[0] as? String
+                guard subrole == kAXStandardWindowSubrole || (subrole == nil && values[1] as? String == kAXWindowRole) else { continue }
+                let minimized = values[2] as? Bool == true
+                guard minimized || visible.contains(id) else { continue }
+                observed[id] = element
+                let rawTitle = values[3] as? String ?? ""
+                let name = application.localizedName ?? "应用"
+                windows.append(.init(id: id, pid: pid, title: String((rawTitle.isEmpty ? name : rawTitle).prefix(200)),
+                    applicationName: name, icon: application.icon, element: element, isMinimized: minimized))
             }
-            updateObserver(pid: pid, application: appElement, windows: observedWindows, expectedEpoch: expectedEpoch)
+            guard valid(generation, scan: ticket) else { break }
+            if !complete {
+                let discovered = Set(windows.map(\.id))
+                windows += (cached[pid] ?? []).filter { !discovered.contains($0.id) }
+                for window in windows { observed[window.id] = window.element }
+            }
+            cached[pid] = windows
+            updateObserver(pid: pid, application: app, windows: observed, generation: generation)
+            if pid == frontmostPID, let focused = elementAttribute(app, kAXFocusedWindowAttribute),
+               let id = PrivateWindowBridge.windowID(of: focused),
+               NSWorkspace.shared.frontmostApplication?.processIdentifier == pid {
+                currentFocusedID = id
+                if id != focusedID { confirmFocus(id, generation: generation) }
+            }
         }
-        if let focusedID, recency[focusedID] == nil { recordFocus(focusedID) }
-        result.sort {
-            let left = recency[$0.id] ?? 0, right = recency[$1.id] ?? 0
-            return left == right ? (rank[$0.id] ?? .max) < (rank[$1.id] ?? .max) : left > right
+        let baseline = cached.values.flatMap { $0 }.sorted {
+            let left = rank[$0.id] ?? Int.max, right = rank[$1.id] ?? Int.max
+            return left == right ? $0.id < $1.id : left < right
         }
-        let absent = Set(observers.keys).subtracting(pids)
-        for pid in absent { removeObserver(pid: pid) }
-        let liveIDs = Set(result.map(\.id))
-        if recency.count > 256 {
-            recency = recency.filter { liveIDs.contains($0.key) }
+        let byID = Dictionary(baseline.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let order = Array(recency.ordered(availableIDs: baseline.map(\.id)).prefix(256))
+        let live = Set(order)
+        recency.retain(liveIDs: order)
+        for pid in Array(cached.keys) {
+            cached[pid] = cached[pid]?.filter { live.contains($0.id) }
+            if let registration = observers[pid] {
+                updateObserver(pid: pid, application: registration.application,
+                    windows: registration.windows.filter { live.contains($0.key) }, generation: generation)
+            }
         }
-        return WindowInventorySnapshot(windows: result, focusedID: focusedID, mappingAvailable: true)
+        return .init(windows: order.compactMap { byID[$0] }, focusedID: currentFocusedID, mappingAvailable: true, accessibilityTrusted: true)
     }
 
     private func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
         var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, key as CFString, &value) == .success else { return nil }
-        return value
+        return AXUIElementCopyAttributeValue(element, key as CFString, &value) == .success ? value : nil
     }
 
-    private func recordFocus(_ id: CGWindowID) {
-        counter &+= 1; recency[id] = counter
-        if recency.count > 256, let oldest = recency.min(by: { $0.value < $1.value })?.key { recency.removeValue(forKey: oldest) }
+    private func elementAttribute(_ element: AXUIElement, _ key: String) -> AXUIElement? {
+        guard let value = attribute(element, key), CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+        return (value as! AXUIElement)
     }
 
-    private func updateObserver(pid: pid_t, application: AXUIElement, windows: [CGWindowID: AXUIElement], expectedEpoch: UInt64) {
-        if observers[pid]?.epoch != expectedEpoch { removeObserver(pid: pid) }
+    private func updateObserver(pid: pid_t, application: AXUIElement, windows: [CGWindowID: AXUIElement], generation: UInt64) {
+        if observers[pid]?.epoch != generation { removeObserver(pid) }
         if observers[pid] == nil {
             var observer: AXObserver?
-            let error = AXObserverCreate(pid, { _, element, notification, context in
+            guard AXObserverCreate(pid, { _, element, notification, context in
                 guard let context else { return }
-                let registration = Unmanaged<ObserverRegistration>.fromOpaque(context).takeUnretainedValue()
-                registration.inventory?.received(element, notification as String, registration.pid, registration.epoch)
-            }, &observer)
-            guard error == .success, let observer else { return }
-            let registration = ObserverRegistration(inventory: self, pid: pid, epoch: expectedEpoch, observer: observer, application: application)
+                let registration = Unmanaged<Registration>.fromOpaque(context).takeUnretainedValue()
+                guard let inventory = registration.inventory, inventory.valid(registration.epoch) else { return }
+                inventory.received(element, notification as String, registration)
+
+            }, &observer) == .success, let observer else { return }
+            let registration = Registration(self, pid, generation, observer, application)
             observers[pid] = registration
             let context = Unmanaged.passUnretained(registration).toOpaque()
-            for name in [kAXWindowCreatedNotification, kAXFocusedWindowChangedNotification] {
+            for name in [kAXWindowCreatedNotification, kAXFocusedWindowChangedNotification, kAXMainWindowChangedNotification] {
                 AXObserverAddNotification(observer, application, name as CFString, context)
             }
             DispatchQueue.main.async { [weak self, registration] in
-                guard self?.isCurrent(expectedEpoch) == true else { return }
+                guard self?.valid(generation) == true else { return }
                 CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(registration.observer), .commonModes)
             }
         }
         guard let registration = observers[pid] else { return }
         let names = [kAXUIElementDestroyedNotification, kAXTitleChangedNotification, kAXWindowMiniaturizedNotification, kAXWindowDeminiaturizedNotification]
         for (id, element) in registration.windows where windows[id] == nil {
+            guard valid(generation) else { return }
             for name in names { AXObserverRemoveNotification(registration.observer, element, name as CFString) }
         }
         let context = Unmanaged.passUnretained(registration).toOpaque()
         for (id, element) in windows where registration.windows[id] == nil {
+            guard valid(generation) else { return }
             for name in names { AXObserverAddNotification(registration.observer, element, name as CFString, context) }
         }
         registration.windows = windows
     }
 
-    private func removeObserver(pid: pid_t) {
-        guard let registration = observers.removeValue(forKey: pid) else { return }
-        DispatchQueue.main.async { [registration] in
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(registration.observer), .commonModes)
+    private func received(_ element: AXUIElement, _ notification: String, _ registration: Registration) {
+        if notification == kAXFocusedWindowChangedNotification || notification == kAXMainWindowChangedNotification {
+            applicationActivated(registration.pid)
+        }
+        queue.async { [weak self, registration] in
+            guard let self, self.valid(registration.epoch) else { return }
+            if notification == kAXUIElementDestroyedNotification,
+               let id = registration.windows.first(where: { CFEqual($0.value, element) })?.key {
+                self.cached[registration.pid]?.removeAll { $0.id == id }
+                let live = self.cached.values.flatMap { $0 }.map(\.id)
+                self.recency.retain(liveIDs: live)
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.valid(registration.epoch) else { return }
+                self.onInvalidation?()
+            }
         }
     }
 
-    private func received(_ element: AXUIElement, _ notification: String, _ pid: pid_t, _ expectedEpoch: UInt64) {
-        // An application-level focused-window notification can carry the app
-        // element, not the focused window. Read the app attribute off-main.
-        if notification == kAXFocusedWindowChangedNotification { recordApplicationFocus(pid, expectedEpoch) }
-        queue.async { [weak self] in
-            guard let self, self.isCurrent(expectedEpoch) else { return }
-            DispatchQueue.main.async { [weak self] in
-                guard let self, self.isCurrent(expectedEpoch) else { return }
-                self.onInvalidation?()
+    private func removeObserver(_ pid: pid_t) {
+        guard let registration = observers.removeValue(forKey: pid) else { return }
+        Self.detach([registration])
+    }
+
+    private static func detach(_ registrations: [Registration]) {
+        DispatchQueue.main.async {
+            for registration in registrations {
+                let source = AXObserverGetRunLoopSource(registration.observer)
+                CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+                CFRunLoopSourceInvalidate(source)
             }
         }
     }

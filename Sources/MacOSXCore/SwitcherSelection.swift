@@ -12,6 +12,19 @@ public struct SwitcherSelection: Equatable {
         move(by: initialOffset)
     }
 
+    /// When the active app has no eligible window (e.g. desktop), choose the first
+    /// available MRU window instead of accidentally skipping it.
+    public init(windowIDs: [UInt32], focusedWindowID: UInt32?, reverse: Bool) {
+        self.windowIDs = Self.unique(windowIDs)
+        self.selectedIndex = 0
+        if let focusedWindowID, let index = self.windowIDs.firstIndex(of: focusedWindowID) {
+            self.selectedIndex = index
+            move(by: reverse ? -1 : 1)
+        } else if reverse, !self.windowIDs.isEmpty {
+            self.selectedIndex = self.windowIDs.count - 1
+        }
+    }
+
     public mutating func move(by offset: Int) {
         guard !windowIDs.isEmpty else { return }
         let count = windowIDs.count
