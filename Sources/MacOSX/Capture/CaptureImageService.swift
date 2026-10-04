@@ -140,14 +140,35 @@ final class CaptureImageService {
     }
 
     static func composite(_ frames: [CaptureFrame], selection: CGRect) -> CGImage? {
+        guard !frames.isEmpty,
+              [selection.origin.x, selection.origin.y, selection.width, selection.height].allSatisfy(\.isFinite),
+              frames.allSatisfy({ frame in
+                  let rect = frame.screen.frame
+                  return [rect.minX, rect.minY, rect.maxX, rect.maxY, rect.width, rect.height].allSatisfy(\.isFinite)
+                      && rect.width > 0 && rect.height > 0 && frame.image.width > 0 && frame.image.height > 0
+              }) else { return nil }
         let available = frames.map(\.screen.frame).reduce(CGRect.null) { $0.union($1) }
         let region = selection.standardized.intersection(available)
-        guard !region.isNull, region.width >= 1, region.height >= 1 else { return nil }
-        let nativeScale = frames.map { CGFloat($0.image.width) / $0.screen.frame.width }.max() ?? 1
-        let scale = min(nativeScale, sqrt(16_000_000 / (region.width * region.height)))
+        let nativeScale = frames.map { CGFloat($0.image.width) / $0.screen.frame.width }.max() ?? 0
+        let verticalScale = frames.map { CGFloat($0.image.height) / $0.screen.frame.height }.max() ?? 0
+        // Match Selection.step's direct division: the reciprocal of the image
+        // scale can round one ULP above an otherwise valid one-pixel region.
+        let minimumWidth = frames.map { $0.screen.frame.width / CGFloat($0.image.width) }.min() ?? 0
+        let minimumHeight = frames.map { $0.screen.frame.height / CGFloat($0.image.height) }.min() ?? 0
+        guard !region.isNull,
+              [region.minX, region.minY, region.maxX, region.maxY, region.width, region.height,
+               nativeScale, verticalScale, minimumWidth, minimumHeight].allSatisfy(\.isFinite),
+              nativeScale > 0, verticalScale > 0, minimumWidth > 0, minimumHeight > 0,
+              region.width >= minimumWidth, region.height >= minimumHeight else { return nil }
+        let area = region.width * region.height
+        guard area.isFinite, area > 0 else { return nil }
+        let scale = min(nativeScale, sqrt(CGFloat(CaptureRaster.maximumPixels) / area))
+        let scaledWidth = region.width * scale, scaledHeight = region.height * scale
+        guard scale.isFinite, scale > 0, scaledWidth.isFinite, scaledHeight.isFinite,
+              scaledWidth > 0, scaledHeight > 0, scaledWidth <= 16_000, scaledHeight <= 16_000 else { return nil }
         // Rounding upward could exceed the pixel ceiling by one output row.
-        let width = max(1, Int((region.width * scale).rounded(.down)))
-        let height = max(1, Int((region.height * scale).rounded(.down)))
+        let width = max(1, Int(scaledWidth.rounded(.down)))
+        let height = max(1, Int(scaledHeight.rounded(.down)))
         guard let context = CaptureRaster.context(width: width, height: height) else { return nil }
         for frame in frames {
             let overlap = region.intersection(frame.screen.frame)

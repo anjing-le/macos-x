@@ -1,6 +1,7 @@
 import AppKit
 
-// Standalone: compile with CaptureSampling.swift; no app launch, screen access,
+// Standalone: compile with CaptureSampling.swift and CaptureImageService.swift;
+// no app launch, screen access,
 // pasteboard writes, or permission requests. Expected colors and rectangles are
 // fixtures, not computed by the sampling/geometry functions under test.
 private struct RegressionFailure: Error, CustomStringConvertible {
@@ -40,7 +41,8 @@ private struct CaptureRegression {
             try colorSpaceAndAlpha(&checks)
             try globalMappingAndLimits(&checks)
             try selectionGeometry(&checks)
-            print("PASS capture regression: \(checks.assertions) assertions; orientation, sRGB/P3, alpha, Retina/negative origins, downsample mapping, edge patches, byte limits, and pixel geometry")
+            try onePixelComposite(&checks)
+            print("PASS capture regression: \(checks.assertions) assertions; orientation, sRGB/P3, alpha, Retina/negative origins, downsample mapping, edge patches, byte limits, pixel geometry, and one-pixel composition")
         } catch {
             FileHandle.standardError.write(Data("FAIL capture regression: \(error)\n".utf8))
             exit(1)
@@ -214,5 +216,77 @@ private struct CaptureRegression {
         try checks.rect(CaptureSelectionGeometry.adjusted(rect, key: 36, enlarge: true, step: step, in: bounds), rect, "unrelated key leaves geometry unchanged")
         try checks.rect(CaptureSelectionGeometry.adjusted(rect, key: 124, enlarge: true, step: CGSize(width: 4, height: 4), in: bounds), CGRect(x: -190, y: -90, width: 24, height: 10), "reduced capture adjusts by one output pixel, four global points")
         print("PASS selection: clamp/move and all four enlarge/shrink directions by one actual pixel")
+    }
+
+    private static func onePixelComposite(_ checks: inout Checks) throws {
+        let source = quadrantImage()
+        let retina = CaptureFrame(screen: CaptureScreen(id: 0,
+            frame: CGRect(x: -4, y: -2, width: 2, height: 2), scale: 2), image: source)
+        for (region, expected) in [
+            (CGRect(x: -4, y: -0.5, width: 0.5, height: 0.5), [UInt(255), 0, 0, 255]),
+            (CGRect(x: -2.5, y: -2, width: 0.5, height: 0.5), [UInt(0), 0, 255, 255]),
+            (CGRect(x: -3.5, y: 0, width: -0.5, height: -0.5), [UInt(255), 0, 0, 255])
+        ] {
+            guard let result = CaptureImageService.composite([retina], selection: region) else {
+                throw RegressionFailure(description: "one actual 2× pixel must produce an image for \(region)")
+            }
+            try checks.require(result.width == 1 && result.height == 1, "0.5 points at 2× must export exactly 1×1 pixel")
+            try checks.require(bitmapPixel(NSBitmapImageRep(cgImage: result), x: 0, y: 0) == expected,
+                               "independent bitmap reader must see the selected red/blue pixel, including alpha")
+        }
+        // The captured raster, rather than the display's advertised scale,
+        // determines the minimum after screenshot downsampling.
+        let reduced = CaptureFrame(screen: CaptureScreen(id: 0,
+            frame: CGRect(x: -4, y: -4, width: 4, height: 4), scale: 2), image: source)
+        try checks.require(CaptureImageService.composite([reduced], selection: CGRect(x: -4, y: -1, width: 0.5, height: 0.5)) == nil,
+                           "half an actual reduced pixel must be rejected despite nominal 2× display")
+        guard let reducedPixel = CaptureImageService.composite([reduced], selection: CGRect(x: -4, y: -1, width: 1, height: 1)) else {
+            throw RegressionFailure(description: "one reduced pixel must still export")
+        }
+        try checks.require(reducedPixel.width == 1 && reducedPixel.height == 1, "one reduced pixel exports 1×1")
+        try checks.require(bitmapPixel(NSBitmapImageRep(cgImage: reducedPixel), x: 0, y: 0) == [255, 0, 0, 255],
+                           "reduced top-left pixel remains red")
+        // Independent IEEE-754 golden step for 1440 points / 1454 pixels.
+        // 1 / (1454 / 1440) is one ULP larger and incorrectly rejects this.
+        let fractionalImage = image(width: 1454, height: 2,
+            rgba: Array(repeating: [UInt8(255), 0, 0, 255], count: 1454 * 2).flatMap { $0 },
+            space: CGColorSpace(name: CGColorSpace.sRGB)!)
+        let fractional = CaptureFrame(screen: CaptureScreen(id: 0,
+            frame: CGRect(x: 0, y: 0, width: 1440, height: 2), scale: 2), image: fractionalImage)
+        let fractionalStep: CGFloat = 0.9903713892709766
+        guard let fractionalPixel = CaptureImageService.composite([fractional],
+            selection: CGRect(x: 0, y: 0, width: fractionalStep, height: 1)) else {
+            throw RegressionFailure(description: "1440pt/1454px one-pixel golden step must not be rejected by reciprocal rounding")
+        }
+        try checks.require(fractionalPixel.width == 1 && fractionalPixel.height == 1, "noninteger actual scale exports exactly one pixel")
+        try checks.require(bitmapPixel(NSBitmapImageRep(cgImage: fractionalPixel), x: 0, y: 0) == [255, 0, 0, 255],
+                           "noninteger-scale pixel remains opaque red")
+        try checks.require(CaptureImageService.composite([fractional],
+            selection: CGRect(x: 0, y: 0, width: fractionalStep.nextDown, height: 1)) == nil,
+                           "one ULP below the actual pixel step remains rejected")
+        let nonuniform = CaptureFrame(screen: CaptureScreen(id: 0,
+            frame: CGRect(x: 0, y: 0, width: 2, height: 4), scale: 2), image: source)
+        try checks.require(CaptureImageService.composite([nonuniform], selection: CGRect(x: 0, y: 3, width: 0.5, height: 0.5)) == nil,
+                           "vertical actual-pixel size is checked independently of horizontal scale")
+        for region in [CGRect(x: -4, y: -0.5, width: 0.49, height: 0.5),
+                       CGRect(x: -4, y: -0.5, width: 0, height: 0.5),
+                       CGRect(x: CGFloat.nan, y: 0, width: 0.5, height: 0.5),
+                       CGRect(x: 0, y: 0, width: CGFloat.infinity, height: 0.5)] {
+            try checks.require(CaptureImageService.composite([retina], selection: region) == nil,
+                               "subpixel/empty/nonfinite selection must fail safely")
+        }
+        let validSelection = CGRect(x: 0, y: 0, width: 1, height: 1)
+        for rect in [CGRect.zero, CGRect(x: 0, y: 0, width: -2, height: 2),
+                     CGRect(x: CGFloat.nan, y: 0, width: 2, height: 2),
+                     CGRect(x: 0, y: 0, width: CGFloat.leastNonzeroMagnitude, height: 2)] {
+            let invalid = CaptureFrame(screen: CaptureScreen(id: 0, frame: rect, scale: 2), image: source)
+            try checks.require(CaptureImageService.composite([invalid], selection: validSelection) == nil,
+                               "invalid frame/nonfinite derived scale must fail without Int conversion")
+        }
+        try checks.require(CaptureImageService.composite([], selection: validSelection) == nil, "empty capture cannot composite")
+        let huge = CaptureFrame(screen: CaptureScreen(id: 0,
+            frame: CGRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude), scale: 2), image: source)
+        try checks.require(CaptureImageService.composite([huge], selection: huge.screen.frame) == nil, "overflowing region area fails safely")
+        print("PASS composition: exact red/blue 1×1 pixels at 2×/negative origins; reduced scale and finite bounds")
     }
 }

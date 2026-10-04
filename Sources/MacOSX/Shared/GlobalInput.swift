@@ -11,7 +11,7 @@ enum ShortcutAction: UInt32, CaseIterable, Sendable {
         case .capture: return "截图"
         case .pin: return "贴图"
         case .recording: return "录屏"
-        case .togglePins: return "显隐贴图"
+        case .togglePins: return "显示 / 隐藏"
         }
     }
     var defaultBinding: ShortcutBinding {

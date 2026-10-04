@@ -94,8 +94,9 @@ final class CaptureEditor: NSObject, NSWindowDelegate {
     }
 
     private func icon(_ symbol: String, title: String, action: Selector) -> NSButton {
-        let button = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: title) ?? NSImage(), target: self, action: action)
-        button.isBordered = false; button.toolTip = title; button.setAccessibilityLabel(title)
+        let button = MinimalButton(title: "", target: self, action: action, style: .quiet)
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title) ?? NSImage()
+        button.imagePosition = .imageOnly; button.toolTip = title; button.setAccessibilityLabel(title)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.widthAnchor.constraint(equalToConstant: 25).isActive = true; button.heightAnchor.constraint(equalToConstant: 26).isActive = true
         return button
@@ -230,6 +231,10 @@ final class CaptureEditor: NSObject, NSWindowDelegate {
                 }
             }
         }
+    }
+    func pinCurrentImage() {
+        guard window.attachedSheet == nil else { return }
+        pinImage()
     }
     @objc private func pinImage() {
         guard beginExport() else { return }

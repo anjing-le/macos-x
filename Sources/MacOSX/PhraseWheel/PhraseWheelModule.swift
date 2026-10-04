@@ -100,7 +100,7 @@ private final class PhraseWheelSettingsView: NSView, NSTextFieldDelegate {
     private let scroll = NSScrollView()
     private let document = PhraseSlotsDocument()
     private let heading = NSTextField(labelWithString: "十个位置")
-    private let preview = NSButton(title: "预览", target: nil, action: nil)
+    private let preview = MinimalButton(title: "预览", target: nil, action: nil, style: .standard)
     private var fields: [NSTextField] = []
     private var labels: [NSTextField] = []
 
@@ -112,9 +112,6 @@ private final class PhraseWheelSettingsView: NSView, NSTextFieldDelegate {
         heading.font = .systemFont(ofSize: 12)
         heading.textColor = .secondaryLabelColor
         addSubview(heading)
-        preview.bezelStyle = .rounded
-        preview.controlSize = .small
-        preview.font = .systemFont(ofSize: 12)
         preview.target = self
         preview.action = #selector(previewPressed)
         addSubview(preview)
@@ -133,6 +130,11 @@ private final class PhraseWheelSettingsView: NSView, NSTextFieldDelegate {
             field.tag = index
             field.delegate = self
             field.font = .systemFont(ofSize: 13)
+            field.isBezeled = false
+            field.isBordered = false
+            field.drawsBackground = true
+            field.backgroundColor = .labelColor.withAlphaComponent(0.035)
+            field.textColor = .labelColor
             field.usesSingleLineMode = true
             field.lineBreakMode = .byClipping
             field.setAccessibilityLabel("位置 \(digit)")
@@ -148,7 +150,7 @@ private final class PhraseWheelSettingsView: NSView, NSTextFieldDelegate {
     override func layout() {
         super.layout()
         heading.frame = NSRect(x: 0, y: max(0, bounds.height - 24), width: max(0, bounds.width - 72), height: 20)
-        preview.frame = NSRect(x: max(0, bounds.width - 64), y: max(0, bounds.height - 27), width: 64, height: 26)
+        preview.frame = NSRect(x: max(0, bounds.width - 64), y: max(0, bounds.height - 30), width: 64, height: 30)
         scroll.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - 40))
         let height = max(scroll.contentView.bounds.height, CGFloat(fields.count) * 36 + 12)
         document.frame = NSRect(x: 0, y: 0, width: scroll.contentView.bounds.width, height: height)

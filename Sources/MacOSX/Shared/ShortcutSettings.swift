@@ -53,7 +53,7 @@ final class ShortcutStore {
 }
 
 @MainActor
-private final class ShortcutRecorder: NSButton {
+private final class ShortcutRecorder: MinimalButton {
     var onBinding: ((ShortcutBinding) -> Void)?
     var onRecording: ((Bool) -> Void)?
     private var recording = false
@@ -64,7 +64,6 @@ private final class ShortcutRecorder: NSButton {
 
     init() {
         super.init(frame: .zero)
-        bezelStyle = .rounded
         font = .systemFont(ofSize: 12, weight: .medium)
         target = self; action = #selector(begin)
         toolTip = "点击后按下新快捷键；Escape 取消"
@@ -118,7 +117,7 @@ private final class ShortcutRecorder: NSButton {
 @MainActor
 final class ShortcutPicker: NSStackView {
     private let recorder = ShortcutRecorder()
-    private let mode = NSPopUpButton()
+    private let mode = MinimalPopUpButton()
     private let notice = NSTextField(labelWithString: "")
     private var binding: ShortcutBinding
     private var editingChord = false
@@ -133,7 +132,7 @@ final class ShortcutPicker: NSStackView {
         orientation = .vertical; alignment = .leading; spacing = 6
         let row = NSStackView(); row.orientation = .horizontal; row.spacing = 12
         let label = NSTextField(labelWithString: title); label.font = .systemFont(ofSize: 12); label.textColor = .secondaryLabelColor
-        label.widthAnchor.constraint(equalToConstant: 52).isActive = true
+        label.widthAnchor.constraint(equalToConstant: 88).isActive = true
         row.addArrangedSubview(label)
         if allowsDoubleTap {
             mode.addItems(withTitles: ["双击右 Option", "双击左 Option", "组合键"])
@@ -142,6 +141,7 @@ final class ShortcutPicker: NSStackView {
             row.addArrangedSubview(mode)
         }
         row.addArrangedSubview(recorder)
+        recorder.widthAnchor.constraint(greaterThanOrEqualToConstant: 104).isActive = true
         addArrangedSubview(row)
         notice.font = .systemFont(ofSize: 11); notice.textColor = .systemRed; notice.maximumNumberOfLines = 2
         addArrangedSubview(notice)

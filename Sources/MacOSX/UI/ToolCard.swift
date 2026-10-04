@@ -230,13 +230,11 @@ final class ToolCard: NSControl {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             cardLayer.backgroundColor = (dark
-                ? NSColor(calibratedRed: 0.16, green: 0.14, blue: 0.15, alpha: 0.94)
-                : NSColor(calibratedRed: 1, green: 0.975, blue: 0.98, alpha: 0.94)).cgColor
+                ? NSColor(srgbRed: 0.14, green: 0.14, blue: 0.145, alpha: 1)
+                : NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)).cgColor
             cardLayer.borderColor = NSColor.labelColor.withAlphaComponent(revealed ? 0.13 : 0.07).cgColor
             cardLayer.shadowColor = NSColor.black.cgColor
-            symbolView.contentTintColor = dark
-                ? NSColor(srgbRed: 232 / 255, green: 180 / 255, blue: 187 / 255, alpha: 1)
-                : NSColor(srgbRed: 212 / 255, green: 145 / 255, blue: 154 / 255, alpha: 1)
+            symbolView.contentTintColor = .secondaryLabelColor
             titleLabel.textColor = .labelColor
         }
         animate(cardLayer, "transform", NSValue(caTransform3D: CATransform3DMakeScale(cardScale, cardScale, 1)), duration)

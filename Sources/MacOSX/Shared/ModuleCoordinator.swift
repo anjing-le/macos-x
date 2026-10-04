@@ -26,7 +26,7 @@ final class ModuleCoordinator {
             switch action {
             case .wheel: self.wheel?.summon()
             case .capture: self.capture?.capture()
-            case .pin: self.capture?.pinClipboard()
+            case .pin: self.capture?.pin()
             case .recording: self.capture?.toggleRecording()
             case .togglePins: self.capture?.togglePins()
             }
@@ -77,6 +77,7 @@ final class ModuleCoordinator {
             if capture == nil {
                 capture = CaptureModule()
                 capture?.onPermissionNeeded = { [weak self] in self?.requestScreenCapture() }
+                capture?.onStatusChange = { [weak self] _ in self?.onStateChanged?(.capture) }
             }
         case .windowSwitcher:
             if switcher == nil {
@@ -142,7 +143,7 @@ final class ModuleCoordinator {
     }
 
     func shortcutPicker(_ action: ShortcutAction) -> NSView {
-        ShortcutPicker(title: action == .wheel ? "唤起" : action.title,
+        let picker = ShortcutPicker(title: action == .wheel ? "唤起" : action.title,
             binding: shortcuts.binding(for: action), allowsDoubleTap: action == .wheel,
             recordingChanged: { [weak self] value in
                 guard let self, !self.terminating else { return }
@@ -160,6 +161,9 @@ final class ModuleCoordinator {
                 self.shortcuts.set(value, for: action); self.configureInput()
                 self.onStateChanged?(action == .wheel ? .kaomoji : .capture)
             })
+        if action == .togglePins { picker.toolTip = "暂时隐藏或显示桌面的全部贴图，不会删除图片。" }
+        if action == .pin { picker.toolTip = "框选或标注时固定当前区域；其他时候贴出剪贴板内容。" }
+        return picker
     }
 
     func needsAccessibility(_ tool: Tool) -> Bool {
@@ -224,21 +228,23 @@ final class ModuleCoordinator {
 final class ModuleSettingsHeader: NSStackView {
     private let module: ModuleCoordinator
     private let tool: Tool
-    private let toggle = NSSwitch()
-    private let accessibility = NSButton(title: "允许辅助功能", target: nil, action: nil)
-    private let screenCapture = NSButton(title: "允许屏幕录制", target: nil, action: nil)
+    private let toggle = MinimalToggle(title: "", target: nil, action: nil)
+    private let accessibility = MinimalButton(title: "允许辅助功能", target: nil, action: nil, style: .standard)
+    private let screenCapture = MinimalButton(title: "允许屏幕录制", target: nil, action: nil, style: .standard)
     private let issue = NSTextField(labelWithString: "")
 
     init(tool: Tool, module: ModuleCoordinator) {
         self.tool = tool; self.module = module
         super.init(frame: .zero)
         orientation = .vertical; alignment = .leading; spacing = 16
-        let enabled = NSStackView(); enabled.orientation = .horizontal; enabled.spacing = 16
-        let label = NSTextField(labelWithString: "启用"); label.font = .systemFont(ofSize: 13)
+        let enabled = NSStackView(); enabled.orientation = .horizontal; enabled.spacing = 12
+        let label = NSTextField(labelWithString: "启用"); label.font = .systemFont(ofSize: 12)
+        label.textColor = .secondaryLabelColor
+        label.widthAnchor.constraint(equalToConstant: 88).isActive = true
         enabled.addArrangedSubview(label); enabled.addArrangedSubview(toggle)
         toggle.target = self; toggle.action = #selector(changeEnabled); toggle.setAccessibilityLabel("启用\(tool.title)")
         addArrangedSubview(enabled)
-        for button in [accessibility, screenCapture] { button.bezelStyle = .rounded; button.target = self; addArrangedSubview(button) }
+        for button in [accessibility, screenCapture] { button.target = self; addArrangedSubview(button) }
         accessibility.action = #selector(allowAccessibility); screenCapture.action = #selector(allowScreenCapture)
         issue.font = .systemFont(ofSize: 11); issue.textColor = .secondaryLabelColor; issue.maximumNumberOfLines = 2
         addArrangedSubview(issue)

@@ -87,6 +87,11 @@ import AppKit
         drag = nil; spaceDown = false; spaceRegion = .null; selection = .null; previousRegion = nil
     }
 
+    func pinCurrentSelection() {
+        guard acceptsInput, let region = validRegion() else { return }
+        finish(.pin(region))
+    }
+
     private var desktop: CGRect { frames.reduce(.null) { $0.union($1.screen.frame) } }
     private var hovered: CGRect { candidates.first { $0.contains(pointer) } ?? .null }
     private var visibleRegion: CGRect { selection.isNull ? hovered : selection }
@@ -201,7 +206,7 @@ import AppKit
                let sample = frame.sampler?.sample(globalPoint: pointer, in: frame.screen.frame) {
                 finish(.color(rgbFormat ? sample.rgb : sample.hex))
             }
-        case 17 where command: if let region = validRegion() { finish(.pin(region)) }
+        case 17 where command: pinCurrentSelection()
         case 0 where command: selectFullScreen()
         case 15 where !command:
             if let previousRegion { selection = CaptureSelectionGeometry.clamped(previousRegion, to: desktop); drag = nil; redraw(); showToolbar() }
@@ -261,15 +266,16 @@ import AppKit
         toolbar.setFrame(CGRect(origin: CGPoint(x: x, y: y), size: size), display: true); toolbar.orderFrontRegardless()
     }
     private func icon(_ symbol: String, title: String, action: Selector) -> NSButton {
-        let button = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: title) ?? NSImage(), target: self, action: action)
-        button.isBordered = false; button.toolTip = title; button.setAccessibilityLabel(title)
+        let button = MinimalButton(title: "", target: self, action: action, style: .quiet)
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title) ?? NSImage()
+        button.imagePosition = .imageOnly; button.toolTip = title; button.setAccessibilityLabel(title)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.widthAnchor.constraint(equalToConstant: 28).isActive = true; button.heightAnchor.constraint(equalToConstant: 26).isActive = true
         return button
     }
     @objc private func editPressed(_ sender: NSButton) { if let region = validRegion() { selectedTool = CaptureTool(rawValue: sender.tag) ?? .rectangle; finish(.edit(region)) } }
     @objc private func copyPressed() { if let region = validRegion() { finish(.copy(region)) } }
-    @objc private func pinPressed() { if let region = validRegion() { finish(.pin(region)) } }
+    @objc private func pinPressed() { pinCurrentSelection() }
     @objc private func cancelPressed() { finish(.cancel) }
 }
 

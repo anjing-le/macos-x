@@ -13,9 +13,10 @@ final class CapturePins {
     private var ticket = CaptureImageService.Ticket()
     var onStatus: ((String) -> Void)?
     var count: Int { entries.count }
+    var canAdd: Bool { entries.count + pending.count + (adding ? 1 : 0) < 8 }
 
     func add(_ image: CGImage, at frame: CGRect? = nil) {
-        guard entries.count + pending.count + (adding ? 1 : 0) < 8 else { onStatus?("最多 8 张贴图。"); return }
+        guard canAdd else { onStatus?("最多 8 张贴图。"); return }
         recovered = nil
         pending.append(Request(image: image, frame: frame))
         addNext()
@@ -51,15 +52,17 @@ final class CapturePins {
     func restoreLastClosed() -> Bool {
         guard let (snapshot, changeCount) = recovered else { return false }
         guard changeCount == NSPasteboard.general.changeCount else { recovered = nil; return false }
-        guard entries.count + pending.count + (adding ? 1 : 0) < 8 else { return false }
+        guard canAdd else { return false }
         recovered = nil
         insert(PinEntry(snapshot: snapshot, queue: queue))
         return true
     }
     func toggleAll() { entries.contains(where: { $0.window.isVisible }) ? hideAll() : showAll() }
     func hideAll() { entries.forEach { $0.window.orderOut(nil) }; onStatus?("贴图已隐藏 · ⇧F3 显示") }
-    func showAll() { entries.forEach { $0.present(focus: false) }; onStatus?("已显示贴图。") }
-    func restoreInteraction() { entries.forEach { $0.window.ignoresMouseEvents = false }; showAll() }
+    func showAll() {
+        entries.forEach { $0.window.ignoresMouseEvents = false; $0.present(focus: false) }
+        onStatus?("已显示贴图。")
+    }
     func closeAll() {
         generation &+= 1; ticket.cancel(); ticket = CaptureImageService.Ticket()
         pending.removeAll(); recovered = nil
@@ -244,7 +247,7 @@ private final class PinEntry: NSObject, NSWindowDelegate {
         case 1: perform(.zoom(1.2)); case 2: perform(.zoom(1 / 1.2))
         case 3: perform(.rotate(true)); case 4: perform(.rotate(false))
         case 5: perform(.horizontal); case 6: perform(.vertical); case 7: perform(.thumbnail)
-        case 8: window.ignoresMouseEvents = true; onStatus?("已穿透 · 设置可恢复交互")
+        case 8: window.ignoresMouseEvents = true; onStatus?("已穿透 · 隐藏后再显示可恢复交互")
         case 9: perform(.close)
         default: break
         }

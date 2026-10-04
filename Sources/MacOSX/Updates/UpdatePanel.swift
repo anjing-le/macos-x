@@ -16,7 +16,7 @@ private final class UpdateFloatingPanel: NSPanel {
 }
 
 @MainActor
-private final class UpdatePanelButton: NSButton {
+private final class UpdatePanelButton: MinimalButton {
     override var canBecomeKeyView: Bool {
         isEnabled && acceptsFirstResponder && !isHiddenOrHasHiddenAncestor && window?.canBecomeKey == true
     }
@@ -27,9 +27,10 @@ private final class UpdatePanelContent: NSView {
     let titleLabel = NSTextField(labelWithString: "")
     let detailLabel = NSTextField(wrappingLabelWithString: "")
     let progress = NSProgressIndicator()
-    let primary = UpdatePanelButton(title: "", target: nil, action: nil)
-    let secondary = UpdatePanelButton(title: "", target: nil, action: nil)
+    let primary = UpdatePanelButton(title: "", target: nil, action: nil, style: .primary)
+    let secondary = UpdatePanelButton(title: "", target: nil, action: nil, style: .quiet)
     let buttons = NSView()
+    private let iconPlate = NSView()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -45,9 +46,7 @@ private final class UpdatePanelContent: NSView {
         }
         icon.imageScaling = .scaleProportionallyUpOrDown
         icon.setAccessibilityElement(false)
-        let iconPlate = NSView()
         iconPlate.wantsLayer = true
-        iconPlate.layer?.backgroundColor = NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.96).cgColor
         iconPlate.layer?.cornerRadius = 9
         iconPlate.addSubview(icon)
         icon.translatesAutoresizingMaskIntoConstraints = false
@@ -81,11 +80,7 @@ private final class UpdatePanelContent: NSView {
 
         for button in [primary, secondary] {
             button.setButtonType(.momentaryPushIn)
-            button.bezelStyle = .rounded
-            button.isBordered = false
             button.font = .systemFont(ofSize: 13, weight: button === primary ? .medium : .regular)
-            button.wantsLayer = true
-            button.layer?.cornerRadius = 8
             button.translatesAutoresizingMaskIntoConstraints = false
             button.heightAnchor.constraint(equalToConstant: 30).isActive = true
             button.widthAnchor.constraint(greaterThanOrEqualToConstant: 80).isActive = true
@@ -148,16 +143,8 @@ private final class UpdatePanelContent: NSView {
 
     func updateAppearance() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            layer?.backgroundColor = (dark
-                ? NSColor(srgbRed: 0.14, green: 0.13, blue: 0.14, alpha: 1)
-                : NSColor(srgbRed: 0.995, green: 0.987, blue: 0.988, alpha: 1)).cgColor
-            primary.layer?.backgroundColor = (dark
-                ? NSColor(srgbRed: 0.9, green: 0.88, blue: 0.89, alpha: 1)
-                : NSColor(srgbRed: 0.2, green: 0.18, blue: 0.19, alpha: 1)).cgColor
-            primary.contentTintColor = dark ? .black : .white
-            primary.layer?.opacity = primary.isEnabled ? 1 : 0.4
-            secondary.contentTintColor = .secondaryLabelColor
+            layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+            iconPlate.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.035).cgColor
             titleLabel.textColor = .labelColor
         }
     }

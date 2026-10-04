@@ -107,7 +107,7 @@ private final class ToolboxContent: NSView {
         ])
         detail.orientation = .vertical
         detail.alignment = .leading
-        detail.spacing = 24
+        detail.spacing = 20
         detailDocument.addSubview(detail)
         updateBackground()
     }
@@ -122,8 +122,8 @@ private final class ToolboxContent: NSView {
     private func updateBackground() {
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         layer?.backgroundColor = (dark
-            ? NSColor(calibratedRed: 0.13, green: 0.12, blue: 0.13, alpha: 1)
-            : NSColor(calibratedRed: 1, green: 0.992, blue: 0.996, alpha: 1)).cgColor
+            ? NSColor(srgbRed: 0.105, green: 0.105, blue: 0.11, alpha: 1)
+            : NSColor(srgbRed: 0.985, green: 0.985, blue: 0.985, alpha: 1)).cgColor
     }
 
     func showCards(_ cards: [ToolCard]) {
@@ -162,7 +162,7 @@ private final class ToolboxContent: NSView {
             grid.arrange(width: width, minimumHeight: height)
         } else {
             let inset: CGFloat = width < 480 ? 24 : 36
-            let contentWidth = max(220, min(640, width - inset * 2))
+            let contentWidth = max(220, min(480, width - inset * 2))
             detail.frame = NSRect(x: inset, y: inset, width: contentWidth, height: max(0, detail.fittingSize.height))
             detail.layoutSubtreeIfNeeded()
             let contentHeight = detail.fittingSize.height
@@ -284,9 +284,8 @@ final class ToolboxWindowController: NSWindowController, NSToolbarDelegate {
             views.append(shortcut)
         }
         views.append(modules.settingsView(for: tool))
-        let remove = NSButton(title: "移除", target: self, action: #selector(removeCurrentTool))
-        remove.isBordered = false
-        remove.font = .systemFont(ofSize: 13)
+        let remove = MinimalButton(title: "移除", target: self, action: #selector(removeCurrentTool), style: .quiet)
+        remove.font = .systemFont(ofSize: 12)
         remove.toolTip = "从首页移除这张卡片"
         views.append(remove)
         content.showDetail(views)
@@ -320,15 +319,18 @@ final class ToolboxWindowController: NSWindowController, NSToolbarDelegate {
         if identifier == Self.backID {
             item.label = "返回"
             item.toolTip = "返回首页"
-            item.image = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: "返回")
-            item.target = self
-            item.action = #selector(goBack)
+            let button = MinimalButton(title: "", target: self, action: #selector(goBack), style: .quiet)
+            button.image = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: "返回")
+            button.imagePosition = .imageOnly
+            button.toolTip = "返回首页"
+            button.setAccessibilityLabel("返回首页")
+            button.widthAnchor.constraint(equalToConstant: 30).isActive = true
+            item.view = button
         } else if identifier == Self.updatesID {
             let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版"
-            let button = NSButton(title: version, target: self, action: #selector(checkUpdates))
+            let button = MinimalButton(title: version, target: self, action: #selector(checkUpdates), style: .quiet)
             button.image = NSImage(systemSymbolName: "arrow.down.to.line", accessibilityDescription: "检查更新")
             button.imagePosition = .imageTrailing
-            button.isBordered = false
             button.font = .systemFont(ofSize: 12)
             button.toolTip = "检查更新…"
             button.setAccessibilityLabel("检查更新，当前版本 \(version)")

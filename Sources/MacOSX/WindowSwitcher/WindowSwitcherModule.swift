@@ -46,8 +46,8 @@ import MacOSXCore
         if let settings { return settings }
         let label = NSTextField(wrappingLabelWithString: status)
         label.font = .systemFont(ofSize: 12); label.textColor = .secondaryLabelColor
-        let preview = NSButton(title: "预览窗口切换", target: self, action: #selector(previewPressed))
-        preview.bezelStyle = .rounded; preview.isEnabled = isReady
+        let preview = MinimalButton(title: "预览窗口切换", target: self, action: #selector(previewPressed), style: .standard)
+        preview.isEnabled = isReady
         let stack = NSStackView(views: [preview, label])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 10
         settings = stack; statusLabel = label; previewButton = preview
