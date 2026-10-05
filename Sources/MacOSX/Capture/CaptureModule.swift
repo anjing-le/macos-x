@@ -8,6 +8,7 @@ final class CaptureModule {
     private let selection = CaptureSelection()
     private let pins = CapturePins()
     private let recorder = CaptureRecorder()
+    private let recordingPresentation = RecordingPresentation()
     private let work = DispatchQueue(label: "cc.anjing.macos-x.capture.actions", qos: .userInitiated)
     private let status = NSTextField(wrappingLabelWithString: "未启用")
     private var editor: CaptureEditor?
@@ -36,10 +37,12 @@ final class CaptureModule {
 
     init() {
         pins.onStatus = { [weak self] in self?.setStatus($0) }
+        recordingPresentation.onStop = { [weak self] in self?.toggleRecording() }
     }
     func start() {
         guard !running, !terminating else { return }
         running = true
+        recordingPresentation.resume()
         setStatus(recordingState == .idle ? "已就绪" : "正在保存录屏…")
     }
     func stop() {
@@ -52,6 +55,7 @@ final class CaptureModule {
         editorPending = false; pinAfterEditor = false
         if recordingState == .choosing { recordingState = .idle }
         if recordingState != .idle { recordingState = .finishing }
+        recordingPresentation.dismiss()
         recorder.stop()
         setStatus(recordingState == .idle ? "已停用" : "正在保存录屏…")
     }
@@ -194,7 +198,7 @@ final class CaptureModule {
     func toggleRecording() {
         guard running, !terminating else { return }
         if recordingState == .recording || recordingState == .starting {
-            recordingState = .finishing; setStatus("正在保存录屏…")
+            recordingState = .finishing; recordingPresentation.saving(); setStatus("正在保存录屏…")
             recorder.stop(); return
         }
         if recordingState == .choosing {
@@ -263,13 +267,16 @@ final class CaptureModule {
                         switch result {
                         case .failure(let error):
                             self.recordingState = .idle
+                            self.recordingPresentation.completed(nil, announce: false)
                             if self.running, !self.terminating, self.generation == expected { self.handle(error) }
                         case .success:
                             if !self.running || self.terminating || self.generation != expected || self.recordingState == .finishing {
                                 self.recordingState = .finishing; self.recorder.stop()
                             } else {
                                 self.hasConfirmedScreenCaptureAccess = true
-                                self.recordingState = .recording; self.setStatus("录屏中 · 再按录屏快捷键结束")
+                                self.recordingState = .recording
+                                self.recordingPresentation.began()
+                                self.setStatus("录屏中")
                             }
                         }
                     }
@@ -277,12 +284,13 @@ final class CaptureModule {
                     MainActor.assumeIsolated {
                         guard let self, self.recordingRevision == revision else { return }
                         self.recordingState = .idle
+                        self.recordingPresentation.completed(url, announce: self.running && !self.terminating && self.generation == expected)
                         guard self.running, !self.terminating, self.generation == expected else { return }
                         if let error, case CaptureFailure.permission = CaptureFailure.screenCaptureError(error) {
                             self.hasConfirmedScreenCaptureAccess = false
                         }
-                        if let url {
-                            self.setStatus(error == nil ? "已保存录屏：\(url.lastPathComponent)" : "录屏中断，已保存可用片段：\(url.lastPathComponent)")
+                        if url != nil {
+                            self.setStatus(error == nil ? "已保存录屏" : "录屏中断，已保存可用片段")
                         } else { self.handle(error ?? CaptureFailure.message("录屏未生成可保存的画面。")) }
                     }
                 })
@@ -335,7 +343,7 @@ final class CaptureModule {
     }
     private func setStatus(_ value: String) {
         status.stringValue = value
-        status.isHidden = ["未启用", "已就绪", "已停用"].contains(value)
+        status.isHidden = ["未启用", "已就绪", "已停用", "录屏中", "已保存录屏"].contains(value)
         onStatusChange?(value)
     }
     private func screenDescriptors() -> [CaptureScreen] {
@@ -347,7 +355,9 @@ final class CaptureModule {
     private func buildSettings() -> NSView {
         status.font = .systemFont(ofSize: 12); status.textColor = .secondaryLabelColor
         status.preferredMaxLayoutWidth = 600
-        status.isHidden = ["未启用", "已就绪", "已停用"].contains(status.stringValue)
-        return status
+        status.isHidden = ["未启用", "已就绪", "已停用", "录屏中", "已保存录屏"].contains(status.stringValue)
+        let stack = NSStackView(views: [recordingPresentation.settingsView, status])
+        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 14
+        return stack
     }
 }

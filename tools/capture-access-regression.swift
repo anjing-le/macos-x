@@ -89,6 +89,16 @@ final class NSSavePanel {
         if Self.pending === self { Self.pending = nil }; callback?(response)
     }
 }
+@MainActor final class RecordingPresentation {
+    var onStop: (() -> Void)?
+    let settingsView = NSView()
+    static var starts = 0, saves = 0, completedURLs = [URL]()
+    func resume() {}
+    func began() { Self.starts += 1 }
+    func saving() { Self.saves += 1 }
+    func completed(_ url: URL?, announce: Bool) { if let url { Self.completedURLs.append(url) } }
+    func dismiss() {}
+}
 @MainActor final class CaptureSelection {
     enum Mode { case screenshot, recording }
     enum Result { case copy(CGRect), pin(CGRect), edit(CGRect), color(String), cancel }
@@ -279,6 +289,7 @@ private struct CheckFailure: Error { let message: String }
             try await succeedImage(image)
             try await wait({ CaptureSelection.lastCompletion != nil }, "record region selection")
             try require(MockCapture.pendingStart == 0 && module.isRecording, "region preview is not an active recording")
+            try require(RecordingPresentation.starts == 0, "clock must not start during region selection")
             CaptureSelection.lastCompletion?(.cancel)
             try require(!module.isRecording, "cancel region without starting a stream")
             func beginRecordingSelection() async throws {
@@ -294,11 +305,14 @@ private struct CheckFailure: Error { let message: String }
                         "selected region reaches SCK source rectangle unchanged")
             try require(MockCapture.lastConfiguration?.width == 240 && MockCapture.lastConfiguration?.height == 160,
                         "encoder dimensions follow crop rather than full display")
+            try require(RecordingPresentation.starts == 0, "clock must not start before stream confirmation")
             MockCapture.started()
+            try await wait({ RecordingPresentation.starts == 1 }, "record clock starts after stream confirmation")
             try await wait({ module.hasConfirmedScreenCaptureAccess }, "record successful start proof")
             try await settle()
             try require(MockCapture.preflightCalls == 0 && permissionEvents == 1, "record start must bypass false advisory without permission request")
             module.toggleRecording()
+            try require(RecordingPresentation.saves == 1, "stop must freeze elapsed clock before encoding finishes")
             try await wait({ !module.isRecording }, "record safe stop")
             try require(module.hasConfirmedScreenCaptureAccess, "normal stop/nonpermission no-frame error does not forge or revoke proof")
             try await beginRecordingSelection()
