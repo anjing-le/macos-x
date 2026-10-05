@@ -7,7 +7,7 @@ enum ShortcutAction: UInt32, CaseIterable, Sendable {
     case wheel = 1, capture, pin, recording, togglePins
     var title: String {
         switch self {
-        case .wheel: return "颜文字"
+        case .wheel: return "提示词库"
         case .capture: return "截图"
         case .pin: return "贴图"
         case .recording: return "录屏"

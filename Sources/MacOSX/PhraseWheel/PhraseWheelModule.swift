@@ -1,172 +1,119 @@
 import AppKit
 import MacOSXCore
 
-/// A copy-only wheel. Shortcut registration belongs to the application input owner.
-@MainActor
-final class PhraseWheelModule {
-    private static let storageKey = "phraseWheel.slots"
-    private static let characterLimit = 4096
-    private static let presets = [
-        "(๑•̀ㅂ•́)و✧", "(≧▽≦)", "(´▽｀)", "(｡•̀ᴗ-)✧", "(づ｡◕‿‿◕｡)づ",
-        "(・ω・)ノ", "(๑´ㅂ`๑)", "(｡•́︿•̀｡)", "(╯°□°）╯︵ ┻━┻", "谢谢～",
-    ]
+/// Copy-only prompt library. The shared input layer owns shortcut registration.
+@MainActor final class PhraseWheelModule {
     private let defaults: UserDefaults
-    private var phrases: [String]
-    private var sessionPhrases: [String] = []
+    private var entries: [PromptEntry]
     private var enabled = false
-    private var settings: PhraseWheelSettingsView?
+    private var settings: PromptSettingsView?
     private var panel: PhraseWheelPanel?
+    private var saveWork: DispatchWorkItem?
+    private static let key = "promptLibrary.entries"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        if let stored = defaults.stringArray(forKey: Self.storageKey) {
-            var normalized = Array(repeating: "", count: PhraseWheelGeometry.slotCount)
-            for index in 0..<min(stored.count, normalized.count) {
-                normalized[index] = String(stored[index].prefix(Self.characterLimit))
-            }
-            phrases = normalized
-            if stored != normalized { defaults.set(normalized, forKey: Self.storageKey) }
-        } else {
-            phrases = Self.presets
-        }
+        if let data = defaults.data(forKey: Self.key), data.count <= 4_000_000,
+           let stored = try? JSONDecoder().decode([PromptEntry].self, from: data) {
+            entries = PromptLibrary.normalize(stored)
+        } else if let old = defaults.stringArray(forKey: "phraseWheel.slots") {
+            entries = PromptLibrary.migrate(old)
+        } else { entries = PromptLibrary.presets }
     }
-
     var settingsView: NSView {
         if let settings { return settings }
-        let view = PhraseWheelSettingsView(phrases: phrases, characterLimit: Self.characterLimit)
-        view.onChange = { [weak self] index, value in
-            guard let self, self.phrases.indices.contains(index) else { return }
-            self.phrases[index] = value
-            self.defaults.set(self.phrases, forKey: Self.storageKey)
+        let view = PromptSettingsView(entries: entries)
+        view.onChange = { [weak self] index, entry in
+            guard let self, self.entries.indices.contains(index) else { return }
+            self.entries[index] = entry
+            self.saveWork?.cancel()
+            let work = DispatchWorkItem { [weak self] in self?.persist() }
+            self.saveWork = work; DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
         }
         view.onPreview = { [weak self] in self?.presentWheel() }
-        settings = view
-        return view
+        settings = view; return view
     }
-
+    private func persist() {
+        saveWork?.cancel(); saveWork = nil
+        if let data = try? JSONEncoder().encode(entries) { defaults.set(data, forKey: Self.key) }
+    }
     func start() { enabled = true }
-
-    func stop() {
-        enabled = false
-        dismissWheel()
-    }
-
-    func summon() {
-        guard enabled else { return }
-        presentWheel()
-    }
-
+    func stop() { enabled = false; persist(); dismissWheel() }
+    func summon() { guard enabled else { return }; presentWheel() }
     private func presentWheel() {
         dismissWheel()
         let mouse = NSEvent.mouseLocation
-        let screens = NSScreen.screens.map {
-            PhraseWheelGeometry.Rect(x: $0.frame.minX, y: $0.frame.minY, width: $0.frame.width, height: $0.frame.height)
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) ?? NSScreen.main else { return }
+        let snapshot = entries
+        let panel = PhraseWheelPanel(anchor: mouse, screen: screen.visibleFrame, entries: snapshot)
+        panel.onChoose = { [weak self] index in
+            guard snapshot.indices.contains(index), !snapshot[index].content.isEmpty else { return }
+            self?.dismissWheel()
+            NSPasteboard.general.clearContents(); NSPasteboard.general.setString(snapshot[index].content, forType: .string)
         }
-        guard let layout = PhraseWheelGeometry.layout(anchor: .init(x: mouse.x, y: mouse.y), screens: screens) else { return }
-        sessionPhrases = phrases
-        let panel = PhraseWheelPanel(layout: layout, phrases: sessionPhrases)
-        panel.onChoose = { [weak self] index in self?.copyPhrase(at: index) }
         panel.onCancel = { [weak self] in self?.dismissWheel() }
-        self.panel = panel
-        panel.present()
+        self.panel = panel; panel.present()
     }
-
-    private func copyPhrase(at index: Int) {
-        guard sessionPhrases.indices.contains(index), !sessionPhrases[index].isEmpty else { return }
-        let phrase = sessionPhrases[index]
-        dismissWheel()
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(phrase, forType: .string)
-    }
-
-    private func dismissWheel() {
-        let old = panel
-        panel = nil
-        sessionPhrases.removeAll(keepingCapacity: false)
-        old?.dismiss()
-    }
+    private func dismissWheel() { let old = panel; panel = nil; old?.dismiss() }
 }
 
-@MainActor
-private final class PhraseSlotsDocument: NSView {
-    override var isFlipped: Bool { true }
-}
-
-@MainActor
-private final class PhraseWheelSettingsView: NSView, NSTextFieldDelegate {
-    var onChange: ((Int, String) -> Void)?
+@MainActor private final class PromptSettingsView: NSView, NSTextFieldDelegate, NSTextViewDelegate {
+    var onChange: ((Int, PromptEntry) -> Void)?
     var onPreview: (() -> Void)?
-    private let characterLimit: Int
+    private var entries: [PromptEntry]
+    private var selected = 0
+    private let picker = MinimalPopUpButton()
+    private let titleField = NSTextField(string: "")
+    private let body = NSTextView()
     private let scroll = NSScrollView()
-    private let document = PhraseSlotsDocument()
-    private let heading = NSTextField(labelWithString: "十个位置")
-    private let preview = MinimalButton(title: "预览", target: nil, action: nil, style: .standard)
-    private var fields: [NSTextField] = []
-    private var labels: [NSTextField] = []
-
-    override var intrinsicContentSize: NSSize { NSSize(width: 320, height: 412) }
-
-    init(phrases: [String], characterLimit: Int) {
-        self.characterLimit = characterLimit
-        super.init(frame: NSRect(x: 0, y: 0, width: 320, height: 412))
-        heading.font = .systemFont(ofSize: 12)
-        heading.textColor = .secondaryLabelColor
-        addSubview(heading)
-        preview.target = self
-        preview.action = #selector(previewPressed)
-        addSubview(preview)
-        scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        scroll.documentView = document
-        addSubview(scroll)
-        for (index, phrase) in phrases.enumerated() {
-            let digit = index == 9 ? "0" : String(index + 1)
-            let label = NSTextField(labelWithString: digit)
-            label.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
-            label.textColor = .secondaryLabelColor
-            label.alignment = .center
-            let field = NSTextField(string: phrase)
-            field.tag = index
-            field.delegate = self
-            field.font = .systemFont(ofSize: 13)
-            field.isBezeled = false
-            field.isBordered = false
-            field.drawsBackground = true
-            field.backgroundColor = .labelColor.withAlphaComponent(0.035)
-            field.textColor = .labelColor
-            field.usesSingleLineMode = true
-            field.lineBreakMode = .byClipping
-            field.setAccessibilityLabel("位置 \(digit)")
-            document.addSubview(label)
-            document.addSubview(field)
-            labels.append(label)
-            fields.append(field)
-        }
+    private let preview = MinimalButton(title: "预览", target: nil, action: nil, style: .quiet)
+    override var intrinsicContentSize: NSSize { NSSize(width: 320, height: 300) }
+    init(entries: [PromptEntry]) {
+        self.entries = entries
+        super.init(frame: NSRect(x: 0, y: 0, width: 320, height: 300))
+        picker.target = self; picker.action = #selector(selectEntry); picker.setAccessibilityLabel("编辑常用提示词")
+        titleField.placeholderString = "标题"; titleField.delegate = self
+        titleField.font = .systemFont(ofSize: 14, weight: .medium); titleField.isBezeled = false; titleField.focusRingType = .none
+        titleField.drawsBackground = false; titleField.setAccessibilityLabel("提示词标题")
+        body.isRichText = false; body.isAutomaticQuoteSubstitutionEnabled = false; body.isAutomaticDashSubstitutionEnabled = false
+        body.font = .systemFont(ofSize: 13); body.delegate = self; body.drawsBackground = false
+        body.textContainerInset = NSSize(width: 10, height: 10); body.isHorizontallyResizable = false
+        body.autoresizingMask = [.width]; body.textContainer?.widthTracksTextView = true
+        body.setAccessibilityLabel("提示词内容")
+        scroll.documentView = body; scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true
+        scroll.drawsBackground = false; scroll.wantsLayer = true; scroll.layer?.cornerRadius = 10
+        preview.target = self; preview.action = #selector(previewPressed)
+        for view in [picker, titleField, scroll, preview] { addSubview(view) }
+        refreshPicker(); loadEntry()
     }
-
     required init?(coder: NSCoder) { nil }
-
     override func layout() {
         super.layout()
-        heading.frame = NSRect(x: 0, y: max(0, bounds.height - 24), width: max(0, bounds.width - 72), height: 20)
-        preview.frame = NSRect(x: max(0, bounds.width - 64), y: max(0, bounds.height - 30), width: 64, height: 30)
-        scroll.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - 40))
-        let height = max(scroll.contentView.bounds.height, CGFloat(fields.count) * 36 + 12)
-        document.frame = NSRect(x: 0, y: 0, width: scroll.contentView.bounds.width, height: height)
-        for index in fields.indices {
-            let y = 12 + 36 * CGFloat(index)
-            labels[index].frame = NSRect(x: 0, y: y + 4, width: 24, height: 20)
-            fields[index].frame = NSRect(x: 32, y: y, width: max(40, document.bounds.width - 40), height: 28)
-        }
+        picker.frame = NSRect(x: 0, y: bounds.height - 34, width: max(80, bounds.width - 80), height: 30)
+        preview.frame = NSRect(x: bounds.width - 68, y: bounds.height - 34, width: 64, height: 30)
+        titleField.frame = NSRect(x: 10, y: bounds.height - 78, width: max(80, bounds.width - 20), height: 28)
+        scroll.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(80, bounds.height - 90))
+        body.frame.size.width = scroll.contentSize.width
+        scroll.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.025).cgColor
     }
-
-    func controlTextDidChange(_ notification: Notification) {
-        guard let field = notification.object as? NSTextField else { return }
-        let text = String(field.stringValue.prefix(characterLimit))
-        if field.stringValue != text { field.stringValue = text }
-        onChange?(field.tag, text)
+    private func refreshPicker() {
+        picker.removeAllItems()
+        for (index, entry) in entries.enumerated() { picker.addItem(withTitle: "\(index + 1) · \(entry.title.isEmpty ? "未设置" : entry.title)") }
+        picker.selectItem(at: selected)
     }
-
-    @objc private func previewPressed() { onPreview?() }
+    private func loadEntry() { titleField.stringValue = entries[selected].title; body.string = entries[selected].content }
+    @objc private func selectEntry() { selected = picker.indexOfSelectedItem; loadEntry() }
+    @objc private func previewPressed() { window?.makeFirstResponder(nil); onPreview?() }
+    func controlTextDidChange(_ notification: Notification) { changed() }
+    func textDidChange(_ notification: Notification) { changed() }
+    private func changed() {
+        // Leave marked text intact until the input method commits it.
+        if (titleField.currentEditor() as? NSTextView)?.hasMarkedText() == true || body.hasMarkedText() { return }
+        let title = String(titleField.stringValue.prefix(PromptLibrary.titleLimit))
+        let content = String(body.string.prefix(PromptLibrary.contentLimit))
+        if titleField.stringValue != title { titleField.stringValue = title }; if body.string != content { body.string = content }
+        entries[selected] = .init(title: title, content: content)
+        picker.item(at: selected)?.title = "\(selected + 1) · \(title.isEmpty ? "未设置" : title)"
+        onChange?(selected, entries[selected])
+    }
 }

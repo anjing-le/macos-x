@@ -9,7 +9,7 @@ enum Tool: String, CaseIterable, Hashable {
         switch self {
         case .capture: return "截图录屏"
         case .windowSwitcher: return "窗口切换"
-        case .kaomoji: return "颜文字"
+        case .kaomoji: return "提示词库"
         }
     }
 
@@ -17,7 +17,7 @@ enum Tool: String, CaseIterable, Hashable {
         switch self {
         case .capture: return "camera.viewfinder"
         case .windowSwitcher: return "macwindow.on.rectangle"
-        case .kaomoji: return "face.smiling"
+        case .kaomoji: return "text.bubble"
         }
     }
 }
