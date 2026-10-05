@@ -242,7 +242,10 @@ import AppKit
         case 49:
             if drag != nil {
                 if !spaceDown { spaceDown = true; spaceAnchor = pointer; spaceRegion = selection }
-            } else { beginInlineEditing() }
+            } else if let region = validRegion() {
+                if mode == .recording { selection = region; beginInlineEditing() }
+                else { finish(.edit(region)) }
+            }
         case 123...126:
             guard let region = validRegion() else { return true }
             let unit = step(at: CGPoint(x: region.midX, y: region.midY))
