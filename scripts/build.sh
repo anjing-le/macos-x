@@ -4,8 +4,8 @@ set -euo pipefail
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 configuration=release
 output_dir="$root_dir/dist"
-version=0.0.17
-build_number=19
+version=0.0.18
+build_number=20
 sign_identity="${MACOSX_SIGN_IDENTITY:-}"
 sign_keychain="${MACOSX_SIGN_KEYCHAIN:-}"
 local_signing=false
@@ -15,7 +15,7 @@ feed_url="${MACOSX_FEED_URL:-https://github.com/anjing-le/macos-x/releases/lates
 usage() {
     cat <<'USAGE'
 Usage: scripts/build.sh [--disable-updates] [--configuration debug|release]
-       [--version 0.0.17] [--build-number 19] [--output-dir path]
+       [--version 0.0.18] [--build-number 20] [--output-dir path]
        [--sign-identity pinned-certificate-SHA1 | "Apple Development: ..." | "Developer ID Application: ..."]
        [--sign-keychain path]
 Default: host architecture, OTA enabled; an explicit certificate identity is required.

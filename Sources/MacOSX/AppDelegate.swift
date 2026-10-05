@@ -45,17 +45,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         update.target = self
         appMenu.addItem(update)
         appMenu.addItem(.separator())
-        let hide = NSMenuItem(title: "隐藏 macos-x", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
-        hide.target = NSApp
-        appMenu.addItem(hide)
-        let hideOthers = NSMenuItem(title: "隐藏其他", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
-        hideOthers.keyEquivalentModifierMask = [.command, .option]
-        hideOthers.target = NSApp
-        appMenu.addItem(hideOthers)
-        let showAll = NSMenuItem(title: "显示全部", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
-        showAll.target = NSApp
-        appMenu.addItem(showAll)
-        appMenu.addItem(.separator())
         let quit = NSMenuItem(title: "退出 macos-x", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quit.target = NSApp
         appMenu.addItem(quit)
@@ -67,20 +56,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             ("复制", "copy:", "c"), ("粘贴", "paste:", "v"), ("全选", "selectAll:", "a")] {
             edit.addItem(NSMenuItem(title: title, action: Selector(selector), keyEquivalent: key))
         }
-        let redo = NSMenuItem(title: "重做", action: Selector(("redo:")), keyEquivalent: "z")
-        redo.keyEquivalentModifierMask = [.command, .shift]
-        edit.insertItem(redo, at: 1)
         editItem.submenu = edit; menuBar.addItem(editItem)
         let windowItem = NSMenuItem()
         let windowMenu = NSMenu(title: "窗口")
         // Nil targets use AppKit's responder chain: operate on the active
         // window and respect panels that deliberately disallow closing.
         windowMenu.addItem(NSMenuItem(title: "关闭", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
-        windowMenu.addItem(NSMenuItem(title: "最小化", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"))
-        windowMenu.addItem(.separator())
-        let bringAll = NSMenuItem(title: "全部置于前面", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
-        bringAll.target = NSApp
-        windowMenu.addItem(bringAll)
         windowItem.submenu = windowMenu; menuBar.addItem(windowItem)
         NSApp.windowsMenu = windowMenu
         NSApp.mainMenu = menuBar
