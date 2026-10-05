@@ -27,7 +27,7 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private var finishStarted = false
     private var failureInProgress = false
 
-    func start(screen: CaptureScreen, destination: URL,
+    func start(screen: CaptureScreen, region: CGRect? = nil, destination: URL,
                started: @escaping (Result<Void, Error>) -> Void,
                finished: @escaping (URL?, Error?) -> Void) {
         queue.async { [self] in
@@ -46,9 +46,10 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                         self.fail(error ?? CaptureFailure.unavailable); return
                     }
                     do {
-                        let ratio = min(1, 1920 / max(1, max(screen.frame.width, screen.frame.height) * screen.scale))
-                        let width = max(2, Int(screen.frame.width * screen.scale * ratio) / 2 * 2)
-                        let height = max(2, Int(screen.frame.height * screen.scale * ratio) / 2 * 2)
+                        guard let region = CaptureRecordingRegion(screen: screen, region: region ?? screen.frame) else {
+                            throw CaptureFailure.message("录屏区域无效，请在同一块屏幕内重新选择。")
+                        }
+                        let width = region.width, height = region.height
                         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("macos-x-\(UUID().uuidString).mp4")
                         self.temporaryURL = temporary
                         let writer = try AVAssetWriter(outputURL: temporary, fileType: .mp4)
@@ -66,6 +67,7 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                         guard writer.startWriting() else { throw writer.error ?? CaptureFailure.message("无法创建录屏文件。") }
                         self.temporaryURL = temporary; self.writer = writer; self.input = input
                         let configuration = SCStreamConfiguration()
+                        configuration.sourceRect = region.source
                         configuration.width = width; configuration.height = height
                         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
                         configuration.queueDepth = 3

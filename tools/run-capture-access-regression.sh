@@ -17,6 +17,7 @@ PY
 xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macos14.0" \
   "$access_check_dir/CaptureImageService.swift" \
   "$access_check_dir/CaptureRecorder.swift" \
+  "$access_repo/Sources/MacOSX/Capture/CaptureRecordingRegion.swift" \
   "$access_check_dir/CaptureModule.swift" \
   "$access_repo/Sources/MacOSX/Capture/CaptureSampling.swift" \
   "$access_repo/tools/capture-access-regression.swift" \

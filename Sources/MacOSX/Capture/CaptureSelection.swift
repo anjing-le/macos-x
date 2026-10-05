@@ -1,6 +1,7 @@
 import AppKit
 
 @MainActor final class CaptureSelection: NSObject {
+    enum Mode { case screenshot, recording }
     enum Result { case copy(CGRect), pin(CGRect), edit(CGRect), color(String), cancel }
     private final class Panel: NSPanel {
         var acceptsSelectionInput = true
@@ -12,6 +13,9 @@ import AppKit
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
             if !event.modifierFlags.intersection([.command, .option]).isEmpty, onKey?(event) == true { return true }
             return super.performKeyEquivalent(with: event)
+        }
+        override func keyDown(with event: NSEvent) {
+            if onKey?(event) != true { super.keyDown(with: event) }
         }
         @objc func copy(_ sender: Any?) { onCopy?() }
         override func selectAll(_ sender: Any?) { onSelectAll?() }
@@ -31,10 +35,13 @@ import AppKit
     private var candidateIndex = 0
     private var completion: ((Result) -> Void)?
     private var acceptsInput = false
+    private var mode: Mode = .screenshot
+    private var recordingControls: NSPanel?
 
-    func present(_ frames: [CaptureFrame], previousRegion: CGRect? = nil, windows: [CGRect] = [],
+    func present(_ frames: [CaptureFrame], mode: Mode = .screenshot, previousRegion: CGRect? = nil, windows: [CGRect] = [],
                  completion: @escaping (Result) -> Void) {
         dismiss()
+        self.mode = mode
         self.frames = Array(frames.prefix(16)); self.previousRegion = previousRegion
         self.completion = completion
         acceptsInput = true
@@ -45,7 +52,7 @@ import AppKit
         guard !self.frames.isEmpty else { finish(.cancel); return }
         for frame in self.frames {
             let panel = Panel(contentRect: frame.screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
-            panel.title = "截图"; panel.animationBehavior = .none
+            panel.title = mode == .recording ? "选择录屏区域" : "截图"; panel.animationBehavior = .none
             panel.onKey = { [weak self] in self?.keyDown($0) ?? false }
             panel.onCopy = { [weak self] in self?.copyPressed() }
             panel.onSelectAll = { [weak self] in self?.selectFullScreen() }
@@ -53,6 +60,7 @@ import AppKit
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             panel.isReleasedWhenClosed = false; panel.acceptsMouseMovedEvents = true
             let view = SelectionView(frame: CGRect(origin: .zero, size: frame.screen.frame.size), snapshot: frame)
+            view.hint = mode == .recording ? "Enter 开始 · Esc 取消" : "⌘C 复制 · ⌥C 取色 · Esc 退出"
             view.region = { [weak self] in self?.visibleRegion ?? .null }
             view.pointer = { [weak self] in self?.pointer ?? .zero }
             view.magnifierVisible = { [weak self] in self?.magnifierVisible ?? false }
@@ -75,20 +83,21 @@ import AppKit
 
     func dismiss() {
         completion = nil; acceptsInput = false
+        recordingControls?.orderOut(nil); recordingControls?.close(); recordingControls = nil
         panels.forEach { $0.orderOut(nil); $0.close() }
         panels.removeAll(); views.removeAll(); frames.removeAll(); candidates.removeAll()
         drag = nil; spaceDown = false; spaceRegion = .null; selection = .null; previousRegion = nil
     }
 
     func pinCurrentSelection() {
-        guard acceptsInput, let region = validRegion() else { return }
+        guard mode == .screenshot, acceptsInput, let region = validRegion() else { return }
         finish(.pin(region))
     }
 
     private var desktop: CGRect { frames.reduce(.null) { $0.union($1.screen.frame) } }
     private var hovered: CGRect { candidates.first { $0.contains(pointer) } ?? .null }
     private var visibleRegion: CGRect { selection.isNull ? hovered : selection }
-    private var magnifierVisible: Bool { acceptsInput && (option || selection.isNull || drag != nil) }
+    private var magnifierVisible: Bool { mode == .screenshot && acceptsInput && (option || selection.isNull || drag != nil) }
     private func step(at point: CGPoint) -> CGSize {
         guard let frame = frames.first(where: { $0.screen.frame.contains(point) }) ?? frames.first else { return CGSize(width: 1, height: 1) }
         return CGSize(width: frame.screen.frame.width / CGFloat(frame.image.width), height: frame.screen.frame.height / CGFloat(frame.image.height))
@@ -131,7 +140,8 @@ import AppKit
     private func mouseDown(_ point: CGPoint, twice: Bool) {
         guard acceptsInput else { return }
         pointer = point
-        if twice, let region = validRegion() { finish(.copy(region)); return }
+        recordingControls?.orderOut(nil)
+        if mode == .screenshot, twice, let region = validRegion() { finish(.copy(region)); return }
         if !selection.isNull, let handle = SelectionView.handles(selection).firstIndex(where: { $0.insetBy(dx: -4, dy: -4).contains(point) }) {
             drag = .resize(handle, point, selection)
         } else if !selection.isNull, selection.contains(point) { drag = .move(point, selection) }
@@ -173,7 +183,7 @@ import AppKit
     }
     private func resetOrCancel() {
         guard acceptsInput else { return }
-        if !selection.isNull || drag != nil { selection = .null; drag = nil; redraw() }
+        if !selection.isNull || drag != nil { selection = .null; drag = nil; recordingControls?.orderOut(nil); redraw() }
         else { finish(.cancel) }
     }
     private func releaseSpace() {
@@ -205,6 +215,10 @@ import AppKit
     private func keyDown(_ event: NSEvent) -> Bool {
         guard acceptsInput else { return false }
         let command = event.modifierFlags.contains(.command), shift = event.modifierFlags.contains(.shift)
+        if mode == .recording {
+            if [36, 76].contains(event.keyCode) { startRecordingPressed(nil); return true }
+            if event.keyCode == 8 || (event.keyCode == 17 && command) { return true }
+        }
         switch event.keyCode {
         case 53: finish(.cancel)
         case 36, 76: if let region = validRegion() { finish(.copy(region)) }
@@ -228,7 +242,7 @@ import AppKit
         case 49:
             if drag != nil {
                 if !spaceDown { spaceDown = true; spaceAnchor = pointer; spaceRegion = selection }
-            } else if let region = validRegion() { finish(.edit(region)) }
+            } else { beginInlineEditing() }
         case 123...126:
             guard let region = validRegion() else { return true }
             let unit = step(at: CGPoint(x: region.midX, y: region.midY))
@@ -244,13 +258,48 @@ import AppKit
 
     private func beginInlineEditing() {
         guard drag == nil, !selection.isNull, let region = validRegion() else { return }
+        if mode == .recording { showRecordingControls(at: region); return }
         // Release the selection directly into the complete in-place tool strip.
         finish(.edit(region))
     }
-    private func copyPressed() { if let region = validRegion() { finish(.copy(region)) } }
+    @objc private func startRecordingPressed(_ sender: Any?) {
+        guard mode == .recording, let region = validRegion() else { return }
+        recordingControls?.orderOut(nil)
+        finish(.edit(region))
+    }
+    private func showRecordingControls(at region: CGRect) {
+        let bounds = frames.first?.screen.frame ?? desktop
+        let size = CGSize(width: 100, height: 38)
+        let x = min(max(region.maxX - size.width, bounds.minX), bounds.maxX - size.width)
+        let below = region.minY - size.height - 10
+        let y = below >= bounds.minY ? below : min(region.maxY + 10, bounds.maxY - size.height)
+        let panel: NSPanel
+        if let existing = recordingControls { panel = existing }
+        else {
+            let control = Panel(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: false)
+            control.title = "开始录屏"; control.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
+            control.animationBehavior = .none; control.isReleasedWhenClosed = false
+            control.isOpaque = false; control.backgroundColor = .clear; control.hasShadow = false
+            control.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            control.onKey = { [weak self] in self?.keyDown($0) ?? false }
+            let button = MinimalButton(title: "开始", target: self, action: #selector(startRecordingPressed(_:)), style: .primary)
+            button.setAccessibilityLabel("开始录屏")
+            button.toolTip = "Enter 开始 · Esc 取消"
+            button.frame = CGRect(origin: .zero, size: size)
+            button.autoresizingMask = [.width, .height]
+            control.contentView = button; panel = control; recordingControls = control
+        }
+        panel.setFrame(CGRect(origin: CGPoint(x: x, y: y), size: size), display: true)
+        panel.makeKeyAndOrderFront(nil)
+    }
+    private func copyPressed() {
+        guard mode == .screenshot, let region = validRegion() else { return }
+        finish(.copy(region))
+    }
 }
 
 @MainActor private final class SelectionView: NSView {
+    var hint = ""
     private let snapshot: CaptureFrame
     private let displayImage: NSImage
     private var tracking: NSTrackingArea?
@@ -320,7 +369,7 @@ import AppKit
             label("\(sample.pixelX), \(sample.pixelY)", at: CGPoint(x: box.minX + 11, y: box.minY + 25), background: false)
             label(rgbFormat?() == true ? sample.rgb : sample.hex, at: CGPoint(x: box.minX + 11, y: box.minY + 7), background: false)
         }
-        label("⌘C 复制 · ⌥C 取色 · Esc 退出", at: CGPoint(x: max(12, bounds.midX - 115), y: 24))
+        label(hint, at: CGPoint(x: max(12, bounds.midX - 115), y: 24))
     }
     private func label(_ value: String, at point: CGPoint, background: Bool = true) {
         let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedSystemFont(ofSize: 11, weight: .medium), .foregroundColor: NSColor.white]

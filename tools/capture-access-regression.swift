@@ -15,6 +15,7 @@ final class SCShareableContent {
 }
 final class SCContentFilter { init(display: SCDisplay, excludingWindows: [Any]) {} }
 final class SCStreamConfiguration {
+    var sourceRect = CGRect.zero
     var width = 0, height = 0, queueDepth = 0
     var showsCursor = false, capturesAudio = false
     var minimumFrameInterval = CMTime.zero
@@ -30,7 +31,7 @@ enum SCFrameStatus: Int { case complete = 0 }
 protocol SCStreamOutput: AnyObject {}
 protocol SCStreamDelegate: AnyObject {}
 final class SCStream {
-    init(filter: SCContentFilter, configuration: SCStreamConfiguration, delegate: SCStreamDelegate) {}
+    init(filter: SCContentFilter, configuration: SCStreamConfiguration, delegate: SCStreamDelegate) { MockCapture.configuration(configuration) }
     func addStreamOutput(_ output: SCStreamOutput, type: SCStreamOutputType, sampleHandlerQueue: DispatchQueue) throws {}
     func startCapture(completionHandler: @escaping (Error?) -> Void) { MockCapture.holdStart(completionHandler) }
     func stopCapture(completionHandler: @escaping (Error?) -> Void) { completionHandler(nil) }
@@ -42,6 +43,9 @@ private enum MockCapture {
     private static var images: [(CGImage?, Error?) -> Void] = []
     private static var starts: [(Error?) -> Void] = []
     private static var preflights = 0
+    private static var recordedConfiguration: SCStreamConfiguration?
+    static var lastConfiguration: SCStreamConfiguration? { lock.lock(); defer { lock.unlock() }; return recordedConfiguration }
+    static func configuration(_ value: SCStreamConfiguration) { lock.lock(); recordedConfiguration = value; lock.unlock() }
     static var pendingContent: Int { lock.lock(); defer { lock.unlock() }; return contents.count }
     static var pendingImage: Int { lock.lock(); defer { lock.unlock() }; return images.count }
     static var pendingStart: Int { lock.lock(); defer { lock.unlock() }; return starts.count }
@@ -86,11 +90,12 @@ final class NSSavePanel {
     }
 }
 @MainActor final class CaptureSelection {
+    enum Mode { case screenshot, recording }
     enum Result { case copy(CGRect), pin(CGRect), edit(CGRect), color(String), cancel }
     static var presentations = 0
     static var dismissals = 0
     static var lastCompletion: ((Result) -> Void)?
-    func present(_ frames: [CaptureFrame], previousRegion: CGRect?, windows: [CGRect], completion: @escaping (Result) -> Void) {
+    func present(_ frames: [CaptureFrame], mode: Mode = .screenshot, previousRegion: CGRect? = nil, windows: [CGRect] = [], completion: @escaping (Result) -> Void) {
         Self.presentations += 1; Self.lastCompletion = completion
     }
     func dismiss() { Self.dismissals += 1; Self.lastCompletion = nil }
@@ -256,41 +261,63 @@ private struct CheckFailure: Error { let message: String }
             try require(!module.hasConfirmedScreenCaptureAccess && CaptureSelection.presentations == presentations,
                         "stop after issuing screenshot suppresses late successful CGImage proof and UI")
 
+            let recordingRegion = CGRect(x: -80, y: -20, width: 120, height: 80)
+            let recordingGeometry = CaptureRecordingRegion(screen: CaptureScreen(id: 7, frame: NSScreen.screens[0].frame, scale: 2), region: recordingRegion)
+            try require(recordingGeometry?.source == CGRect(x: 20, y: 190, width: 120, height: 80), "negative display origin and top-left recording crop")
+            try require(recordingGeometry?.width == 240 && recordingGeometry?.height == 160, "Retina recording uses selected dimensions")
+            let largeScreen = CaptureScreen(id: 7, frame: CGRect(x: 0, y: 0, width: 3000, height: 2000), scale: 2)
+            let capped = CaptureRecordingRegion(screen: largeScreen, region: largeScreen.frame)
+            try require(capped?.width == 1920 && capped?.height == 1280, "record encoding bounded at 1920 with aspect ratio")
+            try require(CaptureRecordingRegion(screen: largeScreen, region: CGRect(x: -1, y: 0, width: 100, height: 100)) == nil, "reject cross-display recording rather than silently shift or crop")
             module.start(); module.toggleRecording()
-            try require(NSSavePanel.pending != nil && !module.hasConfirmedScreenCaptureAccess, "save destination alone is not recording proof")
-            NSSavePanel.pending!.resolve(.cancel)
-            try require(!module.isRecording && !module.hasConfirmedScreenCaptureAccess, "cancelled save has no proof or capture request")
-            module.toggleRecording(); NSSavePanel.pending!.resolve(.OK)
-            try await wait({ MockCapture.pendingContent == 1 }, "record metadata")
+            try await wait({ MockCapture.pendingContent == 1 }, "cancel record selection acquisition")
+            module.toggleRecording(); MockCapture.content()
+            try await settle()
+            try require(!module.isRecording && MockCapture.pendingImage == 0, "repeated shortcut cancels pending selection without late overlay")
+            module.toggleRecording()
+            try require(NSSavePanel.pending == nil, "record shortcut must not present destination dialog")
+            try await succeedImage(image)
+            try await wait({ CaptureSelection.lastCompletion != nil }, "record region selection")
+            try require(MockCapture.pendingStart == 0 && module.isRecording, "region preview is not an active recording")
+            CaptureSelection.lastCompletion?(.cancel)
+            try require(!module.isRecording, "cancel region without starting a stream")
+            func beginRecordingSelection() async throws {
+                module.toggleRecording(); try await succeedImage(image)
+                try await wait({ CaptureSelection.lastCompletion != nil }, "record selection ready")
+                CaptureSelection.lastCompletion?(.edit(recordingRegion))
+                try await wait({ MockCapture.pendingContent == 1 }, "record metadata")
+            }
+            try await beginRecordingSelection()
             MockCapture.content()
             try await wait({ MockCapture.pendingStart == 1 }, "record start")
-            try require(!module.hasConfirmedScreenCaptureAccess, "metadata alone is not capture proof")
+            try require(MockCapture.lastConfiguration?.sourceRect == recordingGeometry?.source,
+                        "selected region reaches SCK source rectangle unchanged")
+            try require(MockCapture.lastConfiguration?.width == 240 && MockCapture.lastConfiguration?.height == 160,
+                        "encoder dimensions follow crop rather than full display")
             MockCapture.started()
             try await wait({ module.hasConfirmedScreenCaptureAccess }, "record successful start proof")
+            try await settle()
             try require(MockCapture.preflightCalls == 0 && permissionEvents == 1, "record start must bypass false advisory without permission request")
             module.toggleRecording()
             try await wait({ !module.isRecording }, "record safe stop")
             try require(module.hasConfirmedScreenCaptureAccess, "normal stop/nonpermission no-frame error does not forge or revoke proof")
-            module.toggleRecording(); NSSavePanel.pending!.resolve(.OK)
-            try await wait({ MockCapture.pendingContent == 1 }, "record start refusal metadata")
+            try await beginRecordingSelection()
             MockCapture.content()
             try await wait({ MockCapture.pendingStart == 1 }, "record actual stream start refusal")
             MockCapture.started(error: refusal)
             try await wait({ !module.isRecording && permissionEvents == 2 }, "record start refusal callback")
             try require(!module.hasConfirmedScreenCaptureAccess, "stream start refusal clears prior successful capture proof")
-            module.toggleRecording(); NSSavePanel.pending!.resolve(.OK)
-            try await wait({ MockCapture.pendingContent == 1 }, "record actual refusal")
+            try await beginRecordingSelection()
             MockCapture.content(error: refusal)
             try await wait({ !module.isRecording && permissionEvents == 3 }, "record refusal callback")
             try require(!module.hasConfirmedScreenCaptureAccess, "record refusal clears capture proof")
 
-            module.toggleRecording(); NSSavePanel.pending!.resolve(.OK)
-            try await wait({ MockCapture.pendingContent == 1 }, "record cancelled start metadata")
+            try await beginRecordingSelection()
             MockCapture.content()
             try await wait({ MockCapture.pendingStart == 1 }, "record cancelled start")
             module.stop(); MockCapture.started()
             try await wait({ !module.isRecording }, "record cancelled start flush")
-            try require(!module.hasConfirmedScreenCaptureAccess && permissionEvents == 3, "late stopped stream start cannot confirm access or request permission")
+            try require(module.hasConfirmedScreenCaptureAccess && permissionEvents == 3, "late stopped stream preserves actual preview proof without requesting permission")
             var flushed = 0
             module.prepareToTerminate { flushed += 1 }
             try await wait({ flushed == 1 }, "termination flush")

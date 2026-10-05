@@ -1,5 +1,4 @@
 import AppKit
-import UniformTypeIdentifiers
 
 @MainActor
 final class CaptureModule {
@@ -26,7 +25,6 @@ final class CaptureModule {
     private enum RecordingState { case idle, choosing, starting, recording, finishing }
     private var recordingState: RecordingState = .idle
     private var recordingRevision: UInt64 = 0
-    private var recordingPanel: NSSavePanel?
     private var terminating = false
     private lazy var view: NSView = buildSettings()
     var settingsView: NSView { view }
@@ -50,7 +48,6 @@ final class CaptureModule {
         copiedRegion = nil
         captureInProgress = false
         editorPending = false; pinAfterEditor = false
-        recordingPanel?.cancel(nil); recordingPanel = nil
         if recordingState == .choosing { recordingState = .idle }
         if recordingState != .idle { recordingState = .finishing }
         recorder.stop()
@@ -58,7 +55,7 @@ final class CaptureModule {
     }
 
     /// AppDelegate should return terminateLater and reply only after this callback.
-    /// This also cancels a pending save dialog before it can start a new stream.
+    /// This also cancels region selection before it can start a new stream.
     func prepareToTerminate(completion: @escaping () -> Void) {
         terminating = true
         stop()
@@ -66,7 +63,7 @@ final class CaptureModule {
     }
 
     func capture() {
-        guard running, !terminating else { return }
+        guard running, !terminating, recordingState != .choosing else { return }
         captureRevision &+= 1; let expected = generation, captureRevision = captureRevision
         selection.dismiss(); editor?.close(); editor = nil
         captureInProgress = true
@@ -147,7 +144,7 @@ final class CaptureModule {
     /// The configured global pin action follows the current screenshot session.
     /// Clipboard pinning remains available once that session has ended.
     func pin() {
-        guard running, !terminating else { return }
+        guard running, !terminating, recordingState != .choosing else { return }
         guard pins.canAdd else { setStatus("最多 8 张贴图，请先关闭一张。"); return }
         if let editor { editor.pinCurrentImage() }
         else if editorPending { pinAfterEditor = true }
@@ -188,59 +185,96 @@ final class CaptureModule {
             recordingState = .finishing; setStatus("正在保存录屏…")
             recorder.stop(); return
         }
+        if recordingState == .choosing {
+            recordingRevision &+= 1
+            images.cancel(); captureTicket?.cancel(); captureTicket = nil
+            selection.dismiss(); recordingState = .idle; setStatus("已取消录屏。")
+            return
+        }
         guard recordingState == .idle else { return }
         guard let screen = screenDescriptors().first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? screenDescriptors().first else {
             handle(CaptureFailure.unavailable); return
         }
-        chooseRecordingDestination(screen)
+        captureRevision &+= 1
+        selection.dismiss(); editor?.close(); editor = nil
+        captureInProgress = false; editorPending = false; pinAfterEditor = false
+        recordingState = .choosing; recordingRevision &+= 1
+        let expected = generation, revision = recordingRevision
+        setStatus("选择录屏区域 · Esc 取消")
+        captureTicket = images.capture([screen]) { [weak self] result in
+            MainActor.assumeIsolated {
+                guard let self, self.running, !self.terminating, self.generation == expected,
+                      self.recordingRevision == revision, self.recordingState == .choosing else { return }
+                switch result {
+                case .failure(let error): self.recordingState = .idle; self.handle(error)
+                case .success(let frames):
+                    self.hasConfirmedScreenCaptureAccess = true
+                    self.selection.present(frames, mode: .recording, windows: frames.first?.windows ?? []) { [weak self] result in
+                        guard let self, self.running, !self.terminating, self.generation == expected,
+                              self.recordingRevision == revision, self.recordingState == .choosing else { return }
+                        self.selection.dismiss(); self.captureTicket = nil
+                        guard case .edit(let region) = result else {
+                            self.recordingState = .idle; self.setStatus("已取消录屏。"); return
+                        }
+                        self.startRecording(screen: screen, region: region, generation: expected, revision: revision)
+                    }
+                }
+            }
+        }
     }
 
-    private func chooseRecordingDestination(_ screen: CaptureScreen) {
-        recordingState = .choosing
-        recordingRevision &+= 1
-        let expected = generation, revision = recordingRevision
-        let panel = NSSavePanel(); panel.allowedContentTypes = [.mpeg4Movie]
-        panel.nameFieldStringValue = "录屏.mp4"
-        panel.message = "当前显示器 · 1920 像素 / 30 fps · 无音频"
-        recordingPanel = panel
-        panel.begin { [weak self] response in
-            guard let self, self.recordingPanel === panel else { return }
-            self.recordingPanel = nil
-            guard self.running, !self.terminating, self.generation == expected,
-                  self.recordingRevision == revision, self.recordingState == .choosing else { return }
-            guard response == .OK, let url = panel.url else {
-                self.recordingState = .idle; self.setStatus("已取消录屏。" ); return
+    private func startRecording(screen: CaptureScreen, region: CGRect, generation expected: UInt64, revision: UInt64) {
+        // File-system work is deferred until explicit Start; never hold the UI
+        // or create files while the user is only selecting a region.
+        setStatus("正在启动录屏…")
+        work.async { [weak self] in
+            let result: Swift.Result<URL, Error> = Swift.Result {
+                guard let movies = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first else {
+                    throw CaptureFailure.message("找不到影片文件夹。")
+                }
+                let folder = movies.appendingPathComponent("macos-x", isDirectory: true)
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                let formatter = DateFormatter(); formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
+                return folder.appendingPathComponent("录屏 \(formatter.string(from: Date())) \(UUID().uuidString.prefix(6)).mp4")
             }
-            self.recordingState = .starting; self.setStatus("正在启动录屏…")
-            self.recorder.start(screen: screen, destination: url, started: { [weak self] result in
-                MainActor.assumeIsolated {
-                    guard let self, self.recordingRevision == revision else { return }
-                    switch result {
-                    case .failure(let error):
-                        self.recordingState = .idle
-                        if self.running, !self.terminating, self.generation == expected { self.handle(error) }
-                    case .success:
-                        if !self.running || self.terminating || self.generation != expected || self.recordingState == .finishing {
-                            self.recordingState = .finishing; self.recorder.stop()
-                        } else {
-                            self.hasConfirmedScreenCaptureAccess = true
-                            self.recordingState = .recording; self.setStatus("录屏中 · 再次操作结束")
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.running, !self.terminating, self.generation == expected,
+                      self.recordingRevision == revision, self.recordingState == .choosing else { return }
+                guard case .success(let url) = result else {
+                    self.recordingState = .idle
+                    if case .failure(let error) = result { self.handle(error) }; return
+                }
+                self.recordingState = .starting; self.setStatus("正在启动录屏…")
+                self.recorder.start(screen: screen, region: region, destination: url, started: { [weak self] result in
+                    MainActor.assumeIsolated {
+                        guard let self, self.recordingRevision == revision else { return }
+                        switch result {
+                        case .failure(let error):
+                            self.recordingState = .idle
+                            if self.running, !self.terminating, self.generation == expected { self.handle(error) }
+                        case .success:
+                            if !self.running || self.terminating || self.generation != expected || self.recordingState == .finishing {
+                                self.recordingState = .finishing; self.recorder.stop()
+                            } else {
+                                self.hasConfirmedScreenCaptureAccess = true
+                                self.recordingState = .recording; self.setStatus("录屏中 · 再按录屏快捷键结束")
+                            }
                         }
                     }
-                }
-            }, finished: { [weak self] url, error in
-                MainActor.assumeIsolated {
-                    guard let self, self.recordingRevision == revision else { return }
-                    self.recordingState = .idle
-                    guard self.running, !self.terminating, self.generation == expected else { return }
-                    if let error, case CaptureFailure.permission = CaptureFailure.screenCaptureError(error) {
-                        self.hasConfirmedScreenCaptureAccess = false
+                }, finished: { [weak self] url, error in
+                    MainActor.assumeIsolated {
+                        guard let self, self.recordingRevision == revision else { return }
+                        self.recordingState = .idle
+                        guard self.running, !self.terminating, self.generation == expected else { return }
+                        if let error, case CaptureFailure.permission = CaptureFailure.screenCaptureError(error) {
+                            self.hasConfirmedScreenCaptureAccess = false
+                        }
+                        if let url {
+                            self.setStatus(error == nil ? "已保存录屏：\(url.lastPathComponent)" : "录屏中断，已保存可用片段：\(url.lastPathComponent)")
+                        } else { self.handle(error ?? CaptureFailure.message("录屏未生成可保存的画面。")) }
                     }
-                    if let url {
-                        self.setStatus(error == nil ? "已保存录屏：\(url.lastPathComponent)" : "录屏中断，已保存可用片段：\(url.lastPathComponent)")
-                    } else { self.handle(error ?? CaptureFailure.message("录屏未生成可保存的画面。")) }
-                }
-            })
+                })
+            }
         }
     }
 
