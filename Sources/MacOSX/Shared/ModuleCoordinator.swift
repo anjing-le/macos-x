@@ -26,7 +26,10 @@ final class ModuleCoordinator {
             guard let self else { return }
             switch action {
             case .wheel: self.wheel?.summon()
-            case .capture: self.capture?.capture()
+            case .capture:
+                self.input.endSwitcherSession()
+                let finished = self.switcher?.freezeForCapture()
+                if self.capture?.capture(snapshotReady: finished) != true { finished?() }
             case .pin: self.capture?.pin()
             case .recording: self.capture?.toggleRecording()
             case .togglePins: self.capture?.togglePins()

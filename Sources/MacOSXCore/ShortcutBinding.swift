@@ -35,6 +35,13 @@ public struct ShortcutBinding: Codable, Equatable, Sendable {
             + (modifiers & 4 != 0 ? "⇧" : "") + (modifiers & 8 != 0 ? "⌘" : "") + keyLabel
     }
 
+    /// Ignore only the Command held by an active window-switch session.
+    public func matches(keyCode: UInt16, modifiers: UInt8, ignoringHeldCommand: Bool = false) -> Bool {
+        guard kind == .chord, self.keyCode == keyCode else { return false }
+        let mask: UInt8 = ignoringHeldCommand ? 7 : 15
+        return modifiers & mask == self.modifiers & mask
+    }
+
     public func conflicts(with other: ShortcutBinding) -> Bool {
         kind == other.kind && keyCode == other.keyCode && (kind == .doubleModifier || modifiers == other.modifiers)
     }

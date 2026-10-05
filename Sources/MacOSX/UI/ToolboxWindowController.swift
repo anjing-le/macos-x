@@ -105,6 +105,9 @@ private final class ToolboxContent: NSView {
             scroll.topAnchor.constraint(equalTo: topAnchor),
             scroll.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
+        // This root stack is sized by layout(), not by an autoresizing-mask
+        // constraint that pins its initial empty frame to zero.
+        detail.translatesAutoresizingMaskIntoConstraints = false
         detail.orientation = .vertical
         detail.alignment = .leading
         detail.spacing = 20
@@ -165,7 +168,7 @@ private final class ToolboxContent: NSView {
             let contentWidth = max(220, min(480, width - inset * 2))
             detail.frame = NSRect(x: inset, y: inset, width: contentWidth, height: max(0, detail.fittingSize.height))
             detail.layoutSubtreeIfNeeded()
-            let contentHeight = detail.fittingSize.height
+            let contentHeight = max(0, detail.fittingSize.height)
             detail.frame.size.height = contentHeight
             detailDocument.frame = NSRect(x: 0, y: 0, width: width, height: max(height, contentHeight + inset * 2))
         }

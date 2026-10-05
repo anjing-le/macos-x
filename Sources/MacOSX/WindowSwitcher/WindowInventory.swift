@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import MacOSXCore
+import os
 
 struct SwitcherWindow {
     let id: CGWindowID
@@ -24,6 +25,7 @@ struct WindowInventorySnapshot {
 
 /// Serial AX I/O, event-driven invalidation, no polling. Main-thread callbacks only publish caches.
 final class WindowInventory {
+    private let logger = Logger(subsystem: "cc.anjing.macos-x", category: "window-focus")
     private let queue = DispatchQueue(label: "cc.anjing.macos-x.window-inventory", qos: .userInitiated)
     private let lock = NSLock()
     private var epoch: UInt64 = 0
@@ -130,13 +132,21 @@ final class WindowInventory {
                 self.deliverFocus(false, generation, ticket, completion); return
             }
             if application.isHidden { _ = application.unhide() }
-            _ = application.activate(options: [])
+            let activated = application.activate(options: [])
             let app = AXUIElementCreateApplication(window.pid)
             AXUIElementSetMessagingTimeout(app, 0.15)
             guard self.valid(generation, focus: ticket) else { return }
-            _ = AXUIElementSetAttributeValue(app, kAXFocusedWindowAttribute as CFString, window.element)
+            // NSRunningApplication activation can be refused for a background
+            // utility. Accessibility exposes the app-level foreground request.
+            let frontmostResult = AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
             guard self.valid(generation, focus: ticket) else { return }
-            _ = AXUIElementPerformAction(window.element, kAXRaiseAction as CFString)
+            // Some apps expose a read-only focused-window attribute but accept
+            // AXMain on the window. Use both public paths, then verify reality.
+            let mainResult = AXUIElementSetAttributeValue(window.element, kAXMainAttribute as CFString, kCFBooleanTrue)
+            let focusResult = AXUIElementSetAttributeValue(app, kAXFocusedWindowAttribute as CFString, window.element)
+            guard self.valid(generation, focus: ticket) else { return }
+            let raiseResult = AXUIElementPerformAction(window.element, kAXRaiseAction as CFString)
+            self.logger.notice("request window=\(window.id) pid=\(window.pid) activated=\(activated) frontmost=\(frontmostResult.rawValue) main=\(mainResult.rawValue) focused=\(focusResult.rawValue) raise=\(raiseResult.rawValue)")
             self.verifyFocus(window, application: app, generation: generation, ticket: ticket, attempt: 0, completion: completion)
         }
     }
@@ -149,16 +159,21 @@ final class WindowInventory {
         queue.asyncAfter(deadline: .now() + delays[attempt]) { [weak self] in
             guard let self, self.valid(generation, focus: ticket) else { return }
             let focused = self.elementAttribute(application, kAXFocusedWindowAttribute)
-            let landed = focused.flatMap { PrivateWindowBridge.windowID(of: $0) } == window.id
-                && NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid
-                && self.isOnScreen(window.id)
+            let observed = focused.flatMap { PrivateWindowBridge.windowID(of: $0) }
+            let foreground = NSWorkspace.shared.frontmostApplication?.processIdentifier
+            let visible = self.isOnScreen(window.id)
+            let landed = observed == window.id && foreground == window.pid && visible
             if landed {
+                self.logger.notice("confirmed window=\(window.id) pid=\(window.pid)")
                 self.confirmFocus(window.id, generation: generation)
                 self.deliverFocus(true, generation, ticket, completion)
             } else if attempt + 1 < delays.count {
                 self.verifyFocus(window, application: application, generation: generation, ticket: ticket,
                                  attempt: attempt + 1, completion: completion)
-            } else { self.deliverFocus(false, generation, ticket, completion) }
+            } else {
+                self.logger.error("failed window=\(window.id) pid=\(window.pid) observed=\(observed ?? 0) foreground=\(foreground ?? 0) visible=\(visible)")
+                self.deliverFocus(false, generation, ticket, completion)
+            }
         }
     }
 
@@ -269,7 +284,12 @@ final class WindowInventory {
                     windows: registration.windows.filter { live.contains($0.key) }, generation: generation)
             }
         }
-        return .init(windows: order.compactMap { byID[$0] }, focusedID: currentFocusedID, mappingAvailable: true, accessibilityTrusted: true)
+        // A partial AX read must not erase an already confirmed focus while
+        // that same app is still foreground and its window remains visible.
+        let foreground = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let resolvedFocus = WindowFocusResolution.resolve(observed: currentFocusedID, confirmed: focusedID,
+            foregroundPID: foreground, owners: byID.mapValues(\.pid), visibleIDs: visible)
+        return .init(windows: order.compactMap { byID[$0] }, focusedID: resolvedFocus, mappingAvailable: true, accessibilityTrusted: true)
     }
 
     private func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {

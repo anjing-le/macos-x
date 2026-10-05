@@ -33,7 +33,7 @@ final class ToolCard: NSControl {
     init(title: String, symbol: String, action: @escaping () -> Void) {
         titleLabel = NSTextField(labelWithString: title)
         activate = action
-        super.init(frame: .zero)
+        super.init(frame: NSRect(x: 0, y: 0, width: 180, height: 156))
 
         wantsLayer = true
         focusRingType = .none

@@ -37,6 +37,8 @@ private final class SwitcherInputTap: @unchecked Sendable {
     private var ready = false
     private var suspended = false
     private var doubleBinding: ShortcutBinding?
+    private var captureBinding: ShortcutBinding?
+    private var capturedKey: UInt16?
     private var session = false
     private var recognizer = ModifierDoubleTap()
     private var port: CFMachPort?
@@ -51,13 +53,15 @@ private final class SwitcherInputTap: @unchecked Sendable {
         thread = worker; worker.start()
     }
 
-    func configure(ready: Bool, doubleBinding: ShortcutBinding?, suspended: Bool) {
+    func configure(ready: Bool, doubleBinding: ShortcutBinding?, captureBinding: ShortcutBinding?, suspended: Bool) {
         lock.lock()
-        self.ready = ready; self.doubleBinding = doubleBinding; self.suspended = suspended
+        self.ready = ready; self.doubleBinding = doubleBinding; self.captureBinding = captureBinding; self.suspended = suspended
         if !ready || suspended { session = false }
         recognizer.reset()
         lock.unlock()
     }
+
+    func endSession() { lock.lock(); session = false; lock.unlock() }
 
     func stop() {
         lock.lock()
@@ -128,11 +132,27 @@ private final class SwitcherInputTap: @unchecked Sendable {
             recognizer.reset(); lock.unlock(); return pass
         }
         if type == .keyUp {
+            if capturedKey == code { capturedKey = nil; lock.unlock(); return nil }
             let swallow = session && [48, 53, 36, 76, 123, 124, 125, 126].contains(code)
             lock.unlock(); return swallow ? nil : pass
         }
         guard type == .keyDown else { lock.unlock(); return pass }
         recognizer.reset()
+        // Carbon requires exact modifiers. During Cmd+Tab, F1 must also work
+        // while Command is held; swallow this event to avoid double delivery.
+        let flags = event.flags
+        let modifiers: UInt8 = (flags.contains(.maskControl) ? 1 : 0)
+            | (flags.contains(.maskAlternate) ? 2 : 0)
+            | (flags.contains(.maskShift) ? 4 : 0)
+            | (flags.contains(.maskCommand) ? 8 : 0)
+        if session, let captureBinding, captureBinding.matches(keyCode: code, modifiers: modifiers, ignoringHeldCommand: true) {
+            let repeated = capturedKey == code
+            capturedKey = code; session = false
+            lock.unlock()
+            if !repeated { delivery(.shortcut(.capture)) }
+            return nil
+        }
+        if capturedKey == code { lock.unlock(); return nil }
         if ready && code == 48 && event.flags.contains(.maskCommand)
             && !event.flags.contains(.maskControl) && !event.flags.contains(.maskAlternate) {
             session = true
@@ -231,9 +251,11 @@ final class GlobalInput {
         } else if !needsTap, let tap {
             generation &+= 1; hasActiveTap = false; tap.stop(); self.tap = nil
         }
-        tap?.configure(ready: switcherReady, doubleBinding: wheel, suspended: suspended)
+        tap?.configure(ready: switcherReady, doubleBinding: wheel, captureBinding: chords[.capture], suspended: suspended)
         return issues
     }
+
+    func endSwitcherSession() { heldSession = false; tap?.endSession() }
 
     func probe(_ binding: ShortcutBinding, for action: ShortcutAction) -> String? {
         guard binding.kind == .chord else { return nil }

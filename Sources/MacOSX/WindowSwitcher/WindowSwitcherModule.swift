@@ -1,10 +1,12 @@
 import AppKit
 import ApplicationServices
 import MacOSXCore
+import os
 
 /// Shared input is owned by the app. This module never installs another event tap.
 @MainActor final class WindowSwitcherModule {
     var onPreviewSettingsChanged: (() -> Void)?
+    private let logger = Logger(subsystem: "cc.anjing.macos-x", category: "window-switcher")
     private let defaults: UserDefaults
     var thumbnailsEnabled: Bool { defaults.object(forKey: "switcher.thumbnails") as? Bool ?? true }
     private(set) var hasConfirmedThumbnailAccess = false
@@ -20,7 +22,7 @@ import MacOSXCore
     private var panel: SwitcherPanel?
     private var snapshot = WindowInventorySnapshot.empty
     private var session: SwitcherSelection?
-    private enum SessionKind { case command, preview }
+    private enum SessionKind { case command, preview, capture }
     private var sessionKind: SessionKind?
     private var sessionWindows = [SwitcherWindow]()
     private var running = false
@@ -112,7 +114,7 @@ import MacOSXCore
 
     /// Input hot path: cached selection only, deferred drawing and no AX/CG calls.
     func advance(reverse: Bool) {
-        guard running, isReady else { return }
+        guard running, isReady, sessionKind != .capture else { return }
         if sessionKind == .preview { cancel() }
         if session == nil {
             sessionKind = .command
@@ -127,7 +129,7 @@ import MacOSXCore
     }
 
     func moveSelection(horizontal: Int, vertical: Int) {
-        guard session != nil else { return }
+        guard session != nil, sessionKind != .capture else { return }
         if vertical != 0 { session?.moveVertically(direction: vertical, columns: panel?.columnCount ?? 1) }
         else { session?.move(by: horizontal) }
         enqueueRender()
@@ -140,8 +142,10 @@ import MacOSXCore
     }
 
     func confirmSelection() {
+        guard sessionKind != .capture else { return }
         guard let chosenID = session?.selectedWindowID,
               let chosen = sessionWindows.first(where: { $0.id == chosenID }) else { cancel(); return }
+        logger.notice("selection current=\(self.snapshot.focusedID ?? 0) chosen=\(chosenID) count=\(self.sessionWindows.count)")
         cancel()
         let expected = generation
         inventory.focus(chosen) { [weak self] landed in
@@ -153,7 +157,24 @@ import MacOSXCore
         }
     }
 
+    /// Keep the displayed pixels until ScreenCaptureKit freezes the desktop.
+    /// Command release and hover no longer commit a different window.
+    func freezeForCapture() -> (() -> Void)? {
+        guard session != nil else { return nil }
+        sessionKind = .capture
+        thumbnailTicket?.cancel(); thumbnailTicket = nil
+        presentationWork?.cancel(); presentationWork = nil
+        queuedRenderToken = nil
+        panel?.freezeForCapture()
+        let token = sessionToken
+        return { [weak self] in
+            guard let self, self.sessionToken == token, self.sessionKind == .capture else { return }
+            self.cancel()
+        }
+    }
+
     func cancel() {
+        if session != nil { logger.notice("session ended capture=\(self.sessionKind == .capture) preview=\(self.sessionKind == .preview)") }
         sessionToken &+= 1
         thumbnailTicket?.cancel(); thumbnailTicket = nil
         thumbnailPage.removeAll(); thumbnailImages.removeAll()
@@ -167,6 +188,7 @@ import MacOSXCore
             setStatus("窗口列表尚未就绪"); return
         }
         cancel()
+        logger.notice("preview windows=\(self.snapshot.windows.count)")
         sessionKind = .preview
         sessionWindows = snapshot.windows
         session = SwitcherSelection(windowIDs: sessionWindows.map(\.id))
@@ -203,7 +225,7 @@ import MacOSXCore
     }
 
     private func present() {
-        guard session != nil, !sessionWindows.isEmpty else { return }
+        guard session != nil, sessionKind != .capture, !sessionWindows.isEmpty else { return }
         if panel == nil {
             let created = SwitcherPanel()
             created.onChoose = { [weak self] id in
@@ -211,12 +233,15 @@ import MacOSXCore
                 self.session?.select(windowID: id); self.confirmSelection()
             }
             created.onHighlight = { [weak self] id in
-                guard let self, self.session?.selectedWindowID != id else { return }
+                guard let self, self.sessionKind != .capture, self.session?.selectedWindowID != id else { return }
                 self.session?.select(windowID: id); self.enqueueRender()
             }
             created.onMove = { [weak self] in self?.moveSelection(horizontal: $0, vertical: $1) }
             created.onConfirm = { [weak self] in self?.confirmSelection() }
-            created.onCancel = { [weak self] in self?.cancel() }
+            created.onCancel = { [weak self] in
+                self?.logger.notice("panel keyboard cancellation")
+                self?.cancel()
+            }
             panel = created
         }
         panel?.show(windows: sessionWindows, selectedID: session?.selectedWindowID,
@@ -301,7 +326,7 @@ import MacOSXCore
         else if result.windows.count < 2 { setStatus("可切换窗口不足两个 · 当前使用原生 ⌘Tab") }
         else { setStatus(readyStatus) }
         thumbnails.retain(Set(result.windows.map { WindowThumbnailID(window: $0.id, process: $0.pid) }))
-        if session != nil {
+        if session != nil && sessionKind != .capture {
             // Freeze order while the user cycles; remove dead windows, append genuinely new ones.
             let live = Dictionary(result.windows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             sessionWindows = sessionWindows.compactMap { live[$0.id] }
@@ -339,11 +364,18 @@ import MacOSXCore
                     guard let self, self.running else { return }
                     if notification.name == NSWorkspace.didActivateApplicationNotification,
                        let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
-                        if self.session != nil { self.cancel() }
+                        // Becoming active to display our own manual preview is not
+                        // a user switching away from that preview.
+                        let ownPreview = self.sessionKind == .preview && application.processIdentifier == ProcessInfo.processInfo.processIdentifier
+                        if self.session != nil && self.sessionKind != .capture && !ownPreview {
+                            self.logger.notice("foreground changed pid=\(application.processIdentifier)")
+                            self.cancel()
+                        }
                         self.inventory.applicationActivated(application.processIdentifier)
                     }
                     if notification.name == NSWorkspace.activeSpaceDidChangeNotification {
-                        self.cancel(); self.inventory.invalidateScans()
+                        if self.sessionKind != .capture { self.cancel() }
+                        self.inventory.invalidateScans()
                     }
                     self.scheduleRefresh()
                 }

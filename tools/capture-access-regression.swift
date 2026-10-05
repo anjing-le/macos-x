@@ -372,6 +372,22 @@ private struct CheckFailure: Error { let message: String }
             placementModule.stop(); NSPasteboard.general.fixturePNG = nil; CaptureClipboard.fixtureImage = nil
             try require(MockCapture.preflightCalls == 0, "all active paths avoid advisory checks")
             try require(CGPreflightScreenCaptureAccess() == false, "mock advisory really returns false")
+            let snapshotModule = CaptureModule(); snapshotModule.start()
+            var released = 0
+            snapshotModule.capture(snapshotReady: { released += 1 })
+            try await wait({ MockCapture.pendingContent == 1 }, "frozen switcher capture metadata")
+            try require(released == 0, "switcher remains visible before snapshot")
+            MockCapture.content()
+            try await wait({ MockCapture.pendingImage == 1 }, "frozen switcher image")
+            try require(released == 0, "switcher remains visible until pixels arrive")
+            MockCapture.image(image)
+            try await wait({ released == 1 }, "snapshot releases switcher")
+            snapshotModule.capture(snapshotReady: { released += 1 })
+            try await wait({ MockCapture.pendingContent == 1 }, "cancelled snapshot metadata")
+            snapshotModule.stop()
+            try require(released == 2, "stop releases frozen switcher exactly once")
+            MockCapture.content(error: unrelated); try await settle()
+            try require(released == 2, "late snapshot completion cannot release a newer session")
             print("PASS capture access: \(checks) assertions; false advisory + actual API success, exact refusal classification, other errors, cancellation, latest request, process proof, recording start/stop, and termination; no capture/TCC/UI/clipboard")
         } catch {
             FileHandle.standardError.write(Data("FAIL capture access: \(error)\n".utf8)); exit(1)

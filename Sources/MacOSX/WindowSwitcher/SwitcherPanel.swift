@@ -58,10 +58,12 @@ import MacOSXCore
         panel.setFrame(NSRect(x: area.midX - size.width / 2, y: area.midY - size.height / 2,
                               width: size.width, height: size.height), display: false)
         canvas.configure(windows, selectedID, layout, thumbnails)
+        panel.ignoresMouseEvents = false
         panel.acceptsPreviewKeyboard = preview
         if preview && !panel.isKeyWindow { panel.makeKeyAndOrderFront(nil); panel.makeFirstResponder(nil) }
         else { panel.orderFrontRegardless() }
     }
+    func freezeForCapture() { panel.acceptsPreviewKeyboard = false; panel.ignoresMouseEvents = true }
     func hide() { panel.acceptsPreviewKeyboard = false; panel.orderOut(nil); canvas.clearImages() }
     func clear() { hide(); canvas.configure([], nil, canvas.layout, [:]) }
 }
@@ -90,7 +92,7 @@ import MacOSXCore
             thumbnails[window.id].map { (window.id, NSImage(cgImage: $0, size: CGSize(width: $0.width, height: $0.height))) }
         })
         while choices.count < visible.count {
-            let button = ChoiceButton(frame: .zero)
+            let button = ChoiceButton(frame: layout.card(at: choices.count))
             button.title = ""; button.isBordered = false; button.focusRingType = .none
             button.setButtonType(.momentaryPushIn); button.target = self; button.action = #selector(choose(_:))
             addSubview(button); choices.append(button)
@@ -123,6 +125,7 @@ import MacOSXCore
         }
     }
     override func draw(_ dirtyRect: NSRect) {
+        guard bounds.width > 32, bounds.height > 25 else { return }
         NSColor.windowBackgroundColor.withAlphaComponent(0.98).setFill()
         NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 18, yRadius: 18).fill()
         NSColor.labelColor.withAlphaComponent(0.10).setStroke()

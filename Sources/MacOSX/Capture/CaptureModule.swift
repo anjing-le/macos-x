@@ -17,6 +17,7 @@ final class CaptureModule {
     private var captureTicket: CaptureImageService.Ticket?
     // Includes capture acquisition and export, when no selection/editor accepts
     // input yet. Repeated pin shortcuts must not fall back to old clipboard data.
+    private var snapshotReady: (() -> Void)?
     private var captureInProgress = false
     private var editorPending = false, pinAfterEditor = false
     private var clipboardInFlight = false
@@ -44,6 +45,7 @@ final class CaptureModule {
     func stop() {
         running = false; generation &+= 1
         images.cancel(); captureTicket?.cancel(); captureTicket = nil
+        finishSnapshot()
         selection.dismiss(); editor?.close(); editor = nil; pins.closeAll(); lastRegion = nil
         copiedRegion = nil
         captureInProgress = false
@@ -62,8 +64,11 @@ final class CaptureModule {
         recorder.stop(completion: completion)
     }
 
-    func capture() {
-        guard running, !terminating, recordingState != .choosing else { return }
+    @discardableResult
+    func capture(snapshotReady: (() -> Void)? = nil) -> Bool {
+        guard running, !terminating, recordingState != .choosing else { return false }
+        finishSnapshot()
+        self.snapshotReady = snapshotReady
         captureRevision &+= 1; let expected = generation, captureRevision = captureRevision
         selection.dismiss(); editor?.close(); editor = nil
         captureInProgress = true
@@ -74,7 +79,7 @@ final class CaptureModule {
             MainActor.assumeIsolated {
                 guard let self, self.running, self.generation == expected, self.captureRevision == captureRevision else { return }
                 switch result {
-                case .failure(let error): self.captureInProgress = false; self.handle(error)
+                case .failure(let error): self.finishSnapshot(); self.captureInProgress = false; self.handle(error)
                 case .success(let frames):
                     self.hasConfirmedScreenCaptureAccess = true
                     self.setStatus("⌘C 复制 · ⌥C 取色 · Esc 取消")
@@ -83,9 +88,16 @@ final class CaptureModule {
                         guard let self, self.running, self.generation == expected, self.captureRevision == captureRevision else { return }
                         self.finishSelection(result, frames: frames, generation: expected, revision: captureRevision)
                     }
+                    self.finishSnapshot()
                 }
             }
         }
+        return true
+    }
+
+    private func finishSnapshot() {
+        let completion = snapshotReady; snapshotReady = nil
+        completion?()
     }
 
     private func finishSelection(_ result: CaptureSelection.Result, frames: [CaptureFrame],

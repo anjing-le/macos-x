@@ -2,6 +2,16 @@ import XCTest
 @testable import MacOSXCore
 
 final class ShortcutBindingTests: XCTestCase {
+    func testCaptureWhileHoldingSwitcherCommandKeepsOtherModifiersExact() {
+        let capture = ShortcutBinding(keyCode: 122, modifiers: 0, keyLabel: "F1")
+        XCTAssertTrue(capture.matches(keyCode: 122, modifiers: 8, ignoringHeldCommand: true))
+        XCTAssertFalse(capture.matches(keyCode: 122, modifiers: 8))
+        XCTAssertFalse(capture.matches(keyCode: 122, modifiers: 12, ignoringHeldCommand: true))
+        XCTAssertFalse(capture.matches(keyCode: 99, modifiers: 8, ignoringHeldCommand: true))
+        let custom = ShortcutBinding(keyCode: 0, modifiers: 5, keyLabel: "A")
+        XCTAssertTrue(custom.matches(keyCode: 0, modifiers: 13, ignoringHeldCommand: true))
+        XCTAssertFalse(custom.matches(keyCode: 0, modifiers: 9, ignoringHeldCommand: true))
+    }
     func testConflictDoesNotDependOnKeyboardLayoutLabel() {
         let a = ShortcutBinding(keyCode: 1, modifiers: 5, keyLabel: "S")
         let b = ShortcutBinding(keyCode: 1, modifiers: 5, keyLabel: "Ы")
