@@ -50,7 +50,7 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                             throw CaptureFailure.message("录屏区域无效，请在同一块屏幕内重新选择。")
                         }
                         let width = region.width, height = region.height
-                        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("macos-x-\(UUID().uuidString).mp4")
+                        let temporary = CaptureRecordingFile.workingURL(for: destination)
                         self.temporaryURL = temporary
                         let writer = try AVAssetWriter(outputURL: temporary, fileType: .mp4)
                         self.writer = writer
@@ -183,14 +183,13 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                 var error = self.interrupted
                 var output: URL?
                 if writer.status == .completed {
-                    do {
-                        if FileManager.default.fileExists(atPath: destination.path) {
-                            _ = try FileManager.default.replaceItemAt(destination, withItemAt: temporaryURL)
-                        } else { try FileManager.default.moveItem(at: temporaryURL, to: destination) }
-                        output = destination
-                    } catch let failure { error = failure }
+                    let result = CaptureRecordingFile.publish(temporaryURL, to: destination)
+                    output = result.url
+                    if let failure = result.error { error = failure }
                 } else { error = writer.error ?? CaptureFailure.message("MP4 封装失败。") }
                 let callback = self.onFinished
+                // Only incomplete encoder output may be discarded. A completed
+                // video survives destination errors and is surfaced to the user.
                 if output == nil { try? FileManager.default.removeItem(at: temporaryURL) }
                 self.reset()
                 DispatchQueue.main.async { callback?(output, error) }

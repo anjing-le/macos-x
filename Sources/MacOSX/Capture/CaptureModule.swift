@@ -287,7 +287,8 @@ final class CaptureModule {
                             self.hasConfirmedScreenCaptureAccess = false
                         }
                         if url != nil {
-                            self.setStatus(error == nil ? "已保存录屏" : "录屏中断，已保存可用片段")
+                            if let error { self.setStatus("录屏已保留：\(error.localizedDescription)") }
+                            else { self.setStatus("已保存录屏") }
                         } else { self.handle(error ?? CaptureFailure.message("录屏未生成可保存的画面。")) }
                     }
                 })

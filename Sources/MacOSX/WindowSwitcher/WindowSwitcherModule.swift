@@ -39,7 +39,7 @@ import os
     private var status = "启用后即可使用 Command + Tab 切换窗口"
     private var inputAvailable = false
     private let readyStatus = "⌘Tab 监听已就绪 · 松开 ⌘ 确认 · Esc 取消"
-    private let permissionStatus = "辅助功能未生效 · 若已开启，请移除旧授权后重新添加"
+    private let permissionStatus = "辅助功能未生效 · 请检查系统授权后重试"
 
     func setInputAvailable(_ value: Bool) {
         inputAvailable = value

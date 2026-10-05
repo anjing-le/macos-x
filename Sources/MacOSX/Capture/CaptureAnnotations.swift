@@ -45,7 +45,9 @@ enum CaptureAnnotationRenderer {
         guard isCurrent() else { return nil }
         guard let context = CaptureRaster.context(width: base.width, height: base.height) else { return nil }
         context.draw(base, in: CGRect(x: 0, y: 0, width: base.width, height: base.height))
-        let effects = CIContext(options: [.cacheIntermediates: false, .useSoftwareRenderer: true])
+        // Most exports contain only vector marks. Allocate the effects engine
+        // only when an actual redaction patch needs it, once per export.
+        var effects: CIContext?
         for annotation in annotations {
             guard isCurrent() else { return nil }
             if annotation.tool == .mosaic || annotation.tool == .blur {
@@ -61,7 +63,8 @@ enum CaptureAnnotationRenderer {
                 } else {
                     output = source.clampedToExtent().applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: max(6, annotation.width * 2)])
                 }
-                guard let image = effects.createCGImage(output.cropped(to: source.extent), from: source.extent) else { return nil }
+                if effects == nil { effects = CIContext(options: [.cacheIntermediates: false, .useSoftwareRenderer: true]) }
+                guard let image = effects?.createCGImage(output.cropped(to: source.extent), from: source.extent) else { return nil }
                 context.draw(image, in: rect)
             } else {
                 drawVector(annotation, in: context)
