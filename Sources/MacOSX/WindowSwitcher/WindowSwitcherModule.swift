@@ -34,6 +34,14 @@ import MacOSXCore
     private weak var statusLabel: NSTextField?
     private weak var previewButton: NSButton?
     private var status = "启用后即可使用 Command + Tab 切换窗口"
+    private var inputAvailable = false
+    private let readyStatus = "⌘Tab 监听已就绪 · 松开 ⌘ 确认 · Esc 取消"
+    private let permissionStatus = "辅助功能未生效 · 若已开启，请移除旧授权后重新添加"
+
+    func setInputAvailable(_ value: Bool) {
+        inputAvailable = value
+        setStatus(status)
+    }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -54,7 +62,7 @@ import MacOSXCore
 
     var settingsView: NSView {
         if let settings { return settings }
-        let label = NSTextField(wrappingLabelWithString: status)
+        let label = NSTextField(wrappingLabelWithString: displayedStatus)
         label.font = .systemFont(ofSize: 12); label.textColor = .secondaryLabelColor
         let preview = MinimalButton(title: "预览窗口切换", target: self, action: #selector(previewPressed), style: .standard)
         preview.isEnabled = isReady
@@ -73,7 +81,7 @@ import MacOSXCore
     func start() {
         guard AXIsProcessTrusted() else {
             if running { stop() }
-            setStatus("需要辅助功能权限；当前使用 macOS 原生切换")
+            setStatus(permissionStatus)
             setReadiness(false); return
         }
         guard PrivateWindowBridge.isAvailable else {
@@ -288,9 +296,10 @@ import MacOSXCore
         snapshot = result
         let ready = result.accessibilityTrusted && result.mappingAvailable && result.windows.count > 1
         setReadiness(ready)
-        if !result.accessibilityTrusted { setStatus("辅助功能权限不可用；当前使用 macOS 原生切换") }
+        if !result.accessibilityTrusted { setStatus(permissionStatus) }
         else if !result.mappingAvailable { setStatus("系统窗口映射不可用；当前使用 macOS 原生切换") }
-        else { setStatus("⌘Tab 切换 · 松开 ⌘ 确认 · Esc 取消") }
+        else if result.windows.count < 2 { setStatus("可切换窗口不足两个 · 当前使用原生 ⌘Tab") }
+        else { setStatus(readyStatus) }
         thumbnails.retain(Set(result.windows.map { WindowThumbnailID(window: $0.id, process: $0.pid) }))
         if session != nil {
             // Freeze order while the user cycles; remove dead windows, append genuinely new ones.
@@ -313,7 +322,10 @@ import MacOSXCore
         isReady = value; onReadinessChanged?(value)
     }
 
-    private func setStatus(_ value: String) { status = value; statusLabel?.stringValue = value }
+    private var displayedStatus: String {
+        status == readyStatus && !inputAvailable ? "窗口列表已就绪 · 快捷键监听尚未就绪" : status
+    }
+    private func setStatus(_ value: String) { status = value; statusLabel?.stringValue = displayedStatus }
 
     private func observeWorkspace() {
         let center = NSWorkspace.shared.notificationCenter

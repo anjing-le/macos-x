@@ -166,6 +166,7 @@ final class GlobalInput {
     var onConfirm: (() -> Void)?
     var onTapUnavailable: (() -> Void)?
     var onTapAvailable: (() -> Void)?
+    private(set) var hasActiveTap = false
     private var registered: [ShortcutAction: (ShortcutBinding, EventHotKeyRef)] = [:]
     private var eventHandler: EventHandlerRef?
     private var tap: SwitcherInputTap?
@@ -228,7 +229,7 @@ final class GlobalInput {
                 }
             }
         } else if !needsTap, let tap {
-            generation &+= 1; tap.stop(); self.tap = nil
+            generation &+= 1; hasActiveTap = false; tap.stop(); self.tap = nil
         }
         tap?.configure(ready: switcherReady, doubleBinding: wheel, suspended: suspended)
         return issues
@@ -254,7 +255,7 @@ final class GlobalInput {
         case .cancel: heldSession = false; onCancel?()
         case let .move(horizontal, vertical): if heldSession { onMove?(horizontal, vertical) }
         case .confirm: if heldSession { heldSession = false; onConfirm?() }
-        case .available: onTapAvailable?()
+        case .available: hasActiveTap = true; onTapAvailable?()
         case .unavailable:
             invalidateTap()
             onTapUnavailable?()
@@ -280,6 +281,7 @@ final class GlobalInput {
 
     private func invalidateTap() {
         generation &+= 1
+        hasActiveTap = false
         tap?.stop(); tap = nil
         heldSession = false; onCancel?()
     }

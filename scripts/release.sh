@@ -6,6 +6,7 @@ if [[ "${1:-}" == "--help" ]]; then
     echo "Prepare a complete update archive, signed appcast and SHA-256 file; do not upload."
     echo "Signing key: login Keychain account macos-x (override MACOSX_SPARKLE_ACCOUNT)."
     echo "App must match the pinned local certificate, or use an Apple certificate signature."
+    echo "Updates also verify against /Applications/MacOSX.app; set MACOSX_PREVIOUS_APP for another previous release."
     echo "Apple releases require MACOSX_EXPECTED_TEAM_ID when a local certificate is pinned."
     exit 0
 fi
@@ -85,6 +86,11 @@ print(version)
 PY
 )"
 archive_name="macos-x-$version.zip"
+if [[ "$version" != 0.0.1 ]]; then
+    previous_app="${MACOSX_PREVIOUS_APP:-/Applications/MacOSX.app}"
+    [[ -d "$previous_app" ]] || { echo "Set MACOSX_PREVIOUS_APP to the previous signed release for identity verification." >&2; exit 1; }
+    python3 "$root_dir/tools/verify-update-identity.py" "$previous_app" "$app"
+fi
 download_prefix="https://github.com/anjing-le/macos-x/releases/download/v$version/"
 tools_dir="$root_dir/.build/artifacts/sparkle/Sparkle/bin"
 [[ -x "$tools_dir/sign_update" ]] || { echo "Sparkle signing tool missing; run swift package --disable-keychain resolve" >&2; exit 1; }

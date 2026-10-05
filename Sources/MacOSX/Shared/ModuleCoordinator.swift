@@ -38,11 +38,13 @@ final class ModuleCoordinator {
         input.onMove = { [weak self] horizontal, vertical in self?.switcher?.moveSelection(horizontal: horizontal, vertical: vertical) }
         input.onConfirm = { [weak self] in self?.switcher?.confirmSelection() }
         input.onTapUnavailable = { [weak self] in
-            self?.tapIssue = "全局监听不可用，请检查辅助功能权限"
+            self?.tapIssue = "快捷键监听失败 · 当前使用原生 ⌘Tab"
+            self?.switcher?.setInputAvailable(false)
             self?.onStateChanged?(.windowSwitcher); self?.onStateChanged?(.kaomoji)
         }
         input.onTapAvailable = { [weak self] in
             self?.tapIssue = nil
+            self?.switcher?.setInputAvailable(true)
             self?.onStateChanged?(.windowSwitcher); self?.onStateChanged?(.kaomoji)
         }
         activeObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification,
@@ -132,6 +134,7 @@ final class ModuleCoordinator {
         }
         let registrationIssues = input.configure(bindings: bindings,
             switcherReady: isEnabled(.windowSwitcher) && (switcher?.isReady ?? false))
+        switcher?.setInputAvailable(input.hasActiveTap)
         issues.merge(registrationIssues) { _, current in current }
     }
 
