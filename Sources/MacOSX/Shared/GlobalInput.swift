@@ -26,7 +26,7 @@ enum ShortcutAction: UInt32, CaseIterable, Sendable {
 }
 
 private enum InputAction: Sendable {
-    case shortcut(ShortcutAction), advance(Bool), release, cancel, move(Int), confirm, available, unavailable
+    case shortcut(ShortcutAction), advance(Bool), release, cancel, move(Int, Int), confirm, available, unavailable
 }
 
 /// A dedicated run loop keeps UI rendering out of the event-tap callback.
@@ -144,8 +144,10 @@ private final class SwitcherInputTap: @unchecked Sendable {
         switch code {
         case 53: session = false; action = .cancel
         case 36, 76: session = false; action = .confirm
-        case 123, 126: action = .move(-1)
-        case 124, 125: action = .move(1)
+        case 123: action = .move(-1, 0)
+        case 124: action = .move(1, 0)
+        case 126: action = .move(0, -1)
+        case 125: action = .move(0, 1)
         default: action = nil
         }
         lock.unlock()
@@ -160,7 +162,7 @@ final class GlobalInput {
     var onAdvance: ((Bool) -> Void)?
     var onRelease: (() -> Void)?
     var onCancel: (() -> Void)?
-    var onMove: ((Int) -> Void)?
+    var onMove: ((Int, Int) -> Void)?
     var onConfirm: (() -> Void)?
     var onTapUnavailable: (() -> Void)?
     var onTapAvailable: (() -> Void)?
@@ -250,7 +252,7 @@ final class GlobalInput {
         case let .advance(reverse): if switcherReady { heldSession = true; onAdvance?(reverse) }
         case .release: if heldSession { heldSession = false; onRelease?() }
         case .cancel: heldSession = false; onCancel?()
-        case let .move(offset): if heldSession { onMove?(offset) }
+        case let .move(horizontal, vertical): if heldSession { onMove?(horizontal, vertical) }
         case .confirm: if heldSession { heldSession = false; onConfirm?() }
         case .available: onTapAvailable?()
         case .unavailable:

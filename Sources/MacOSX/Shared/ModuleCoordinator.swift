@@ -35,7 +35,7 @@ final class ModuleCoordinator {
         input.onAdvance = { [weak self] reverse in self?.switcher?.advance(reverse: reverse) }
         input.onRelease = { [weak self] in self?.switcher?.releaseCommand() }
         input.onCancel = { [weak self] in self?.switcher?.cancel() }
-        input.onMove = { [weak self] offset in self?.switcher?.moveSelection(by: offset) }
+        input.onMove = { [weak self] horizontal, vertical in self?.switcher?.moveSelection(horizontal: horizontal, vertical: vertical) }
         input.onConfirm = { [weak self] in self?.switcher?.confirmSelection() }
         input.onTapUnavailable = { [weak self] in
             self?.tapIssue = "全局监听不可用，请检查辅助功能权限"
@@ -82,7 +82,8 @@ final class ModuleCoordinator {
             }
         case .windowSwitcher:
             if switcher == nil {
-                switcher = WindowSwitcherModule()
+                switcher = WindowSwitcherModule(defaults: defaults)
+                switcher?.onPreviewSettingsChanged = { [weak self] in self?.onStateChanged?(.windowSwitcher) }
                 switcher?.onReadinessChanged = { [weak self] _ in
                     guard let self, !self.synchronizing else { return }
                     self.configureInput(); self.onStateChanged?(.windowSwitcher)
@@ -172,7 +173,9 @@ final class ModuleCoordinator {
             && !AXIsProcessTrusted()
     }
     func needsScreenCapture(_ tool: Tool) -> Bool {
-        tool == .capture && capture?.hasConfirmedScreenCaptureAccess != true && !CGPreflightScreenCaptureAccess()
+        let needed = tool == .capture ? capture?.hasConfirmedScreenCaptureAccess != true
+            : tool == .windowSwitcher && switcher?.thumbnailsEnabled == true && switcher?.hasConfirmedThumbnailAccess != true
+        return needed && (!CGPreflightScreenCaptureAccess() || (tool == .windowSwitcher && switcher?.thumbnailPermissionDenied == true))
     }
     func issue(for tool: Tool) -> String? {
         if !isEnabled(tool) { return nil }
@@ -194,8 +197,9 @@ final class ModuleCoordinator {
         }
     }
     func requestScreenCapture() {
-        guard !terminating, capture?.hasConfirmedScreenCaptureAccess != true else { return }
+        guard !terminating else { return }
         let granted = CGRequestScreenCaptureAccess()
+        if granted { switcher?.retryThumbnailPermission() }
         if !granted,
             let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
             NSWorkspace.shared.open(url)

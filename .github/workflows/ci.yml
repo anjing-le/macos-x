@@ -17,5 +17,7 @@ jobs:
         run: zsh tools/run-capture-access-regression.sh
       - name: Check pinned-image transforms and clipboard color cards
         run: zsh tools/run-pin-regression.sh
+      - name: Check window thumbnail cancellation and cache bounds
+        run: zsh tools/run-switcher-regression.sh
       - name: Build a development app with OTA explicitly disabled
         run: scripts/build.sh --disable-updates

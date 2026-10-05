@@ -10,6 +10,8 @@ struct SwitcherWindow {
     let icon: NSImage?
     let element: AXUIElement
     let isMinimized: Bool
+    let isHidden: Bool
+    let isOnScreen: Bool
 }
 
 struct WindowInventorySnapshot {
@@ -104,7 +106,7 @@ final class WindowInventory {
             AXUIElementSetMessagingTimeout(app, 0.15)
             if let element = self.elementAttribute(app, kAXFocusedWindowAttribute),
                let id = PrivateWindowBridge.windowID(of: element),
-               NSWorkspace.shared.frontmostApplication?.processIdentifier == latestPID {
+               NSWorkspace.shared.frontmostApplication?.processIdentifier == latestPID, self.isOnScreen(id) {
                 self.confirmFocus(id, generation: generation)
             }
         }
@@ -127,6 +129,7 @@ final class WindowInventory {
             guard self.valid(generation, focus: ticket), let application = NSRunningApplication(processIdentifier: window.pid), !application.isTerminated else {
                 self.deliverFocus(false, generation, ticket, completion); return
             }
+            if application.isHidden { _ = application.unhide() }
             _ = application.activate(options: [])
             let app = AXUIElementCreateApplication(window.pid)
             AXUIElementSetMessagingTimeout(app, 0.15)
@@ -134,15 +137,34 @@ final class WindowInventory {
             _ = AXUIElementSetAttributeValue(app, kAXFocusedWindowAttribute as CFString, window.element)
             guard self.valid(generation, focus: ticket) else { return }
             _ = AXUIElementPerformAction(window.element, kAXRaiseAction as CFString)
-            self.queue.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-                guard let self, self.valid(generation, focus: ticket) else { return }
-                let focused = self.elementAttribute(app, kAXFocusedWindowAttribute)
-                let landed = focused.flatMap { PrivateWindowBridge.windowID(of: $0) } == window.id
-                    && NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid
-                if landed { self.confirmFocus(window.id, generation: generation) }
-                self.deliverFocus(landed, generation, ticket, completion)
-            }
+            self.verifyFocus(window, application: app, generation: generation, ticket: ticket, attempt: 0, completion: completion)
         }
+    }
+
+    /// Space/full-screen animations are asynchronous. These four checks belong
+    /// to one requested focus operation, never a periodic window poll.
+    private func verifyFocus(_ window: SwitcherWindow, application: AXUIElement, generation: UInt64,
+                             ticket: UInt64, attempt: Int, completion: @escaping (Bool) -> Void) {
+        let delays: [Double] = [0.08, 0.16, 0.30, 0.45]
+        queue.asyncAfter(deadline: .now() + delays[attempt]) { [weak self] in
+            guard let self, self.valid(generation, focus: ticket) else { return }
+            let focused = self.elementAttribute(application, kAXFocusedWindowAttribute)
+            let landed = focused.flatMap { PrivateWindowBridge.windowID(of: $0) } == window.id
+                && NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid
+                && self.isOnScreen(window.id)
+            if landed {
+                self.confirmFocus(window.id, generation: generation)
+                self.deliverFocus(true, generation, ticket, completion)
+            } else if attempt + 1 < delays.count {
+                self.verifyFocus(window, application: application, generation: generation, ticket: ticket,
+                                 attempt: attempt + 1, completion: completion)
+            } else { self.deliverFocus(false, generation, ticket, completion) }
+        }
+    }
+
+    private func isOnScreen(_ id: CGWindowID) -> Bool {
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        return windows.contains { ($0[kCGWindowNumber as String] as? UInt32) == id }
     }
 
     private func deliverFocus(_ result: Bool, _ generation: UInt64, _ ticket: UInt64, _ completion: @escaping (Bool) -> Void) {
@@ -178,7 +200,7 @@ final class WindowInventory {
             visible.insert(id); rank[id] = index; visiblePIDs.insert(pid)
         }
         let applications = NSWorkspace.shared.runningApplications.filter {
-            $0.activationPolicy == .regular && !$0.isTerminated && !$0.isHidden
+            $0.activationPolicy == .regular && !$0.isTerminated
 
         }.sorted {
             if $0.processIdentifier == frontmostPID && $1.processIdentifier != frontmostPID { return true }
@@ -210,12 +232,12 @@ final class WindowInventory {
                 let subrole = values[0] as? String
                 guard subrole == kAXStandardWindowSubrole || (subrole == nil && values[1] as? String == kAXWindowRole) else { continue }
                 let minimized = values[2] as? Bool == true
-                guard minimized || visible.contains(id) else { continue }
                 observed[id] = element
                 let rawTitle = values[3] as? String ?? ""
                 let name = application.localizedName ?? "应用"
                 windows.append(.init(id: id, pid: pid, title: String((rawTitle.isEmpty ? name : rawTitle).prefix(200)),
-                    applicationName: name, icon: application.icon, element: element, isMinimized: minimized))
+                    applicationName: name, icon: application.icon, element: element, isMinimized: minimized,
+                    isHidden: application.isHidden, isOnScreen: visible.contains(id)))
             }
             guard valid(generation, scan: ticket) else { break }
             if !complete {
@@ -227,7 +249,7 @@ final class WindowInventory {
             updateObserver(pid: pid, application: app, windows: observed, generation: generation)
             if pid == frontmostPID, let focused = elementAttribute(app, kAXFocusedWindowAttribute),
                let id = PrivateWindowBridge.windowID(of: focused),
-               NSWorkspace.shared.frontmostApplication?.processIdentifier == pid {
+               NSWorkspace.shared.frontmostApplication?.processIdentifier == pid, visible.contains(id) {
                 currentFocusedID = id
                 if id != focusedID { confirmFocus(id, generation: generation) }
             }

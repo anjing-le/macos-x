@@ -36,6 +36,18 @@ public struct SwitcherSelection: Equatable {
         selectedIndex = index
     }
 
+    public mutating func moveVertically(direction: Int, columns: Int) {
+        guard !windowIDs.isEmpty, direction != 0 else { return }
+        let columns = min(max(1, columns), windowIDs.count)
+        let rows = (windowIDs.count + columns - 1) / columns
+        let column = selectedIndex % columns
+        var row = (selectedIndex / columns + direction.signum() + rows) % rows
+        if row * columns + column >= windowIDs.count {
+            row = direction > 0 ? 0 : max(0, rows - 2)
+        }
+        selectedIndex = row * columns + column
+    }
+
     public mutating func replaceWindows(_ ids: [UInt32]) {
         let previous = selectedWindowID
         windowIDs = Self.unique(ids)

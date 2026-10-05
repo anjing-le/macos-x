@@ -4,10 +4,19 @@ import MacOSXCore
 
 /// Shared input is owned by the app. This module never installs another event tap.
 @MainActor final class WindowSwitcherModule {
+    var onPreviewSettingsChanged: (() -> Void)?
+    private let defaults: UserDefaults
+    var thumbnailsEnabled: Bool { defaults.object(forKey: "switcher.thumbnails") as? Bool ?? true }
+    private(set) var hasConfirmedThumbnailAccess = false
+    private(set) var thumbnailPermissionDenied = false
     var onReadinessChanged: ((Bool) -> Void)?
     private(set) var isReady = false
     var isSwitching: Bool { session != nil }
     private let inventory = WindowInventory()
+    private let thumbnails = WindowThumbnailService()
+    private var thumbnailTicket: WindowThumbnailService.Ticket?
+    private var thumbnailPage: [WindowThumbnailID] = []
+    private var thumbnailImages: [CGWindowID: CGImage] = [:]
     private var panel: SwitcherPanel?
     private var snapshot = WindowInventorySnapshot.empty
     private var session: SwitcherSelection?
@@ -26,7 +35,8 @@ import MacOSXCore
     private weak var previewButton: NSButton?
     private var status = "启用后即可使用 Command + Tab 切换窗口"
 
-    init() {
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         inventory.onInvalidation = { [weak self] in
             MainActor.assumeIsolated { self?.scheduleRefresh() }
         }
@@ -48,7 +58,13 @@ import MacOSXCore
         label.font = .systemFont(ofSize: 12); label.textColor = .secondaryLabelColor
         let preview = MinimalButton(title: "预览窗口切换", target: self, action: #selector(previewPressed), style: .standard)
         preview.isEnabled = isReady
-        let stack = NSStackView(views: [preview, label])
+        let thumbnailToggle = MinimalToggle(title: "", target: self, action: #selector(changeThumbnails(_:)))
+        thumbnailToggle.state = thumbnailsEnabled ? .on : .off
+        thumbnailToggle.setAccessibilityLabel("窗口缩略图")
+        let thumbnailLabel = NSTextField(labelWithString: "窗口缩略图")
+        thumbnailLabel.font = .systemFont(ofSize: 12); thumbnailLabel.textColor = .secondaryLabelColor
+        let row = NSStackView(views: [thumbnailLabel, thumbnailToggle]); row.spacing = 14
+        let stack = NSStackView(views: [row, preview, label])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 10
         settings = stack; statusLabel = label; previewButton = preview
         return stack
@@ -79,6 +95,7 @@ import MacOSXCore
         let center = NSWorkspace.shared.notificationCenter
         for observer in workspaceObservers { center.removeObserver(observer) }
         workspaceObservers.removeAll()
+        thumbnails.clear()
         inventory.stop(); snapshot = .empty
         panel?.clear(); panel = nil
         queuedRenderToken = nil; setReadiness(false)
@@ -101,9 +118,11 @@ import MacOSXCore
         }
     }
 
-    func moveSelection(by offset: Int) {
+    func moveSelection(horizontal: Int, vertical: Int) {
         guard session != nil else { return }
-        session?.move(by: offset); enqueueRender()
+        if vertical != 0 { session?.moveVertically(direction: vertical, columns: panel?.columnCount ?? 1) }
+        else { session?.move(by: horizontal) }
+        enqueueRender()
     }
 
     func releaseCommand() {
@@ -128,6 +147,8 @@ import MacOSXCore
 
     func cancel() {
         sessionToken &+= 1
+        thumbnailTicket?.cancel(); thumbnailTicket = nil
+        thumbnailPage.removeAll(); thumbnailImages.removeAll()
         presentationWork?.cancel(); presentationWork = nil
         queuedRenderToken = nil
         session = nil; sessionKind = nil; sessionWindows.removeAll(); panel?.hide()
@@ -181,12 +202,59 @@ import MacOSXCore
                 guard let self, self.sessionWindows.contains(where: { $0.id == id }) else { return }
                 self.session?.select(windowID: id); self.confirmSelection()
             }
-            created.onMove = { [weak self] in self?.moveSelection(by: $0) }
+            created.onHighlight = { [weak self] id in
+                guard let self, self.session?.selectedWindowID != id else { return }
+                self.session?.select(windowID: id); self.enqueueRender()
+            }
+            created.onMove = { [weak self] in self?.moveSelection(horizontal: $0, vertical: $1) }
             created.onConfirm = { [weak self] in self?.confirmSelection() }
             created.onCancel = { [weak self] in self?.cancel() }
             panel = created
         }
-        panel?.show(windows: sessionWindows, selectedID: session?.selectedWindowID, preview: sessionKind == .preview)
+        panel?.show(windows: sessionWindows, selectedID: session?.selectedWindowID,
+                    thumbnails: thumbnailImages, preview: sessionKind == .preview)
+        requestVisibleThumbnails()
+    }
+
+    func retryThumbnailPermission() { thumbnailPermissionDenied = false; thumbnailPage.removeAll() }
+
+    @objc private func changeThumbnails(_ sender: NSButton) {
+        defaults.set(sender.state == .on, forKey: "switcher.thumbnails")
+        thumbnailTicket?.cancel(); thumbnailTicket = nil
+        thumbnailPage.removeAll(); thumbnailImages.removeAll()
+        if !thumbnailsEnabled { thumbnails.clear() }
+        if session != nil { enqueueRender() }
+        onPreviewSettingsChanged?()
+    }
+
+    private func requestVisibleThumbnails() {
+        guard thumbnailsEnabled, !thumbnailPermissionDenied, hasConfirmedThumbnailAccess || CGPreflightScreenCaptureAccess(),
+              let panel, panel.isVisible else { return }
+        let visible = panel.visibleWindows
+        let ids = visible.map { WindowThumbnailID(window: $0.id, process: $0.pid) }
+        guard ids != thumbnailPage else { return }
+        thumbnailTicket?.cancel(); thumbnailPage = ids
+        let live = Set(ids.map(\.window)); thumbnailImages = thumbnailImages.filter { live.contains($0.key) }
+        let expected = generation, token = sessionToken
+        // Selected window first, then its visible neighbours; never prefetch all windows.
+        let ordered = ids.sorted { $0.window == session?.selectedWindowID && $1.window != session?.selectedWindowID }
+        thumbnailTicket = thumbnails.request(ordered, updated: { [weak self] id, image in
+            MainActor.assumeIsolated {
+                guard let self, self.running, self.generation == expected, self.sessionToken == token,
+                      self.thumbnailPage.contains(id) else { return }
+                self.hasConfirmedThumbnailAccess = true; self.thumbnailImages[id.window] = image
+                self.enqueueRender()
+            }
+        }, failed: { [weak self] error in
+            MainActor.assumeIsolated {
+                guard let self, self.running, self.generation == expected, self.sessionToken == token else { return }
+                if case CaptureFailure.permission = CaptureFailure.screenCaptureError(error) {
+                    self.hasConfirmedThumbnailAccess = false; self.thumbnailPermissionDenied = true
+                    self.setStatus("缩略图需要屏幕权限，仍可用图标切换。")
+                    self.onPreviewSettingsChanged?()
+                }
+            }
+        })
     }
 
     private func scheduleRefresh(immediate: Bool = false) {
@@ -222,7 +290,8 @@ import MacOSXCore
         setReadiness(ready)
         if !result.accessibilityTrusted { setStatus("辅助功能权限不可用；当前使用 macOS 原生切换") }
         else if !result.mappingAvailable { setStatus("系统窗口映射不可用；当前使用 macOS 原生切换") }
-        else { setStatus("\(result.windows.count) 个窗口 · 松开 Command 切换，Esc 取消 · 无需录屏权限") }
+        else { setStatus("⌘Tab 切换 · 松开 ⌘ 确认 · Esc 取消") }
+        thumbnails.retain(Set(result.windows.map { WindowThumbnailID(window: $0.id, process: $0.pid) }))
         if session != nil {
             // Freeze order while the user cycles; remove dead windows, append genuinely new ones.
             let live = Dictionary(result.windows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -262,7 +331,7 @@ import MacOSXCore
                         self.inventory.applicationActivated(application.processIdentifier)
                     }
                     if notification.name == NSWorkspace.activeSpaceDidChangeNotification {
-                        self.cancel(); self.inventory.invalidateScans(); self.snapshot = .empty; self.setReadiness(false)
+                        self.cancel(); self.inventory.invalidateScans()
                     }
                     self.scheduleRefresh()
                 }
