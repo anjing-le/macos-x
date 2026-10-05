@@ -18,19 +18,31 @@ import MacOSXCore
     private var latest: URL?
     private let recordingLabel = NSTextField(labelWithString: "")
     private let resultLabel = NSTextField(labelWithString: "")
+    private lazy var folderButton = MinimalButton(title: "", target: self, action: #selector(chooseFolder), style: .quiet)
+    private lazy var copy = MinimalButton(title: "复制路径", target: self, action: #selector(copyResult), style: .quiet)
     private lazy var play = MinimalButton(title: "播放", target: self, action: #selector(openResult), style: .standard)
     private lazy var reveal = MinimalButton(title: "在 Finder 中显示", target: self, action: #selector(revealResult), style: .quiet)
-    private lazy var results = NSStackView(views: [resultLabel, NSStackView(views: [play, reveal])])
+    private lazy var results = NSStackView(views: [resultLabel, NSStackView(views: [play, reveal, copy])])
     private lazy var settings: NSStackView = {
         recordingLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         resultLabel.font = .systemFont(ofSize: 12); resultLabel.textColor = .secondaryLabelColor
         resultLabel.lineBreakMode = .byTruncatingMiddle; resultLabel.maximumNumberOfLines = 1
         results.orientation = .vertical; results.alignment = .leading; results.spacing = 10
-        let stack = NSStackView(views: [recordingLabel, results])
+        let folderLabel = NSTextField(labelWithString: "保存到")
+        folderLabel.font = .systemFont(ofSize: 12); folderLabel.textColor = .secondaryLabelColor
+        updateFolderButton()
+        let folderRow = NSStackView(views: [folderLabel, folderButton]); folderRow.spacing = 8
+        let stack = NSStackView(views: [folderRow, recordingLabel, results])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 14
         return stack
     }()
     var settingsView: NSView { _ = settings; refreshVisibility(); return settings }
+    var recordingDirectory: URL {
+        if let path = defaults.string(forKey: "recording.directory-path") { return URL(fileURLWithPath: path, isDirectory: true) }
+        let movies = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies", isDirectory: true)
+        return movies.appendingPathComponent("macos-x", isDirectory: true)
+    }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -101,13 +113,13 @@ import MacOSXCore
     func completed(_ url: URL?, announce: Bool) {
         clock.stop(at: ProcessInfo.processInfo.systemUptime)
         clearIndicator(); busy = false
-        if let url { setResult(url, readDuration: announce) }
+        if let url { setResult(url, readDuration: announce); copyResult() }
         refreshVisibility()
         guard announce, url != nil else { return }
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item?.button?.title = "✓ 已保存"
+        item?.button?.title = "✓ 已复制路径"
         let menu = NSMenu()
-        for (title, action) in [("播放", #selector(openResult)), ("在 Finder 中显示", #selector(revealResult))] {
+        for (title, action) in [("播放", #selector(openResult)), ("在 Finder 中显示", #selector(revealResult)), ("复制路径", #selector(copyResult))] {
             let entry = NSMenuItem(title: title, action: action, keyEquivalent: "")
             entry.target = self; menu.addItem(entry)
         }
@@ -146,6 +158,7 @@ import MacOSXCore
     }
     private func refreshVisibility() {
         recordingLabel.isHidden = !busy; results.isHidden = busy || latest == nil
+        folderButton.isEnabled = !busy
     }
     private func clearIndicator() {
         timer?.invalidate(); timer = nil; dismissWork?.cancel(); dismissWork = nil
@@ -154,4 +167,25 @@ import MacOSXCore
     @objc private func stopPressed() { onStop?() }
     @objc private func openResult() { if let latest { _ = NSWorkspace.shared.open(latest) } }
     @objc private func revealResult() { if let latest { NSWorkspace.shared.activateFileViewerSelecting([latest]) } }
+    @objc private func copyResult() {
+        guard let latest else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(latest.path, forType: .string)
+    }
+    private func updateFolderButton() {
+        let folder = recordingDirectory
+        folderButton.title = "\(folder.deletingLastPathComponent().lastPathComponent)/\(folder.lastPathComponent) ›"
+        folderButton.toolTip = folder.path; folderButton.setAccessibilityLabel("更改录屏保存目录，\(folder.path)")
+        folderButton.invalidateIntrinsicContentSize()
+    }
+    @objc private func chooseFolder() {
+        guard let window = settings.window, !busy, window.attachedSheet == nil else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true; panel.directoryURL = recordingDirectory; panel.prompt = "选择"
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let self, let url = panel.url else { return }
+            self.defaults.set(url.path, forKey: "recording.directory-path"); self.updateFolderButton()
+        }
+    }
 }

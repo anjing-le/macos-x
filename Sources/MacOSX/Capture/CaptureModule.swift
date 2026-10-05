@@ -243,12 +243,9 @@ final class CaptureModule {
         // File-system work is deferred until explicit Start; never hold the UI
         // or create files while the user is only selecting a region.
         setStatus("正在启动录屏…")
+        let folder = recordingPresentation.recordingDirectory
         work.async { [weak self] in
             let result: Swift.Result<URL, Error> = Swift.Result {
-                guard let movies = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first else {
-                    throw CaptureFailure.message("找不到影片文件夹。")
-                }
-                let folder = movies.appendingPathComponent("macos-x", isDirectory: true)
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                 let formatter = DateFormatter(); formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
                 return folder.appendingPathComponent("录屏 \(formatter.string(from: Date())) \(UUID().uuidString.prefix(6)).mp4")

@@ -90,6 +90,7 @@ final class NSSavePanel {
     }
 }
 @MainActor final class RecordingPresentation {
+    var recordingDirectory: URL { FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask)[0].appendingPathComponent("macos-x", isDirectory: true) }
     var onStop: (() -> Void)?
     let settingsView = NSView()
     static var starts = 0, saves = 0, completedURLs = [URL]()
