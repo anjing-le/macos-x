@@ -3,7 +3,9 @@ import ApplicationServices
 import MacOSXCore
 import os
 
-struct SwitcherWindow {
+// Immutable metadata; icons are never mutated, AX handles are used only by
+// the serialized external-process worker (local handles are never messaged).
+struct SwitcherWindow: @unchecked Sendable {
     let id: CGWindowID
     let pid: pid_t
     let title: String
@@ -23,8 +25,10 @@ struct WindowInventorySnapshot {
     static let empty = Self(windows: [], focusedID: nil, mappingAvailable: true, accessibilityTrusted: true)
 }
 
-/// Serial AX I/O, event-driven invalidation, no polling. Main-thread callbacks only publish caches.
-final class WindowInventory {
+/// Serial AX I/O, event-driven invalidation, no polling. Lifecycle tickets are
+/// lock-protected; window caches live on queue. Callbacks are configured before
+/// start and delivered on main. Native window operations stay on MainActor.
+final class WindowInventory: @unchecked Sendable {
     private let logger = Logger(subsystem: "cc.anjing.macos-x", category: "window-focus")
     private let queue = DispatchQueue(label: "cc.anjing.macos-x.window-inventory", qos: .userInitiated)
     private let lock = NSLock()
@@ -78,12 +82,14 @@ final class WindowInventory {
         return active && epoch == expected && (scan == nil || scanTicket == scan) && (focus == nil || focusTicket == focus)
     }
 
+    @MainActor
     func refresh(frontmostPID: pid_t?, completion: @escaping (WindowInventorySnapshot) -> Void) {
         lock.lock(); guard active else { lock.unlock(); return }
         let generation = epoch; scanTicket &+= 1; let ticket = scanTicket; lock.unlock()
+        let local = LocalSwitcherWindows.snapshot()
         queue.async { [weak self] in
             guard let self, self.valid(generation, scan: ticket) else { return }
-            let result = self.scan(frontmostPID: frontmostPID, generation: generation, ticket: ticket)
+            let result = self.scan(frontmostPID: frontmostPID, local: local, generation: generation, ticket: ticket)
             guard self.valid(generation, scan: ticket) else { return }
             DispatchQueue.main.async { [weak self] in
                 guard self?.valid(generation, scan: ticket) == true else { return }
@@ -93,6 +99,14 @@ final class WindowInventory {
     }
 
     func applicationActivated(_ pid: pid_t) {
+        if pid == ProcessInfo.processInfo.processIdentifier {
+            lock.lock(); let generation = epoch; lock.unlock()
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.valid(generation), let id = LocalSwitcherWindows.focusedID() else { return }
+                self.queue.async { [weak self] in self?.confirmFocus(id, generation: generation) }
+            }
+            return
+        }
         lock.lock(); guard active else { lock.unlock(); return }
         pendingFocusedPID = pid
         guard !focusReadQueued else { lock.unlock(); return }
@@ -118,6 +132,18 @@ final class WindowInventory {
     func focus(_ window: SwitcherWindow, completion: @escaping (Bool) -> Void) {
         lock.lock(); guard active else { lock.unlock(); return }
         let generation = epoch; focusTicket &+= 1; scanTicket &+= 1; let ticket = focusTicket; lock.unlock()
+        // Same-process AX invokes AppKit synchronously on the caller thread.
+        // Never send our own windows through the cross-process AX queue.
+        if window.pid == ProcessInfo.processInfo.processIdentifier {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.valid(generation, focus: ticket) else { return }
+                guard LocalSwitcherWindows.focus(window.id) else {
+                    self.deliverFocus(false, generation, ticket, completion); return
+                }
+                self.verifyLocalFocus(window.id, generation: generation, ticket: ticket, attempt: 0, completion: completion)
+            }
+            return
+        }
         queue.async { [weak self] in
             guard let self, self.valid(generation, focus: ticket) else { return }
             guard AXIsProcessTrusted() else { self.deliverFocus(false, generation, ticket, completion); return }
@@ -148,6 +174,28 @@ final class WindowInventory {
             let raiseResult = AXUIElementPerformAction(window.element, kAXRaiseAction as CFString)
             self.logger.notice("request window=\(window.id) pid=\(window.pid) activated=\(activated) frontmost=\(frontmostResult.rawValue) main=\(mainResult.rawValue) focused=\(focusResult.rawValue) raise=\(raiseResult.rawValue)")
             self.verifyFocus(window, application: app, generation: generation, ticket: ticket, attempt: 0, completion: completion)
+        }
+    }
+
+    @MainActor
+    private func verifyLocalFocus(_ id: CGWindowID, generation: UInt64, ticket: UInt64,
+                                  attempt: Int, completion: @escaping (Bool) -> Void) {
+        let delays = [0.08, 0.16, 0.30, 0.45]
+        DispatchQueue.main.asyncAfter(deadline: .now() + delays[attempt]) { [weak self] in
+            guard let self, self.valid(generation, focus: ticket) else { return }
+            if LocalSwitcherWindows.focusedID() == id {
+                self.queue.async { [weak self] in
+                    guard let self, self.valid(generation, focus: ticket) else { return }
+                    self.logger.notice("confirmed local window=\(id)")
+                    self.confirmFocus(id, generation: generation)
+                    self.deliverFocus(true, generation, ticket, completion)
+                }
+            } else if attempt + 1 < delays.count {
+                self.verifyLocalFocus(id, generation: generation, ticket: ticket, attempt: attempt + 1, completion: completion)
+            } else {
+                self.logger.error("failed local window=\(id)")
+                self.deliverFocus(false, generation, ticket, completion)
+            }
         }
     }
 
@@ -198,7 +246,7 @@ final class WindowInventory {
         }
     }
 
-    private func scan(frontmostPID: pid_t?, generation: UInt64, ticket: UInt64) -> WindowInventorySnapshot {
+    private func scan(frontmostPID: pid_t?, local: LocalSwitcherWindows.Snapshot, generation: UInt64, ticket: UInt64) -> WindowInventorySnapshot {
         guard AXIsProcessTrusted() else {
             return .init(windows: [], focusedID: nil, mappingAvailable: PrivateWindowBridge.isAvailable, accessibilityTrusted: false)
         }
@@ -216,6 +264,7 @@ final class WindowInventory {
         }
         let applications = NSWorkspace.shared.runningApplications.filter {
             $0.activationPolicy == .regular && !$0.isTerminated
+                && $0.processIdentifier != ProcessInfo.processInfo.processIdentifier
 
         }.sorted {
             if $0.processIdentifier == frontmostPID && $1.processIdentifier != frontmostPID { return true }
@@ -224,11 +273,14 @@ final class WindowInventory {
             return l == r ? $0.processIdentifier < $1.processIdentifier : l
         }
         let eligible = Array(applications.prefix(64))
-        let pids = Set(eligible.map(\.processIdentifier))
+        let localPID = ProcessInfo.processInfo.processIdentifier
+        let pids = Set(eligible.map(\.processIdentifier)).union([localPID])
+        cached[localPID] = local.windows
         for pid in Set(observers.keys).subtracting(pids) { removeObserver(pid) }
         cached = cached.filter { pids.contains($0.key) }
         let deadline = ProcessInfo.processInfo.systemUptime + 2
-        var currentFocusedID: CGWindowID?
+        var currentFocusedID: CGWindowID? = frontmostPID == localPID ? local.focusedID : nil
+        if let id = currentFocusedID, visible.contains(id), id != focusedID { confirmFocus(id, generation: generation) }
         for application in eligible {
             guard valid(generation, scan: ticket), ProcessInfo.processInfo.systemUptime < deadline else { break }
             let pid = application.processIdentifier

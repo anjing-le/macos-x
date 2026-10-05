@@ -32,6 +32,7 @@ import os
     private var presentationWork: DispatchWorkItem?
     private var queuedRenderToken: UInt64?
     private var workspaceObservers = [NSObjectProtocol]()
+    private var localWindowObservers = [NSObjectProtocol]()
     private var settings: NSView?
     private weak var statusLabel: NSTextField?
     private weak var previewButton: NSButton?
@@ -59,6 +60,7 @@ import os
         refreshWork?.cancel(); presentationWork?.cancel()
         let center = NSWorkspace.shared.notificationCenter
         for observer in workspaceObservers { center.removeObserver(observer) }
+        for observer in localWindowObservers { NotificationCenter.default.removeObserver(observer) }
         inventory.stop()
     }
 
@@ -105,6 +107,8 @@ import os
         let center = NSWorkspace.shared.notificationCenter
         for observer in workspaceObservers { center.removeObserver(observer) }
         workspaceObservers.removeAll()
+        for observer in localWindowObservers { NotificationCenter.default.removeObserver(observer) }
+        localWindowObservers.removeAll()
         thumbnails.clear()
         inventory.stop(); snapshot = .empty
         panel?.clear(); panel = nil
@@ -353,6 +357,20 @@ import os
     private func setStatus(_ value: String) { status = value; statusLabel?.stringValue = displayedStatus }
 
     private func observeWorkspace() {
+        // Own-window changes use native notifications, not same-process AX.
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didMiniaturizeNotification,
+                     NSWindow.didDeminiaturizeNotification, NSWindow.willCloseNotification] {
+            localWindowObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                MainActor.assumeIsolated {
+                    guard let self, self.running, let window = notification.object as? NSWindow,
+                          !(window is NSPanel), window.styleMask.contains(.titled) else { return }
+                    if name == NSWindow.didBecomeKeyNotification {
+                        self.inventory.applicationActivated(ProcessInfo.processInfo.processIdentifier)
+                    }
+                    self.scheduleRefresh()
+                }
+            })
+        }
         let center = NSWorkspace.shared.notificationCenter
         let names = [NSWorkspace.didActivateApplicationNotification, NSWorkspace.didLaunchApplicationNotification,
                      NSWorkspace.didTerminateApplicationNotification, NSWorkspace.didHideApplicationNotification,
