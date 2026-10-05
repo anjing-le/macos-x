@@ -102,7 +102,9 @@ final class NSSavePanel {
     var onStatus: ((String) -> Void)?
     var canAdd = true
     static var pending: [(Bool) -> Void] = []
+    static var frames: [CGRect?] = []
     func add(_ image: CGImage, at frame: CGRect? = nil, onPresent: ((Bool) -> Void)? = nil) {
+        Self.frames.append(frame)
         if let onPresent { Self.pending.append(onPresent) }
     }
     func restoreLastClosed() -> Bool { false }
@@ -110,7 +112,7 @@ final class NSSavePanel {
     func closeAll() {}
 }
 @MainActor final class CaptureEditor {
-    var onExport: (() -> Void)?, onClose: (() -> Void)?, onPin: ((CGImage) -> Void)?
+    var onExport: (() -> Void)?, onCopied: (() -> Void)?, onClose: (() -> Void)?, onPin: ((CGImage) -> Void)?
     var onReselect: (() -> Void)?, colorAtPointer: ((Bool) -> String?)?
     static weak var current: CaptureEditor?
     let image: CGImage
@@ -124,13 +126,16 @@ final class NSSavePanel {
     nonisolated static func pngData(_ image: CGImage) -> Data? { nil }
 }
 enum CaptureClipboard {
-    static func image(from data: Data) -> CGImage? { nil }
+    static var fixtureImage: CGImage?
+    static func image(from data: Data) -> CGImage? { fixtureImage }
     static func text(_ value: String) -> CGImage? { nil }
 }
 enum NSPasteboard {
     enum Kind { case png, tiff, string }
     final class Board {
-        func data(forType: Kind) -> Data? { fatalError("Test must not read clipboard") }
+        var changeCount = 0
+        var fixturePNG: Data?
+        func data(forType: Kind) -> Data? { fixturePNG }
         func string(forType: Kind) -> String? { fatalError("Test must not read clipboard") }
         func clearContents() { fatalError("Test must not write clipboard") }
         @discardableResult func setString(_ value: String, forType: Kind) -> Bool { fatalError("Test must not write clipboard") }
@@ -321,6 +326,23 @@ private struct CheckFailure: Error { let message: String }
             try require(CaptureSelection.dismissals == newSession, "late pin cannot dismiss a newer screenshot session")
             try await wait({ MockCapture.pendingContent == 1 }, "new session metadata")
             pinModule.stop(); MockCapture.content(error: unrelated); try await settle()
+            let placementModule = CaptureModule(); placementModule.start(); placementModule.capture()
+            try await succeedImage(image)
+            try await wait({ CaptureSelection.lastCompletion != nil }, "copied screenshot selection")
+            CaptureSelection.lastCompletion?(.edit(region))
+            try await wait({ CaptureEditor.current != nil }, "copied screenshot editor")
+            NSPasteboard.general.fixturePNG = Data([1]); NSPasteboard.general.changeCount = 37
+            CaptureClipboard.fixtureImage = image
+            CaptureEditor.current?.onCopied?(); CaptureEditor.current?.close()
+            let copiedPins = CapturePins.frames.count
+            placementModule.pin()
+            try await wait({ CapturePins.frames.count == copiedPins + 1 }, "owned clipboard pin")
+            try require(CapturePins.frames.last! == region, "own copied screenshot keeps original point size and location")
+            NSPasteboard.general.changeCount += 1
+            placementModule.pin()
+            try await wait({ CapturePins.frames.count == copiedPins + 2 }, "external clipboard pin")
+            try require(CapturePins.frames.last! == nil, "changed clipboard must not reuse unrelated screenshot placement")
+            placementModule.stop(); NSPasteboard.general.fixturePNG = nil; CaptureClipboard.fixtureImage = nil
             try require(MockCapture.preflightCalls == 0, "all active paths avoid advisory checks")
             try require(CGPreflightScreenCaptureAccess() == false, "mock advisory really returns false")
             print("PASS capture access: \(checks) assertions; false advisory + actual API success, exact refusal classification, other errors, cancellation, latest request, process proof, recording start/stop, and termination; no capture/TCC/UI/clipboard")

@@ -22,6 +22,7 @@ final class CaptureModule {
     private var editorPending = false, pinAfterEditor = false
     private var clipboardInFlight = false
     private var lastRegion: CGRect?
+    private var copiedRegion: (changeCount: Int, frame: CGRect)?
     private enum RecordingState { case idle, choosing, starting, recording, finishing }
     private var recordingState: RecordingState = .idle
     private var recordingRevision: UInt64 = 0
@@ -46,6 +47,7 @@ final class CaptureModule {
         running = false; generation &+= 1
         images.cancel(); captureTicket?.cancel(); captureTicket = nil
         selection.dismiss(); editor?.close(); editor = nil; pins.closeAll(); lastRegion = nil
+        copiedRegion = nil
         captureInProgress = false
         editorPending = false; pinAfterEditor = false
         recordingPanel?.cancel(nil); recordingPanel = nil
@@ -121,7 +123,9 @@ final class CaptureModule {
                 case .copy:
                     self.captureInProgress = false
                     guard let data else { self.setStatus("截图编码失败，未修改剪贴板。"); return }
-                    NSPasteboard.general.clearContents(); NSPasteboard.general.setData(data, forType: .png)
+                    NSPasteboard.general.clearContents()
+                    guard NSPasteboard.general.setData(data, forType: .png) else { self.setStatus("复制失败。"); return }
+                    self.copiedRegion = (NSPasteboard.general.changeCount, region)
                     self.lastRegion = region; self.setStatus("已复制截图。")
                 case .pin:
                     self.lastRegion = region
@@ -156,6 +160,7 @@ final class CaptureModule {
         if pins.restoreLastClosed() { return }
         let expected = generation, revision = captureRevision
         let board = NSPasteboard.general
+        let placement = copiedRegion.flatMap { $0.changeCount == board.changeCount ? $0.frame : nil }
         let data = board.data(forType: .png) ?? board.data(forType: .tiff)
         let text = data == nil ? board.string(forType: .string) : nil
         guard data != nil || text != nil else { handle(CaptureFailure.emptyClipboard); return }
@@ -166,7 +171,7 @@ final class CaptureModule {
                 guard let self else { return }
                 self.clipboardInFlight = false
                 guard self.running, self.generation == expected, self.captureRevision == revision else { return }
-                if let image { self.pins.add(image) }
+                if let image { self.pins.add(image, at: placement) }
                 else { self.setStatus("剪贴板过大或无法读取。") }
             }
         }
@@ -242,6 +247,11 @@ final class CaptureModule {
     private func openEditor(_ image: CGImage, at region: CGRect) {
         let editor = CaptureEditor(image: image, selectionFrame: region)
         let expected = generation, revision = captureRevision
+        editor.onCopied = { [weak self, weak editor] in
+            guard let self, self.running, self.generation == expected,
+                  self.captureRevision == revision, self.editor === editor else { return }
+            self.copiedRegion = (NSPasteboard.general.changeCount, region)
+        }
         editor.onExport = { [weak self, weak editor] in
             guard let self, self.running, self.generation == expected,
                   self.captureRevision == revision, self.editor === editor else { return }

@@ -37,6 +37,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     var onClose: (() -> Void)?
 
     var onExport: (() -> Void)?
+    var onCopied: (() -> Void)?
     var onReselect: (() -> Void)?
     var colorAtPointer: ((Bool) -> String?)?
 
@@ -167,7 +168,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         if let localMonitor { NSEvent.removeMonitor(localMonitor); self.localMonitor = nil }
         toolbar.orderOut(nil); toolbar.close()
         textInput?.delegate = nil; textInput?.removeFromSuperview(); textInput = nil; textAnnotation = nil
-        let callback = onClose; onClose = nil; onExport = nil; onPin = nil
+        let callback = onClose; onClose = nil; onExport = nil; onCopied = nil; onPin = nil
         onReselect = nil; colorAtPointer = nil; callback?()
     }
     private func updateToolButtons() { for button in toolButtons { button.state = button.tag == canvas.tool?.rawValue ? .on : .off } }
@@ -264,7 +265,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
                     guard let data else { self.status.stringValue = "图像编码失败，未修改剪贴板。"; return }
                     NSPasteboard.general.clearContents()
                     guard NSPasteboard.general.setData(data, forType: .png) else { self.status.stringValue = "复制失败。"; return }
-                    self.onExport?(); self.status.stringValue = "已复制。"
+                    self.onCopied?(); self.onExport?(); self.status.stringValue = "已复制。"
                     if closeAfter { self.close() }
                 }
             }
