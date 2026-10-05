@@ -117,7 +117,7 @@ enum CaptureAnnotationRenderer {
 final class CaptureCanvas: NSView {
     let base: CGImage
     var image: CGImage { didSet { needsDisplay = true } }
-    var tool: CaptureTool = .rectangle
+    var tool: CaptureTool?
     var ink = CaptureInk.red
     var lineWidth: CGFloat = 3
     var imageInset: CGFloat = 12
@@ -139,6 +139,9 @@ final class CaptureCanvas: NSView {
         return CGRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2, width: size.width, height: size.height)
     }
     private var scale: CGFloat { imageRect.width / CGFloat(base.width) }
+    func viewPoint(for point: CGPoint) -> CGPoint {
+        CGPoint(x: imageRect.minX + point.x * scale, y: imageRect.minY + point.y * scale)
+    }
     private func imagePoint(_ event: NSEvent) -> CGPoint {
         let point = convert(event.locationInWindow, from: nil), rect = imageRect
         return CGPoint(x: min(CGFloat(base.width), max(0, (point.x - rect.minX) / scale)),
@@ -156,7 +159,7 @@ final class CaptureCanvas: NSView {
     }
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        guard imageRect.contains(convert(event.locationInWindow, from: nil)) else { return }
+        guard let tool, imageRect.contains(convert(event.locationInWindow, from: nil)) else { return }
         let point = imagePoint(event), width = lineWidth / max(scale, 0.01)
         if tool == .eraser { onErase?(point, 12 / scale); return }
         if tool == .text { onText?(point, width, ink); return }

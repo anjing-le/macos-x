@@ -19,6 +19,7 @@ final class CaptureModule {
     // Includes capture acquisition and export, when no selection/editor accepts
     // input yet. Repeated pin shortcuts must not fall back to old clipboard data.
     private var captureInProgress = false
+    private var editorPending = false, pinAfterEditor = false
     private var clipboardInFlight = false
     private var lastRegion: CGRect?
     private enum RecordingState { case idle, choosing, starting, recording, finishing }
@@ -46,6 +47,7 @@ final class CaptureModule {
         images.cancel(); captureTicket?.cancel(); captureTicket = nil
         selection.dismiss(); editor?.close(); editor = nil; pins.closeAll(); lastRegion = nil
         captureInProgress = false
+        editorPending = false; pinAfterEditor = false
         recordingPanel?.cancel(nil); recordingPanel = nil
         if recordingState == .choosing { recordingState = .idle }
         if recordingState != .idle { recordingState = .finishing }
@@ -66,6 +68,7 @@ final class CaptureModule {
         captureRevision &+= 1; let expected = generation, captureRevision = captureRevision
         selection.dismiss(); editor?.close(); editor = nil
         captureInProgress = true
+        editorPending = false; pinAfterEditor = false
         let screens = screenDescriptors()
         setStatus("正在截图…")
         captureTicket = images.capture(screens) { [weak self] result in
@@ -75,7 +78,7 @@ final class CaptureModule {
                 case .failure(let error): self.captureInProgress = false; self.handle(error)
                 case .success(let frames):
                     self.hasConfirmedScreenCaptureAccess = true
-                    self.setStatus("⌘C 复制 · ⌥ 取色 · Esc 取消")
+                    self.setStatus("⌘C 复制 · ⌥C 取色 · Esc 取消")
                     self.selection.present(frames, previousRegion: self.lastRegion,
                                            windows: frames.first?.windows ?? []) { [weak self] result in
                         guard let self, self.running, self.generation == expected, self.captureRevision == captureRevision else { return }
@@ -98,7 +101,8 @@ final class CaptureModule {
             setStatus("已复制 \(value)"); return
         case .copy(let rect), .pin(let rect), .edit(let rect): region = rect
         }
-        let ticket = captureTicket, tool = selection.selectedTool
+        let ticket = captureTicket
+        if case .edit = result { editorPending = true }
         setStatus("正在处理…")
         work.async { [weak self] in
             guard ticket?.valid == true else { return }
@@ -110,7 +114,8 @@ final class CaptureModule {
                 guard let self, self.running, self.generation == expected,
                       self.captureRevision == revision, ticket?.valid == true else { return }
                 guard let image else {
-                    self.captureInProgress = false; self.selection.dismiss(); self.handle(CaptureFailure.oversized); return
+                    self.captureInProgress = false; self.editorPending = false; self.pinAfterEditor = false
+                    self.selection.dismiss(); self.handle(CaptureFailure.oversized); return
                 }
                 switch result {
                 case .copy:
@@ -119,10 +124,16 @@ final class CaptureModule {
                     NSPasteboard.general.clearContents(); NSPasteboard.general.setData(data, forType: .png)
                     self.lastRegion = region; self.setStatus("已复制截图。")
                 case .pin:
-                    self.captureInProgress = false
-                    self.lastRegion = region; self.pins.add(image, at: region)
+                    self.lastRegion = region
+                    self.pins.add(image, at: region) { [weak self] shown in
+                        guard let self, self.running, self.generation == expected, self.captureRevision == revision else { return }
+                        self.captureInProgress = false; self.selection.dismiss()
+                        if !shown { self.setStatus("贴图创建失败。") }
+                    }
                 case .edit:
-                    self.openEditor(image, at: region, tool: tool)
+                    self.openEditor(image, at: region)
+                    self.editorPending = false
+                    if self.pinAfterEditor { self.pinAfterEditor = false; self.editor?.pinCurrentImage() }
                 case .color, .cancel: break
                 }
             }
@@ -135,6 +146,7 @@ final class CaptureModule {
         guard running, !terminating else { return }
         guard pins.canAdd else { setStatus("最多 8 张贴图，请先关闭一张。"); return }
         if let editor { editor.pinCurrentImage() }
+        else if editorPending { pinAfterEditor = true }
         else if captureInProgress { selection.pinCurrentSelection() }
         else { pinClipboard() }
     }
@@ -227,8 +239,8 @@ final class CaptureModule {
         }
     }
 
-    private func openEditor(_ image: CGImage, at region: CGRect, tool: CaptureTool) {
-        let editor = CaptureEditor(image: image, selectionFrame: region, initialTool: tool)
+    private func openEditor(_ image: CGImage, at region: CGRect) {
+        let editor = CaptureEditor(image: image, selectionFrame: region)
         let expected = generation, revision = captureRevision
         editor.onExport = { [weak self, weak editor] in
             guard let self, self.running, self.generation == expected,
@@ -238,7 +250,19 @@ final class CaptureModule {
         editor.onPin = { [weak self, weak editor] image in
             guard let self, self.running, self.generation == expected,
                   self.captureRevision == revision, self.editor === editor else { return }
-            self.lastRegion = region; self.pins.add(image, at: region)
+            self.lastRegion = region
+            self.pins.add(image, at: region) { [weak self, weak editor] shown in
+                guard let self, self.running, self.generation == expected, self.captureRevision == revision,
+                      let editor, self.editor === editor else { return }
+                editor.close()
+                if !shown { self.setStatus("贴图创建失败。") }
+            }
+        }
+        editor.colorAtPointer = { [weak self] rgb in self?.selection.color(at: NSEvent.mouseLocation, rgb: rgb) }
+        editor.onReselect = { [weak self, weak editor] in
+            guard let self, let editor, self.editor === editor else { return }
+            editor.onClose = nil; editor.close(); self.editor = nil
+            self.selection.resume()
         }
         editor.onClose = { [weak self, weak editor] in
             guard let self, self.editor === editor else { return }

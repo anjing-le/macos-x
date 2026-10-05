@@ -85,29 +85,42 @@ final class NSSavePanel {
         if Self.pending === self { Self.pending = nil }; callback?(response)
     }
 }
-enum CaptureTool { case rectangle }
 @MainActor final class CaptureSelection {
     enum Result { case copy(CGRect), pin(CGRect), edit(CGRect), color(String), cancel }
-    private(set) var selectedTool = CaptureTool.rectangle
     static var presentations = 0
-    func present(_ frames: [CaptureFrame], previousRegion: CGRect?, windows: [CGRect], completion: @escaping (Result) -> Void) { Self.presentations += 1 }
-    func dismiss() {}
+    static var dismissals = 0
+    static var lastCompletion: ((Result) -> Void)?
+    func present(_ frames: [CaptureFrame], previousRegion: CGRect?, windows: [CGRect], completion: @escaping (Result) -> Void) {
+        Self.presentations += 1; Self.lastCompletion = completion
+    }
+    func dismiss() { Self.dismissals += 1; Self.lastCompletion = nil }
     func pinCurrentSelection() {}
+    func color(at point: CGPoint, rgb: Bool) -> String? { nil }
+    func resume() {}
 }
 @MainActor final class CapturePins {
     var onStatus: ((String) -> Void)?
     var canAdd = true
-    func add(_ image: CGImage, at frame: CGRect? = nil) {}
+    static var pending: [(Bool) -> Void] = []
+    func add(_ image: CGImage, at frame: CGRect? = nil, onPresent: ((Bool) -> Void)? = nil) {
+        if let onPresent { Self.pending.append(onPresent) }
+    }
     func restoreLastClosed() -> Bool { false }
     func toggleAll() {}
     func closeAll() {}
 }
 @MainActor final class CaptureEditor {
     var onExport: (() -> Void)?, onClose: (() -> Void)?, onPin: ((CGImage) -> Void)?
-    init(image: CGImage, selectionFrame: CGRect, initialTool: CaptureTool) {}
-    func present() {}
-    func close() { let callback = onClose; onClose = nil; callback?() }
-    func pinCurrentImage() {}
+    var onReselect: (() -> Void)?, colorAtPointer: ((Bool) -> String?)?
+    static weak var current: CaptureEditor?
+    let image: CGImage
+    init(image: CGImage, selectionFrame: CGRect) { self.image = image }
+    func present() { Self.current = self }
+    func close() {
+        if Self.current === self { Self.current = nil }
+        let callback = onClose; onClose = nil; callback?()
+    }
+    func pinCurrentImage() { onPin?(image) }
     nonisolated static func pngData(_ image: CGImage) -> Data? { nil }
 }
 enum CaptureClipboard {
@@ -277,6 +290,37 @@ private struct CheckFailure: Error { let message: String }
             module.prepareToTerminate { flushed += 1 }
             try await wait({ flushed == 1 }, "termination flush")
             try await settle(); try require(flushed == 1, "termination completion occurs exactly once")
+            let pinModule = CaptureModule(); pinModule.start(); pinModule.capture()
+            try await succeedImage(image)
+            try await wait({ CaptureSelection.lastCompletion != nil }, "pin selection")
+            let region = CGRect(x: -100, y: -50, width: 400, height: 300)
+            let beforePin = CaptureSelection.dismissals
+            CaptureSelection.lastCompletion?(.pin(region))
+            try await wait({ CapturePins.pending.count == 1 }, "pin presentation held")
+            try require(CaptureSelection.dismissals == beforePin, "F3 must retain backdrop until pin is presented")
+            CapturePins.pending.removeFirst()(true)
+            try require(CaptureSelection.dismissals == beforePin + 1, "presented pin releases backdrop once")
+            pinModule.capture(); try await succeedImage(image)
+            try await wait({ CaptureSelection.lastCompletion != nil }, "editor selection")
+            let beforeEditor = CaptureSelection.dismissals
+            CaptureSelection.lastCompletion?(.edit(region))
+            pinModule.pin()
+            try await wait({ CapturePins.pending.count == 1 }, "queued F3 reaches editor")
+            try require(CaptureEditor.current != nil && CaptureSelection.dismissals == beforeEditor,
+                        "editor and backdrop survive until pin presentation")
+            CapturePins.pending.removeFirst()(true)
+            try require(CaptureEditor.current == nil && CaptureSelection.dismissals == beforeEditor + 1,
+                        "editor pin closes only after presentation")
+            pinModule.capture(); try await succeedImage(image)
+            try await wait({ CaptureSelection.lastCompletion != nil }, "late pin selection")
+            CaptureSelection.lastCompletion?(.pin(region))
+            try await wait({ CapturePins.pending.count == 1 }, "late pin presentation held")
+            pinModule.capture()
+            let newSession = CaptureSelection.dismissals
+            CapturePins.pending.removeFirst()(true)
+            try require(CaptureSelection.dismissals == newSession, "late pin cannot dismiss a newer screenshot session")
+            try await wait({ MockCapture.pendingContent == 1 }, "new session metadata")
+            pinModule.stop(); MockCapture.content(error: unrelated); try await settle()
             try require(MockCapture.preflightCalls == 0, "all active paths avoid advisory checks")
             try require(CGPreflightScreenCaptureAccess() == false, "mock advisory really returns false")
             print("PASS capture access: \(checks) assertions; false advisory + actual API success, exact refusal classification, other errors, cancellation, latest request, process proof, recording start/stop, and termination; no capture/TCC/UI/clipboard")

@@ -3,6 +3,20 @@ import CoreText
 import Foundation
 import ImageIO
 
+/// A focus click must never start a window move. Coordinates are global points,
+/// so the anchor stays stable while the window itself moves between events.
+struct CapturePinDrag {
+    let anchor: CGPoint
+    let original: CGRect
+    private(set) var moving = false
+    mutating func frame(at point: CGPoint) -> CGRect? {
+        let dx = point.x - anchor.x, dy = point.y - anchor.y
+        guard dx.isFinite, dy.isFinite else { return nil }
+        if !moving { moving = hypot(dx, dy) >= 3 }
+        return moving ? original.offsetBy(dx: dx, dy: dy) : nil
+    }
+}
+
 /// Rotation and reflections are expressed in the displayed image's axes.
 /// The same matrix is used by the view, export and inverse pixel sampling.
 struct CapturePinTransform: Equatable {

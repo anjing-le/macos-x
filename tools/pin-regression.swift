@@ -8,6 +8,13 @@ struct RasterFixture {
     static func main() {
         var checks = 0
         func check(_ ok: Bool, _ message: String) { precondition(ok, message); checks += 1 }
+        let original = CGRect(x: -400, y: 30, width: 320, height: 180)
+        var drag = CapturePinDrag(anchor: CGPoint(x: -300, y: 100), original: original)
+        check(drag.frame(at: CGPoint(x: -300, y: 100)) == nil, "Focus click must not move a pin")
+        check(drag.frame(at: CGPoint(x: -298, y: 101)) == nil, "Small click jitter must not start a move")
+        check(drag.frame(at: CGPoint(x: -295, y: 104)) == original.offsetBy(dx: 5, dy: 4), "Drag uses original global anchor")
+        check(drag.frame(at: CGPoint(x: -299, y: 100)) == original.offsetBy(dx: 1, dy: 0), "Active drag can return inside threshold")
+        check(drag.frame(at: CGPoint(x: CGFloat.infinity, y: 100)) == nil, "Invalid drag points cannot reposition a window")
         let colors: [[UInt8]] = [[255,0,0,255], [0,255,0,255], [0,0,255,255],
                                  [255,255,0,255], [255,0,255,255], [0,255,255,255]]
         let data = Data(colors.flatMap { $0 })

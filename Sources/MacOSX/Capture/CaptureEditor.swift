@@ -3,12 +3,13 @@ import ImageIO
 import UniformTypeIdentifiers
 
 @MainActor
-final class CaptureEditor: NSObject, NSWindowDelegate {
+final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     let window: NSWindow
     private final class Panel: NSPanel {
         var onCopy: (() -> Void)?
         override var canBecomeKey: Bool { true }
         override var canBecomeMain: Bool { false }
+        override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
         @objc func copy(_ sender: Any?) { onCopy?() }
     }
     private final class ToolbarPanel: NSPanel {
@@ -28,16 +29,20 @@ final class CaptureEditor: NSObject, NSWindowDelegate {
     private var revision: UInt64 = 0
     private var closed = false
     private var exporting = false
+    private var textInput: NSTextField?
+    private var textAnnotation: CaptureAnnotation?
     private let lifetime = CaptureImageService.Ticket()
     private var preview: CaptureImageService.Ticket?
     var onPin: ((CGImage) -> Void)?
     var onClose: (() -> Void)?
 
     var onExport: (() -> Void)?
+    var onReselect: (() -> Void)?
+    var colorAtPointer: ((Bool) -> String?)?
 
-    init(image: CGImage, selectionFrame: CGRect? = nil, initialTool: CaptureTool = .rectangle) {
+    init(image: CGImage, selectionFrame: CGRect? = nil) {
         canvas = CaptureCanvas(image: image)
-        canvas.imageInset = 0; canvas.tool = initialTool
+        canvas.imageInset = 0
         let available = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1200, height: 800)
         let scale = min(1, (available.width - 80) / CGFloat(image.width), (available.height - 100) / CGFloat(image.height))
         let size = CGSize(width: CGFloat(image.width) * scale, height: CGFloat(image.height) * scale)
@@ -51,13 +56,16 @@ final class CaptureEditor: NSObject, NSWindowDelegate {
         toolbar.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 2)
         for panel in [window, toolbar] {
             panel.isReleasedWhenClosed = false; panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            panel.animationBehavior = .none
         }
+        window.hasShadow = false
         window.delegate = self; window.contentView = canvas
-        (window as? Panel)?.onCopy = { [weak self] in self?.copyImage() }
+        (window as? Panel)?.onCopy = { [weak self] in self?.copyImage(closeAfter: true) }
         let background = NSVisualEffectView(); background.material = .hudWindow; background.state = .active
         background.wantsLayer = true; background.layer?.cornerRadius = 9
         toolbar.isOpaque = false; toolbar.backgroundColor = .clear; toolbar.hasShadow = true
         let row = NSStackView(); row.spacing = 3
+        row.addArrangedSubview(icon("selection.pin.in.out", title: "调整选区", action: #selector(reselect)))
         for (tool, symbol, title) in [(CaptureTool.rectangle, "rectangle", "矩形"), (.ellipse, "circle", "椭圆"),
             (.arrow, "arrow.up.right", "箭头"), (.pen, "pencil.tip", "画笔"), (.highlighter, "highlighter", "高亮"),
             (.text, "textformat", "文字"), (.mosaic, "square.grid.3x3", "马赛克"), (.blur, "drop.halffull", "模糊"), (.eraser, "eraser", "橡皮")] {
@@ -73,11 +81,11 @@ final class CaptureEditor: NSObject, NSWindowDelegate {
         width.widthAnchor.constraint(equalToConstant: 46).isActive = true; row.addArrangedSubview(width)
         for (symbol, title, action) in [("arrow.uturn.backward", "撤销 ⌘Z", #selector(undoAction)),
             ("arrow.uturn.forward", "重做 ⌘⇧Z / ⌘Y", #selector(redoAction)), ("square.and.arrow.down", "保存 ⌘S", #selector(saveImage)),
-            ("pin", "贴图 ⌘T", #selector(pinImage)), ("doc.on.doc", "复制并退出 Enter", #selector(copyAndClose)), ("xmark", "退出 Esc", #selector(cancelPressed))] {
+            ("pin", "贴图 F3 / ⌘T", #selector(pinImage)), ("doc.on.doc", "复制 ⌘C / Enter", #selector(copyAndClose)), ("xmark", "退出 Esc", #selector(cancelPressed))] {
             row.addArrangedSubview(icon(symbol, title: title, action: action))
         }
         status.font = .systemFont(ofSize: 10); status.textColor = .secondaryLabelColor
-        status.stringValue = "Enter 复制并退出 · ⌘C 复制 · Space 显隐工具"
+        status.stringValue = "⌘C 复制 · F3 贴图 · ⌥C 取色"
         let stack = NSStackView(views: [row, status]); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 4
         stack.edgeInsets = NSEdgeInsets(top: 5, left: 7, bottom: 5, right: 7)
         stack.translatesAutoresizingMaskIntoConstraints = false; background.addSubview(stack)
@@ -88,7 +96,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate {
         canvas.onAnnotation = { [weak self] in self?.append($0) }
         canvas.onErase = { [weak self] point, radius in self?.erase(point, radius) }
         canvas.onText = { [weak self] point, width, ink in self?.addText(point, width, ink) }
-        canvas.onCopy = { [weak self] in self?.copyImage() }
+        canvas.onCopy = { [weak self] in self?.copyImage(closeAfter: true) }
         canvas.onUndo = { [weak self] in self?.undoAction() }
         canvas.onRedo = { [weak self] in self?.redoAction() }
     }
@@ -103,6 +111,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate {
     }
     func present() {
         guard !closed else { return }
+        window.displayIfNeeded()
         window.makeKeyAndOrderFront(nil); window.makeFirstResponder(canvas); positionToolbar()
         NSApp.activate(ignoringOtherApps: true)
         if localMonitor == nil {
@@ -110,9 +119,15 @@ final class CaptureEditor: NSObject, NSWindowDelegate {
                 let handled = MainActor.assumeIsolated {
                     guard let self, !self.closed, self.window.attachedSheet == nil,
                           event.window === self.window || event.window === self.toolbar else { return false }
+                    if self.textInput != nil { return false }
                     let command = event.modifierFlags.contains(.command)
                     switch event.keyCode {
-                    case 8 where command: self.copyImage()
+                    case 8 where command: self.copyImage(closeAfter: true)
+                    case 8 where event.modifierFlags.contains(.option):
+                        if let value = self.colorAtPointer?(event.modifierFlags.contains(.shift)) {
+                            NSPasteboard.general.clearContents(); NSPasteboard.general.setString(value, forType: .string)
+                            self.close()
+                        }
                     case 1 where command: self.saveImage()
                     case 17 where command: self.pinImage()
                     case 6 where command: event.modifierFlags.contains(.shift) ? self.redoAction() : self.undoAction()
@@ -151,10 +166,17 @@ final class CaptureEditor: NSObject, NSWindowDelegate {
         closed = true; revision &+= 1; lifetime.cancel(); preview?.cancel()
         if let localMonitor { NSEvent.removeMonitor(localMonitor); self.localMonitor = nil }
         toolbar.orderOut(nil); toolbar.close()
-        let callback = onClose; onClose = nil; onExport = nil; onPin = nil; callback?()
+        textInput?.delegate = nil; textInput?.removeFromSuperview(); textInput = nil; textAnnotation = nil
+        let callback = onClose; onClose = nil; onExport = nil; onPin = nil
+        onReselect = nil; colorAtPointer = nil; callback?()
     }
-    private func updateToolButtons() { for button in toolButtons { button.state = button.tag == canvas.tool.rawValue ? .on : .off } }
-    @objc private func changeTool(_ sender: NSButton) { canvas.tool = CaptureTool(rawValue: sender.tag) ?? .rectangle; updateToolButtons(); window.makeFirstResponder(canvas) }
+    private func updateToolButtons() { for button in toolButtons { button.state = button.tag == canvas.tool?.rawValue ? .on : .off } }
+    @objc private func changeTool(_ sender: NSButton) {
+        let tool = CaptureTool(rawValue: sender.tag)
+        canvas.tool = canvas.tool == tool ? nil : tool
+        updateToolButtons(); window.makeFirstResponder(canvas)
+    }
+    @objc private func reselect() { guard !exporting else { return }; onReselect?() }
     @objc private func changeColor() { canvas.ink = CaptureInk(color.color); window.makeFirstResponder(canvas) }
     @objc private func changeWidth(_ sender: NSSlider) { canvas.lineWidth = CGFloat(sender.doubleValue); window.makeFirstResponder(canvas) }
     @objc private func cancelPressed() { close() }
@@ -170,14 +192,30 @@ final class CaptureEditor: NSObject, NSWindowDelegate {
         remember(); annotations.remove(at: index); refresh()
     }
     private func addText(_ point: CGPoint, _ width: CGFloat, _ ink: CaptureInk) {
-        let alert = NSAlert(); alert.messageText = "添加文字"
-        let input = NSTextField(frame: CGRect(x: 0, y: 0, width: 320, height: 26))
-        alert.accessoryView = input; alert.addButton(withTitle: "添加"); alert.addButton(withTitle: "取消")
-        alert.window.initialFirstResponder = input
-        alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn, !input.stringValue.isEmpty else { return }
-            self?.append(CaptureAnnotation(tool: .text, points: [point], ink: ink, width: width, text: String(input.stringValue.prefix(1000))))
-        }
+        finishText(commit: true)
+        let location = canvas.viewPoint(for: point)
+        let input = NSTextField(frame: CGRect(x: min(location.x, max(0, canvas.bounds.width - 80)),
+            y: min(max(0, location.y - 4), max(0, canvas.bounds.height - 28)),
+            width: min(280, max(80, canvas.bounds.width - location.x)), height: 28))
+        input.font = .systemFont(ofSize: 15); input.placeholderString = "输入文字"
+        input.delegate = self; input.setAccessibilityLabel("截图文字")
+        canvas.addSubview(input); textInput = input
+        textAnnotation = CaptureAnnotation(tool: .text, points: [point], ink: ink, width: width)
+        window.makeFirstResponder(input)
+    }
+    private func finishText(commit: Bool) {
+        guard let input = textInput else { return }
+        let annotation = textAnnotation
+        let value = String(input.stringValue.prefix(1000))
+        textInput = nil; textAnnotation = nil; input.delegate = nil; input.removeFromSuperview()
+        window.makeFirstResponder(canvas)
+        if commit, !value.isEmpty, var annotation { annotation.text = value; append(annotation) }
+    }
+    func controlTextDidEndEditing(_ notification: Notification) { finishText(commit: true) }
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy command: Selector) -> Bool {
+        if command == #selector(NSResponder.insertNewline(_:)) { finishText(commit: true); return true }
+        if command == #selector(NSResponder.cancelOperation(_:)) { finishText(commit: false); return true }
+        return false
     }
     @objc private func undoAction() {
         guard let previous = undo.popLast() else { return }
@@ -240,13 +278,15 @@ final class CaptureEditor: NSObject, NSWindowDelegate {
         guard beginExport() else { return }
         render(onFailure: { [weak self] in self?.exporting = false }) { [weak self] image in
             guard let self else { return }
-            self.exporting = false
-            guard let pin = self.onPin else { self.status.stringValue = "贴图不可用。"; return }
-            pin(image); self.onExport?(); self.close()
+            guard let pin = self.onPin else { self.exporting = false; self.status.stringValue = "贴图不可用。"; return }
+            // The owner closes us after the new pin is on screen, keeping the
+            // frozen desktop in place through render/downsample/presentation.
+            pin(image); self.onExport?()
         }
     }
     private func beginExport() -> Bool {
         guard !closed, !exporting else { return false }
+        finishText(commit: true)
         exporting = true; status.stringValue = "处理中…"; return true
     }
     @objc private func saveImage() {

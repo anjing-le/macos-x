@@ -289,21 +289,10 @@ final class ToolboxWindowController: NSWindowController, NSToolbarDelegate {
             views.append(shortcut)
         }
         views.append(modules.settingsView(for: tool))
-        let remove = MinimalButton(title: "移除", target: self, action: #selector(removeCurrentTool), style: .quiet)
-        remove.font = .systemFont(ofSize: 12)
-        remove.toolTip = "从首页移除这张卡片"
-        views.append(remove)
         content.showDetail(views)
     }
 
     @objc private func goBack() { showHome() }
-
-    @objc private func removeCurrentTool() {
-        guard case let .settings(tool) = page else { return }
-        added.remove(tool)
-        modules.reconcile(added.tools)
-        showHome()
-    }
 
     @objc private func checkUpdates() {
         guard canCheckUpdates() else { return }

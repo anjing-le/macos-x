@@ -10,20 +10,15 @@ import AppKit
         override var canBecomeKey: Bool { acceptsSelectionInput }
         override var canBecomeMain: Bool { false }
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
-            if event.modifierFlags.contains(.command), onKey?(event) == true { return true }
+            if !event.modifierFlags.intersection([.command, .option]).isEmpty, onKey?(event) == true { return true }
             return super.performKeyEquivalent(with: event)
         }
         @objc func copy(_ sender: Any?) { onCopy?() }
         override func selectAll(_ sender: Any?) { onSelectAll?() }
     }
-    private final class ToolbarPanel: NSPanel {
-        override var canBecomeKey: Bool { false }
-        override var canBecomeMain: Bool { false }
-    }
     private enum Drag { case create(CGPoint), move(CGPoint, CGRect), resize(Int, CGPoint, CGRect) }
     private var panels = [NSPanel](), views = [SelectionView]()
     private var frames = [CaptureFrame]()
-    private var toolbar: NSPanel?
     private var selection = CGRect.null
     private var previousRegion: CGRect?
     private var candidates = [CGRect]()
@@ -36,13 +31,12 @@ import AppKit
     private var candidateIndex = 0
     private var completion: ((Result) -> Void)?
     private var acceptsInput = false
-    private(set) var selectedTool: CaptureTool = .rectangle
 
     func present(_ frames: [CaptureFrame], previousRegion: CGRect? = nil, windows: [CGRect] = [],
                  completion: @escaping (Result) -> Void) {
         dismiss()
         self.frames = Array(frames.prefix(16)); self.previousRegion = previousRegion
-        self.completion = completion; selectedTool = .rectangle
+        self.completion = completion
         acceptsInput = true
         pointer = NSEvent.mouseLocation
         option = NSEvent.modifierFlags.contains(.option); shiftDown = NSEvent.modifierFlags.contains(.shift)
@@ -51,7 +45,7 @@ import AppKit
         guard !self.frames.isEmpty else { finish(.cancel); return }
         for frame in self.frames {
             let panel = Panel(contentRect: frame.screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
-            panel.title = "截图"
+            panel.title = "截图"; panel.animationBehavior = .none
             panel.onKey = { [weak self] in self?.keyDown($0) ?? false }
             panel.onCopy = { [weak self] in self?.copyPressed() }
             panel.onSelectAll = { [weak self] in self?.selectFullScreen() }
@@ -81,7 +75,6 @@ import AppKit
 
     func dismiss() {
         completion = nil; acceptsInput = false
-        toolbar?.orderOut(nil); toolbar?.close(); toolbar = nil
         panels.forEach { $0.orderOut(nil); $0.close() }
         panels.removeAll(); views.removeAll(); frames.removeAll(); candidates.removeAll()
         drag = nil; spaceDown = false; spaceRegion = .null; selection = .null; previousRegion = nil
@@ -106,13 +99,29 @@ import AppKit
         guard acceptsInput else { return }
         let callback = completion
         if case .edit = result {
-            // The editor sits above this frozen desktop until its owner dismisses us.
-            completion = nil; acceptsInput = false; drag = nil; spaceDown = false; spaceRegion = .null
-            toolbar?.orderOut(nil); toolbar?.close(); toolbar = nil
-            for panel in panels { (panel as? Panel)?.acceptsSelectionInput = false; panel.acceptsMouseMovedEvents = false }
-            redraw()
+            retainBackdrop()
+        } else if case .pin = result {
+            retainBackdrop()
         } else { dismiss() }
         callback?(result)
+    }
+    private func retainBackdrop() {
+        // Keep the frozen desktop visible until the editor/pin is ready.
+        acceptsInput = false; drag = nil; spaceDown = false; spaceRegion = .null
+        for panel in panels { (panel as? Panel)?.acceptsSelectionInput = false; panel.acceptsMouseMovedEvents = false }
+        redraw()
+    }
+    func resume() {
+        guard !panels.isEmpty, completion != nil else { return }
+        acceptsInput = true
+        for panel in panels { (panel as? Panel)?.acceptsSelectionInput = true; panel.acceptsMouseMovedEvents = true }
+        let index = frames.firstIndex { $0.screen.frame.contains(NSEvent.mouseLocation) } ?? 0
+        panels[index].makeKeyAndOrderFront(nil); panels[index].makeFirstResponder(views[index]); redraw()
+    }
+    func color(at point: CGPoint, rgb: Bool = false) -> String? {
+        guard let frame = frames.first(where: { $0.screen.frame.contains(point) }),
+              let sample = frame.sampler?.sample(globalPoint: point, in: frame.screen.frame) else { return nil }
+        return rgb ? sample.rgb : sample.hex
     }
     private func validRegion() -> CGRect? {
         let value = CaptureSelectionGeometry.clamped(visibleRegion, to: desktop), unit = step(at: pointer)
@@ -123,7 +132,6 @@ import AppKit
         guard acceptsInput else { return }
         pointer = point
         if twice, let region = validRegion() { finish(.copy(region)); return }
-        toolbar?.orderOut(nil)
         if !selection.isNull, let handle = SelectionView.handles(selection).firstIndex(where: { $0.insetBy(dx: -4, dy: -4).contains(point) }) {
             drag = .resize(handle, point, selection)
         } else if !selection.isNull, selection.contains(point) { drag = .move(point, selection) }
@@ -161,11 +169,11 @@ import AppKit
         spaceDown = false; spaceRegion = .null
         let unit = step(at: point)
         if !selection.isNull && (selection.width < unit.width || selection.height < unit.height) { selection = .null }
-        redraw(); showToolbar()
+        redraw(); beginInlineEditing()
     }
     private func resetOrCancel() {
         guard acceptsInput else { return }
-        if !selection.isNull || drag != nil { selection = .null; drag = nil; toolbar?.orderOut(nil); redraw() }
+        if !selection.isNull || drag != nil { selection = .null; drag = nil; redraw() }
         else { finish(.cancel) }
     }
     private func releaseSpace() {
@@ -184,7 +192,7 @@ import AppKit
         guard acceptsInput else { return }
         if let frame = frames.first(where: { $0.screen.frame.contains(pointer) }) ?? frames.first {
             selection = selection == frame.screen.frame && frames.count > 1 ? desktop : frame.screen.frame
-            drag = nil; spaceDown = false; spaceRegion = .null; redraw(); showToolbar()
+            drag = nil; spaceDown = false; spaceRegion = .null; redraw(); beginInlineEditing()
         }
     }
     private func flagsChanged(_ flags: NSEvent.ModifierFlags) {
@@ -201,26 +209,26 @@ import AppKit
         case 53: finish(.cancel)
         case 36, 76: if let region = validRegion() { finish(.copy(region)) }
         case 8 where command: if let region = validRegion() { finish(.copy(region)) }
-        case 8:
-            if magnifierVisible, let frame = frames.first(where: { $0.screen.frame.contains(pointer) }),
+        case 8 where event.modifierFlags.contains(.option):
+            if let frame = frames.first(where: { $0.screen.frame.contains(pointer) }),
                let sample = frame.sampler?.sample(globalPoint: pointer, in: frame.screen.frame) {
                 finish(.color(rgbFormat ? sample.rgb : sample.hex))
             }
         case 17 where command: pinCurrentSelection()
         case 0 where command: selectFullScreen()
         case 15 where !command:
-            if let previousRegion { selection = CaptureSelectionGeometry.clamped(previousRegion, to: desktop); drag = nil; redraw(); showToolbar() }
+            if let previousRegion { selection = CaptureSelectionGeometry.clamped(previousRegion, to: desktop); drag = nil; redraw(); beginInlineEditing() }
         case 48:
             let matches = candidates.filter { $0.contains(pointer) }
             let choices = matches.isEmpty ? candidates : matches
             if !choices.isEmpty {
                 candidateIndex = (candidateIndex + (shift ? choices.count - 1 : 1)) % choices.count
-                selection = choices[candidateIndex]; drag = nil; redraw(); showToolbar()
+                selection = choices[candidateIndex]; drag = nil; redraw(); beginInlineEditing()
             }
         case 49:
             if drag != nil {
                 if !spaceDown { spaceDown = true; spaceAnchor = pointer; spaceRegion = selection }
-            } else if let region = validRegion() { selectedTool = .rectangle; finish(.edit(region)) }
+            } else if let region = validRegion() { finish(.edit(region)) }
         case 123...126:
             guard let region = validRegion() else { return true }
             let unit = step(at: CGPoint(x: region.midX, y: region.midY))
@@ -228,55 +236,18 @@ import AppKit
             else { selection = CaptureSelectionGeometry.moved(region,
                 dx: event.keyCode == 123 ? -unit.width : event.keyCode == 124 ? unit.width : 0,
                 dy: event.keyCode == 125 ? -unit.height : event.keyCode == 126 ? unit.height : 0, in: desktop) }
-            drag = nil; redraw(); showToolbar()
+            drag = nil; redraw(); beginInlineEditing()
         default: return false
         }
         return true
     }
 
-    private func showToolbar() {
-        guard drag == nil, !selection.isNull else { toolbar?.orderOut(nil); return }
-        if toolbar == nil {
-            let panel = ToolbarPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-            panel.title = "截图工具"
-            panel.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
-            panel.isReleasedWhenClosed = false; panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = true
-            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-            let background = NSVisualEffectView(); background.material = .hudWindow; background.state = .active
-            background.wantsLayer = true; background.layer?.cornerRadius = 9
-            let row = NSStackView(); row.spacing = 3; row.edgeInsets = NSEdgeInsets(top: 5, left: 7, bottom: 5, right: 7)
-            for (tool, symbol, title) in [(CaptureTool.rectangle, "rectangle", "矩形"), (.arrow, "arrow.up.right", "箭头"),
-                (.pen, "pencil.tip", "画笔"), (.text, "textformat", "文字"), (.mosaic, "square.grid.3x3", "马赛克")] {
-                let button = icon(symbol, title: title, action: #selector(editPressed(_:))); button.tag = tool.rawValue; row.addArrangedSubview(button)
-            }
-            for (symbol, title, action) in [("pin", "贴图 ⌘T", #selector(pinPressed)), ("doc.on.doc", "复制 Enter / ⌘C", #selector(copyPressed)),
-                ("xmark", "取消 Esc", #selector(cancelPressed))] { row.addArrangedSubview(icon(symbol, title: title, action: action)) }
-            row.translatesAutoresizingMaskIntoConstraints = false; background.addSubview(row)
-            NSLayoutConstraint.activate([row.leadingAnchor.constraint(equalTo: background.leadingAnchor), row.trailingAnchor.constraint(equalTo: background.trailingAnchor),
-                row.topAnchor.constraint(equalTo: background.topAnchor), row.bottomAnchor.constraint(equalTo: background.bottomAnchor)])
-            panel.contentView = background; toolbar = panel
-        }
-        guard let toolbar else { return }
-        let area = NSScreen.screens.first(where: { $0.frame.contains(CGPoint(x: selection.midX, y: selection.midY)) })?.visibleFrame
-            ?? frames.first?.screen.frame ?? desktop
-        let size = toolbar.contentView?.fittingSize ?? CGSize(width: 270, height: 36)
-        let x = min(max(area.minX + 6, selection.maxX - size.width), area.maxX - size.width - 6)
-        let preferredY = selection.minY - size.height - 8
-        let y = preferredY >= area.minY + 6 ? preferredY : min(area.maxY - size.height - 6, selection.maxY + 8)
-        toolbar.setFrame(CGRect(origin: CGPoint(x: x, y: y), size: size), display: true); toolbar.orderFrontRegardless()
+    private func beginInlineEditing() {
+        guard drag == nil, !selection.isNull, let region = validRegion() else { return }
+        // Release the selection directly into the complete in-place tool strip.
+        finish(.edit(region))
     }
-    private func icon(_ symbol: String, title: String, action: Selector) -> NSButton {
-        let button = MinimalButton(title: "", target: self, action: action, style: .quiet)
-        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title) ?? NSImage()
-        button.imagePosition = .imageOnly; button.toolTip = title; button.setAccessibilityLabel(title)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.widthAnchor.constraint(equalToConstant: 28).isActive = true; button.heightAnchor.constraint(equalToConstant: 26).isActive = true
-        return button
-    }
-    @objc private func editPressed(_ sender: NSButton) { if let region = validRegion() { selectedTool = CaptureTool(rawValue: sender.tag) ?? .rectangle; finish(.edit(region)) } }
-    @objc private func copyPressed() { if let region = validRegion() { finish(.copy(region)) } }
-    @objc private func pinPressed() { pinCurrentSelection() }
-    @objc private func cancelPressed() { finish(.cancel) }
+    private func copyPressed() { if let region = validRegion() { finish(.copy(region)) } }
 }
 
 @MainActor private final class SelectionView: NSView {
@@ -349,7 +320,7 @@ import AppKit
             label("\(sample.pixelX), \(sample.pixelY)", at: CGPoint(x: box.minX + 11, y: box.minY + 25), background: false)
             label(rgbFormat?() == true ? sample.rgb : sample.hex, at: CGPoint(x: box.minX + 11, y: box.minY + 7), background: false)
         }
-        label("⌘C 复制 · ⌥ 取色 · Esc 退出", at: CGPoint(x: max(12, bounds.midX - 115), y: 24))
+        label("⌘C 复制 · ⌥C 取色 · Esc 退出", at: CGPoint(x: max(12, bounds.midX - 115), y: 24))
     }
     private func label(_ value: String, at point: CGPoint, background: Bool = true) {
         let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedSystemFont(ofSize: 11, weight: .medium), .foregroundColor: NSColor.white]

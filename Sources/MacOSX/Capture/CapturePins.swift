@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class CapturePins {
-    private struct Request { let image: CGImage; let frame: CGRect? }
+    private struct Request { let image: CGImage; let frame: CGRect?; let onPresent: ((Bool) -> Void)? }
     private var entries: [PinEntry] = []
     private var pending: [Request] = []
     private var adding = false
@@ -15,10 +15,10 @@ final class CapturePins {
     var count: Int { entries.count }
     var canAdd: Bool { entries.count + pending.count + (adding ? 1 : 0) < 8 }
 
-    func add(_ image: CGImage, at frame: CGRect? = nil) {
-        guard canAdd else { onStatus?("最多 8 张贴图。"); return }
+    func add(_ image: CGImage, at frame: CGRect? = nil, onPresent: ((Bool) -> Void)? = nil) {
+        guard canAdd else { onStatus?("最多 8 张贴图。"); onPresent?(false); return }
         recovered = nil
-        pending.append(Request(image: image, frame: frame))
+        pending.append(Request(image: image, frame: frame, onPresent: onPresent))
         addNext()
     }
     private func addNext() {
@@ -32,7 +32,8 @@ final class CapturePins {
                 self.adding = false
                 if self.generation == expected, ticket.valid, let image {
                     self.insert(PinEntry(image: image, frame: request.frame, queue: self.queue))
-                }
+                    request.onPresent?(true)
+                } else { request.onPresent?(false) }
                 self.addNext()
             }
         }
@@ -65,7 +66,8 @@ final class CapturePins {
     }
     func closeAll() {
         generation &+= 1; ticket.cancel(); ticket = CaptureImageService.Ticket()
-        pending.removeAll(); recovered = nil
+        let cancelled = pending; pending.removeAll(); recovered = nil
+        cancelled.forEach { $0.onPresent?(false) }
         let old = entries; entries.removeAll()
         old.forEach { $0.dispose() }
     }
@@ -128,9 +130,10 @@ private final class PinEntry: NSObject, NSWindowDelegate {
         window = Panel(contentRect: rect, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         super.init()
         window.title = "贴图"; window.isReleasedWhenClosed = false; window.delegate = self
+        window.animationBehavior = .none
         window.acceptsMouseMovedEvents = true
         window.level = .floating; window.isOpaque = false; window.backgroundColor = .clear
-        window.hasShadow = true; window.hidesOnDeactivate = false
+        window.hasShadow = false; window.hidesOnDeactivate = false
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         window.contentView = view; window.initialFirstResponder = view
         window.setFrame(rect, display: false)
@@ -153,6 +156,7 @@ private final class PinEntry: NSObject, NSWindowDelegate {
         guard !closed else { return }
         if focus { window.makeKeyAndOrderFront(nil); window.makeFirstResponder(view) }
         else { window.orderFrontRegardless() }
+        window.displayIfNeeded()
     }
     func windowDidResignKey(_ notification: Notification) { view.pauseSampling() }
     func windowWillClose(_ notification: Notification) {
@@ -281,7 +285,9 @@ private final class PinView: NSView {
     var onMenu: (() -> NSMenu)?
     var onSampling: ((Bool) -> Void)?
     var onColor: ((String) -> Void)?
+    private var drag: CapturePinDrag?
     override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     init(image: CGImage) { self.image = image; super.init(frame: .zero); setAccessibilityLabel("贴图"); setAccessibilityRole(.image) }
     required init?(coder: NSCoder) { nil }
     override func updateTrackingAreas() {
@@ -292,18 +298,27 @@ private final class PinView: NSView {
     }
     func stopTracking() {
         if let tracking { removeTrackingArea(tracking); self.tracking = nil }
-        sampler = nil; samplePoint = nil; isSampling = false
+        sampler = nil; samplePoint = nil; isSampling = false; drag = nil
     }
-    func pauseSampling() { updateModifiers([]); samplePoint = nil }
+    func pauseSampling() { updateModifiers([]); samplePoint = nil; drag = nil }
     override func mouseDown(with event: NSEvent) {
         window?.makeKey(); window?.makeFirstResponder(self)
         updateModifiers(event.modifierFlags)
         samplePoint = convert(event.locationInWindow, from: nil)
         if event.clickCount == 2 {
             onCommand?(event.modifierFlags.contains(.shift) ? .thumbnail : .hide)
-        } else if !isSampling { window?.performDrag(with: event) }
+        } else if !isSampling, let window {
+            drag = CapturePinDrag(anchor: window.convertPoint(toScreen: event.locationInWindow), original: window.frame)
+        }
         needsDisplay = true
     }
+    override func mouseDragged(with event: NSEvent) {
+        guard !isSampling, let window, var drag else { return }
+        let frame = drag.frame(at: window.convertPoint(toScreen: event.locationInWindow))
+        self.drag = drag
+        if let frame { window.setFrame(frame, display: false) }
+    }
+    override func mouseUp(with event: NSEvent) { drag = nil }
     override func mouseMoved(with event: NSEvent) {
         updateModifiers(event.modifierFlags)
         samplePoint = convert(event.locationInWindow, from: nil)
@@ -351,7 +366,7 @@ private final class PinView: NSView {
             if !performKeyEquivalent(with: event) { super.keyDown(with: event) }
             return
         }
-        if isSampling, event.charactersIgnoringModifiers?.lowercased() == "c", let sample = currentSample() {
+        if event.modifierFlags.contains(.option), event.keyCode == 8, isSampling, let sample = currentSample() {
             onColor?(rgbFormat ? sample.rgb : sample.hex); return
         }
         switch event.charactersIgnoringModifiers {
