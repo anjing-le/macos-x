@@ -1,4 +1,4 @@
-珊瑚红为选定图标；图标原图来自本目录 coral-orange.png。
+珊瑚红为选定图标；当前图标原图来自本目录 coral-white-borderless.png。白色底板不带灰边、内框或阴影，苹果自身保留蜡笔和铅笔笔触。旧 coral-orange.png 保留为历史候选。
 
 纸纹：使用内置 imagegen 生成，运行资源 Resources/SketchPaper.png 缩至 256×256。
 
