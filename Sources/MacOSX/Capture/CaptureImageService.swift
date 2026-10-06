@@ -7,14 +7,20 @@ struct CaptureScreen {
     let scale: CGFloat
 }
 
+struct CaptureWindow {
+    let id: CGWindowID
+    let frame: CGRect
+}
+
 struct CaptureFrame {
     let screen: CaptureScreen
     let image: CGImage
     let windows: [CGRect]
+    let windowTargets: [CaptureWindow]
     let sampler: CapturePixelSampler?
 
-    init(screen: CaptureScreen, image: CGImage, windows: [CGRect] = [], sampler: CapturePixelSampler? = nil) {
-        self.screen = screen; self.image = image; self.windows = windows; self.sampler = sampler
+    init(screen: CaptureScreen, image: CGImage, windows: [CGRect] = [], sampler: CapturePixelSampler? = nil, windowTargets: [CaptureWindow] = []) {
+        self.screen = screen; self.image = image; self.windows = windows; self.sampler = sampler; self.windowTargets = windowTargets
     }
 }
 
@@ -52,9 +58,11 @@ final class CaptureImageService {
     }
     private struct Request {
         let screens: [CaptureScreen]
+        let window: CaptureWindow?
         let ticket: Ticket
         let completion: (Result<[CaptureFrame], Error>) -> Void
     }
+    private static let windowBackground = CGColor(gray: 1, alpha: 1)
     private let queue = DispatchQueue(label: "cc.anjing.macos-x.capture.images", qos: .userInitiated)
     private var pending: Request?
     private var busy = false
@@ -62,11 +70,11 @@ final class CaptureImageService {
     private let lock = NSLock()
 
     @discardableResult
-    func capture(_ screens: [CaptureScreen], completion: @escaping (Result<[CaptureFrame], Error>) -> Void) -> Ticket {
+    func capture(_ screens: [CaptureScreen], window: CaptureWindow? = nil, completion: @escaping (Result<[CaptureFrame], Error>) -> Void) -> Ticket {
         let ticket = Ticket()
         lock.lock(); latest?.cancel(); latest = ticket; lock.unlock()
         queue.async { [self] in
-            pending = Request(screens: screens, ticket: ticket, completion: completion)
+            pending = Request(screens: screens, window: window, ticket: ticket, completion: completion)
             beginNext()
         }
         return ticket
@@ -87,6 +95,10 @@ final class CaptureImageService {
                 guard let self else { return }
                 guard request.ticket.valid else { self.finish(request, .failure(CaptureFailure.cancelled)); return }
                 guard let content else { self.finish(request, .failure(error ?? CaptureFailure.unavailable)); return }
+                if let window = request.window {
+                    self.captureWindow(request, target: window, content: content)
+                    return
+                }
                 let totalPixels = request.screens.reduce(CGFloat(0)) { $0 + $1.frame.width * $1.frame.height * $1.scale * $1.scale }
                 let reduction = min(1, sqrt(32_000_000 / max(1, totalPixels)))
                 let windows = Self.windowRegions(primaryTop: request.screens.first?.frame.maxY ?? 0)
@@ -96,7 +108,7 @@ final class CaptureImageService {
         }
     }
 
-    private func captureDisplay(_ request: Request, displays: [SCDisplay], windows: [CGRect],
+    private func captureDisplay(_ request: Request, displays: [SCDisplay], windows: [CaptureWindow],
                                 index: Int, reduction: CGFloat, frames: [CaptureFrame]) {
         guard request.ticket.valid else { finish(request, .failure(CaptureFailure.cancelled)); return }
         guard index < request.screens.count else { finish(request, frames.isEmpty ? .failure(CaptureFailure.unavailable) : .success(frames)); return }
@@ -117,23 +129,61 @@ final class CaptureImageService {
                 let sampler = CapturePixelSampler(image: image)
                 self.captureDisplay(request, displays: displays, windows: windows, index: index + 1, reduction: reduction,
                                     frames: frames + [CaptureFrame(screen: screen, image: image,
-                                                                 windows: windows, sampler: sampler)])
+                                                                 windows: windows.map(\.frame), sampler: sampler, windowTargets: windows)])
+            }
+        }
+    }
+
+    /// A single isolated window capture only after explicit window selection.
+    /// Refuse stale/moved windows; never fall back to pixels from behind rounded corners.
+    private func captureWindow(_ request: Request, target: CaptureWindow, content: SCShareableContent) {
+        guard let window = content.windows.first(where: { $0.windowID == target.id }) else {
+            finish(request, .failure(CaptureFailure.message("窗口已关闭，请重新截图。"))); return
+        }
+        let top = request.screens.first?.frame.maxY ?? 0
+        let current = CGRect(x: window.frame.minX, y: top - window.frame.maxY,
+                             width: window.frame.width, height: window.frame.height)
+        guard abs(current.minX - target.frame.minX) < 1, abs(current.minY - target.frame.minY) < 1,
+              abs(current.width - target.frame.width) < 1, abs(current.height - target.frame.height) < 1,
+              let screen = request.screens.first(where: { $0.frame.contains(CGPoint(x: current.midX, y: current.midY)) }) ?? request.screens.first else {
+            finish(request, .failure(CaptureFailure.message("窗口位置已变化，请重新截图。"))); return
+        }
+        let scale = min(screen.scale, sqrt(8_000_000 / max(1, current.width * current.height)))
+        let configuration = SCStreamConfiguration()
+        configuration.width = max(1, Int((current.width * scale).rounded()))
+        configuration.height = max(1, Int((current.height * scale).rounded()))
+        configuration.showsCursor = false
+        configuration.ignoreShadowsSingleWindow = true
+        configuration.ignoreGlobalClipSingleWindow = true
+        configuration.shouldBeOpaque = true
+        configuration.backgroundColor = Self.windowBackground
+        let filter = SCContentFilter(desktopIndependentWindow: window)
+        SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration) { [weak self] image, error in
+            self?.queue.async { [weak self] in
+                guard let self else { return }
+                guard request.ticket.valid else { self.finish(request, .failure(CaptureFailure.cancelled)); return }
+                guard let image, let opaque = CaptureRaster.opaqueWhite(image) else {
+                    self.finish(request, .failure(error ?? CaptureFailure.unavailable)); return
+                }
+                let frame = CaptureFrame(screen: CaptureScreen(id: screen.id, frame: current, scale: scale), image: opaque)
+                self.finish(request, .success([frame]))
             }
         }
     }
 
     /// One ordered metadata snapshot per user capture, never an idle scan or AX query.
-    private static func windowRegions(primaryTop: CGFloat) -> [CGRect] {
+    private static func windowRegions(primaryTop: CGFloat) -> [CaptureWindow] {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
                                                    kCGNullWindowID) as? [[String: Any]] else { return [] }
         let ownPID = ProcessInfo.processInfo.processIdentifier
         return list.prefix(256).compactMap { item in
             guard (item[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
                   (item[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value != ownPID,
+                  let id = (item[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
                   let bounds = item[kCGWindowBounds as String] as? [String: Any],
                   let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary),
                   rect.width > 1, rect.height > 1 else { return nil }
-            return CGRect(x: rect.minX, y: primaryTop - rect.maxY, width: rect.width, height: rect.height)
+            return CaptureWindow(id: id, frame: CGRect(x: rect.minX, y: primaryTop - rect.maxY, width: rect.width, height: rect.height))
         }
     }
 
@@ -203,6 +253,13 @@ enum CaptureRaster {
         return CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
                          space: space,
                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)
+    }
+    static func opaqueWhite(_ image: CGImage) -> CGImage? {
+        guard let context = context(width: image.width, height: image.height) else { return nil }
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return context.makeImage()
     }
     static func downsample(_ image: CGImage, maximumPixels: Int) -> CGImage? {
         let total = image.width * image.height

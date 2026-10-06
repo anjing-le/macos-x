@@ -26,6 +26,8 @@ import AppKit
     private var selection = CGRect.null
     private var previousRegion: CGRect?
     private var candidates = [CGRect]()
+    private var snappedWindow: CaptureWindow?
+    private(set) var completedWindow: CaptureWindow?
     private var drag: Drag?
     private var spaceDown = false
     private var spaceAnchor = CGPoint.zero
@@ -42,6 +44,7 @@ import AppKit
                  completion: @escaping (Result) -> Void) {
         dismiss()
         self.mode = mode
+        snappedWindow = nil; completedWindow = nil
         self.frames = Array(frames.prefix(16)); self.previousRegion = previousRegion
         self.completion = completion
         acceptsInput = true
@@ -94,6 +97,9 @@ import AppKit
         finish(.pin(region))
     }
 
+    private func targetWindow(for rect: CGRect) -> CaptureWindow? {
+        frames.first?.windowTargets.first { CaptureSelectionGeometry.clamped($0.frame, to: desktop) == rect }
+    }
     private var desktop: CGRect { frames.reduce(.null) { $0.union($1.screen.frame) } }
     private var hovered: CGRect { candidates.first { $0.contains(pointer) } ?? .null }
     private var visibleRegion: CGRect { selection.isNull ? hovered : selection }
@@ -107,6 +113,10 @@ import AppKit
     private func finish(_ result: Result) {
         guard acceptsInput else { return }
         let callback = completion
+        if mode == .screenshot {
+            let region = visibleRegion
+            completedWindow = selection.isNull ? targetWindow(for: region) : snappedWindow
+        }
         if case .edit = result {
             retainBackdrop()
         } else if case .pin = result {
@@ -151,6 +161,7 @@ import AppKit
     private func mouseDragged(_ point: CGPoint) {
         guard acceptsInput else { return }
         pointer = point
+        snappedWindow = nil
         if spaceDown, drag != nil, !spaceRegion.isNull {
             selection = CaptureSelectionGeometry.moved(spaceRegion, dx: point.x - spaceAnchor.x, dy: point.y - spaceAnchor.y, in: desktop)
             redraw(); return
@@ -174,7 +185,9 @@ import AppKit
     private func mouseUp(_ point: CGPoint) {
         guard let drag else { return }
         mouseDragged(point)
-        if case let .create(start) = drag, hypot(point.x - start.x, point.y - start.y) < 3 { selection = hovered }
+        if case let .create(start) = drag, hypot(point.x - start.x, point.y - start.y) < 3 {
+            selection = hovered; snappedWindow = targetWindow(for: selection)
+        }
         self.drag = nil
         spaceDown = false; spaceRegion = .null
         let unit = step(at: point)
@@ -183,7 +196,7 @@ import AppKit
     }
     private func resetOrCancel() {
         guard acceptsInput else { return }
-        if !selection.isNull || drag != nil { selection = .null; drag = nil; recordingControls?.orderOut(nil); redraw() }
+        if !selection.isNull || drag != nil { selection = .null; snappedWindow = nil; drag = nil; recordingControls?.orderOut(nil); redraw() }
         else { finish(.cancel) }
     }
     private func releaseSpace() {
@@ -201,6 +214,7 @@ import AppKit
     private func selectFullScreen() {
         guard acceptsInput else { return }
         if let frame = frames.first(where: { $0.screen.frame.contains(pointer) }) ?? frames.first {
+            snappedWindow = nil
             selection = selection == frame.screen.frame && frames.count > 1 ? desktop : frame.screen.frame
             drag = nil; spaceDown = false; spaceRegion = .null; redraw(); beginInlineEditing()
         }
@@ -231,13 +245,13 @@ import AppKit
         case 17 where command: pinCurrentSelection()
         case 0 where command: selectFullScreen()
         case 15 where !command:
-            if let previousRegion { selection = CaptureSelectionGeometry.clamped(previousRegion, to: desktop); drag = nil; redraw(); beginInlineEditing() }
+            if let previousRegion { snappedWindow = nil; selection = CaptureSelectionGeometry.clamped(previousRegion, to: desktop); drag = nil; redraw(); beginInlineEditing() }
         case 48:
             let matches = candidates.filter { $0.contains(pointer) }
             let choices = matches.isEmpty ? candidates : matches
             if !choices.isEmpty {
                 candidateIndex = (candidateIndex + (shift ? choices.count - 1 : 1)) % choices.count
-                selection = choices[candidateIndex]; drag = nil; redraw(); beginInlineEditing()
+                selection = choices[candidateIndex]; snappedWindow = targetWindow(for: selection); drag = nil; redraw(); beginInlineEditing()
             }
         case 49:
             if drag != nil {
@@ -247,6 +261,7 @@ import AppKit
                 else { finish(.edit(region)) }
             }
         case 123...126:
+            snappedWindow = nil
             guard let region = validRegion() else { return true }
             let unit = step(at: CGPoint(x: region.midX, y: region.midY))
             if command || shift { selection = CaptureSelectionGeometry.adjusted(region, key: event.keyCode, enlarge: command, step: unit, in: desktop) }

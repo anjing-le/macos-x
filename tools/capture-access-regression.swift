@@ -8,22 +8,33 @@ import UniformTypeIdentifiers
 let SCStreamErrorDomain = "com.apple.ScreenCaptureKit.SCStreamErrorDomain"
 enum SCStreamError { enum Code: Int { case userDeclined = -3801 } }
 final class SCDisplay { let displayID: UInt32; init(_ id: UInt32) { displayID = id } }
+final class SCWindow {
+    let windowID: UInt32 = 42
+    let frame = CGRect(x: 0, y: 0, width: 4, height: 4)
+}
 final class SCShareableContent {
+    let windows = [SCWindow()]
     let displays = [SCDisplay(7)]
     static func getExcludingDesktopWindows(_ exclude: Bool, onScreenWindowsOnly: Bool,
         completionHandler: @escaping (SCShareableContent?, Error?) -> Void) { MockCapture.holdContent(completionHandler) }
 }
-final class SCContentFilter { init(display: SCDisplay, excludingWindows: [Any]) {} }
+final class SCContentFilter {
+    static var lastWindowID: UInt32?
+    init(display: SCDisplay, excludingWindows: [Any]) { Self.lastWindowID = nil }
+    init(desktopIndependentWindow window: SCWindow) { Self.lastWindowID = window.windowID }
+}
 final class SCStreamConfiguration {
     var sourceRect = CGRect.zero
     var width = 0, height = 0, queueDepth = 0
     var showsCursor = false, capturesAudio = false
+    var ignoreShadowsSingleWindow = false, ignoreGlobalClipSingleWindow = false, shouldBeOpaque = false
+    var backgroundColor: CGColor?
     var minimumFrameInterval = CMTime.zero
     var pixelFormat: OSType = 0
 }
 enum SCScreenshotManager {
     static func captureImage(contentFilter: SCContentFilter, configuration: SCStreamConfiguration,
-        completionHandler: @escaping (CGImage?, Error?) -> Void) { MockCapture.holdImage(completionHandler) }
+        completionHandler: @escaping (CGImage?, Error?) -> Void) { MockCapture.configuration(configuration); MockCapture.holdImage(completionHandler) }
 }
 enum SCStreamOutputType { case screen }
 enum SCStreamFrameInfo: Hashable { case status }
@@ -72,6 +83,8 @@ func CGWindowListCopyWindowInfo(_ options: CGWindowListOption, _ window: CGWindo
 
 final class NSScreen {
     static let screens = [NSScreen()]
+    static var main: NSScreen? { screens.first }
+    var visibleFrame: CGRect { frame }
     let frame = CGRect(x: -100, y: -50, width: 400, height: 300)
     let backingScaleFactor: CGFloat = 2
     let deviceDescription: [NSDeviceDescriptionKey: Any] = [NSDeviceDescriptionKey("NSScreenNumber"): UInt32(7)]
@@ -102,6 +115,7 @@ final class NSSavePanel {
 }
 @MainActor final class CaptureSelection {
     enum Mode { case screenshot, recording }
+    var completedWindow: CaptureWindow? { nil }
     enum Result { case copy(CGRect), pin(CGRect), edit(CGRect), color(String), cancel }
     static var presentations = 0
     static var dismissals = 0
@@ -201,6 +215,37 @@ private struct CheckFailure: Error { let message: String }
             if case .success(let frames) = result { try require(frames.count == 1 && frames[0].image.width == 4, "actual image result must pass despite false advisory") }
             else { throw CheckFailure(message: "false advisory blocked actual successful image") }
             try require(MockCapture.preflightCalls == 0, "capture must not use advisory as a hard gate")
+
+            let target = CaptureWindow(id: 42, frame: CGRect(x: 0, y: -4, width: 4, height: 4))
+            result = nil; service.capture([screen], window: target) { result = $0 }
+            try await wait({ MockCapture.pendingContent == 1 }, "isolated window metadata")
+            MockCapture.content()
+            try await wait({ MockCapture.pendingImage == 1 }, "isolated window request")
+            try require(SCContentFilter.lastWindowID == 42, "window capture must isolate exact ID, not display crop")
+            let configuration = MockCapture.lastConfiguration!
+            try require(configuration.ignoreShadowsSingleWindow && configuration.ignoreGlobalClipSingleWindow && configuration.shouldBeOpaque,
+                        "window capture removes shadows/clipping and requests opaque output")
+            try require(configuration.width == 8 && configuration.height == 8, "window capture retains point-to-pixel scale")
+            let cornerContext = CaptureRaster.context(width: 8, height: 8)!
+            cornerContext.setFillColor(CGColor(colorSpace: cornerContext.colorSpace!, components: [1, 0, 0, 1])!)
+            cornerContext.fill(CGRect(x: 2, y: 2, width: 4, height: 4))
+            MockCapture.image(cornerContext.makeImage()!)
+            try await wait({ result != nil }, "isolated window completion")
+            if case .success(let windowFrames) = result {
+                try require(windowFrames.count == 1 && windowFrames[0].screen.frame == target.frame, "isolated frame keeps original window location")
+                let pixels = CapturePixelSampler(image: windowFrames[0].image)!
+                try require(pixels.sample(x: 0, y: 0)!.hex == "#FFFFFF", "transparent window corner becomes white, no desktop pixels")
+                try require(pixels.sample(x: 4, y: 4)!.hex == "#FF0000", "opaque window content remains unchanged: \(pixels.sample(x: 4, y: 4)!.hex)")
+            } else { throw CheckFailure(message: "isolated window failed") }
+            for invalidTarget in [CaptureWindow(id: 99, frame: target.frame),
+                                  CaptureWindow(id: 42, frame: target.frame.offsetBy(dx: 10, dy: 0))] {
+                result = nil; service.capture([screen], window: invalidTarget) { result = $0 }
+                try await wait({ MockCapture.pendingContent == 1 }, "stale window metadata")
+                MockCapture.content()
+                try await wait({ result != nil }, "stale window rejection")
+                if case .failure = result { try require(MockCapture.pendingImage == 0, "closed/moved window must not fall back to display capture") }
+                else { throw CheckFailure(message: "stale window unexpectedly captured") }
+            }
 
             result = nil; service.capture([screen]) { result = $0 }
             try await wait({ MockCapture.pendingContent == 1 }, "refusal metadata")

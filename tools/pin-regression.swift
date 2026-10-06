@@ -82,7 +82,7 @@ struct RasterFixture {
         check(CaptureClipboard.text("short phrase") != nil, "Text clipboard card")
         let textCard = CaptureClipboard.text("Hello macos-x\n截图文字测试\n\nSecond paragraph")!
         let textPixels = CapturePixelSampler(image: textCard)!
-        check(textCard.width == 622 && textCard.height >= 112, "Text card leaves generous bounded space")
+        check(textCard.width == 760 && textCard.height >= 144, "Text card leaves generous bounded space")
         for point in [(2, 2), (20, 20), (textCard.width - 20, textCard.height - 20)] {
             check(textPixels.sample(x: point.0, y: point.1)!.hex == "#FFFFFF", "Text card background and padding stay white")
         }

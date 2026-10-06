@@ -90,7 +90,28 @@ final class CaptureModule {
                     self.selection.present(frames, previousRegion: self.lastRegion,
                                            windows: frames.first?.windows ?? []) { [weak self] result in
                         guard let self, self.running, self.generation == expected, self.captureRevision == captureRevision else { return }
-                        self.finishSelection(result, frames: frames, generation: expected, revision: captureRevision)
+                        if let target = self.selection.completedWindow {
+                            switch result {
+                            case .copy, .pin, .edit:
+                                if case .edit = result { self.editorPending = true }
+                                self.captureTicket = self.images.capture(frames.map(\.screen), window: target) { [weak self] isolated in
+                                    MainActor.assumeIsolated {
+                                        guard let self, self.running, self.generation == expected, self.captureRevision == captureRevision else { return }
+                                        switch isolated {
+                                        case .success(let windowFrames):
+                                            self.finishSelection(result, frames: windowFrames, generation: expected, revision: captureRevision)
+                                        case .failure(let error):
+                                            self.selection.dismiss(); self.captureInProgress = false
+                                            self.editorPending = false; self.pinAfterEditor = false; self.handle(error)
+                                        }
+                                    }
+                                }
+                            case .color, .cancel:
+                                self.finishSelection(result, frames: frames, generation: expected, revision: captureRevision)
+                            }
+                        } else {
+                            self.finishSelection(result, frames: frames, generation: expected, revision: captureRevision)
+                        }
                     }
                     self.finishSnapshot()
                 }
@@ -185,7 +206,21 @@ final class CaptureModule {
                 guard let self else { return }
                 self.clipboardInFlight = false
                 guard self.running, self.generation == expected, self.captureRevision == revision else { return }
-                if let image { self.pins.add(image, at: placement) }
+                if let image {
+                    var frame = placement
+                    // Text cards need readable point sizes, rather than the 480-point image thumbnail cap.
+                    if text != nil {
+                        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
+                        let available = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1000, height: 700)
+                        let scale = min(1, min((available.width - 64) / CGFloat(image.width),
+                                               (available.height - 64) / CGFloat(image.height)))
+                        let size = CGSize(width: CGFloat(image.width) * max(0.1, scale),
+                                          height: CGFloat(image.height) * max(0.1, scale))
+                        frame = CGRect(x: available.midX - size.width / 2, y: available.midY - size.height / 2,
+                                       width: size.width, height: size.height)
+                    }
+                    self.pins.add(image, at: frame)
+                }
                 else { self.setStatus("剪贴板过大或无法读取。") }
             }
         }
