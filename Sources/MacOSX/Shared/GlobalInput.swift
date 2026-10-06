@@ -123,8 +123,8 @@ private final class SwitcherInputTap: @unchecked Sendable {
                 let onlyModifier = binding.keyCode == 58 || binding.keyCode == 61 ? CGEventFlags.maskAlternate : .maskControl
                 let useful = event.flags.intersection([.maskCommand, .maskControl, .maskAlternate, .maskShift])
                 if !useful.subtracting(onlyModifier).isEmpty { recognizer.reset(); lock.unlock(); return pass }
-                let down = CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(code))
-                let fire = recognizer.update(isDown: down, timestamp: Double(event.timestamp) / 1_000_000_000)
+                let fire = recognizer.update(keyCode: code, eventFlags: event.flags.rawValue,
+                    timestamp: Double(event.timestamp) / 1_000_000_000)
                 lock.unlock()
                 if fire { delivery(.shortcut(.wheel)) }
                 return pass

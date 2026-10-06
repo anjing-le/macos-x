@@ -56,4 +56,16 @@ final class ShortcutBindingTests: XCTestCase {
         _ = r.update(isDown: true, timestamp: 0)
         XCTAssertFalse(r.update(isDown: false, timestamp: 0.05))
     }
+    func testQueuedModifierEventsUseEachEventsSideFlags() {
+        for (code, mask) in [(UInt16(58), UInt64(0x20)), (61, 0x40), (59, 0x1), (62, 0x2000)] {
+            var recognizer = ModifierDoubleTap()
+            // Process after both taps completed: the global state would now be
+            // up for all four callbacks, but event flags preserve the sequence.
+            XCTAssertFalse(recognizer.update(keyCode: code, eventFlags: mask, timestamp: 1))
+            XCTAssertFalse(recognizer.update(keyCode: code, eventFlags: 0, timestamp: 1.05))
+            XCTAssertFalse(recognizer.update(keyCode: code, eventFlags: mask, timestamp: 1.15))
+            XCTAssertTrue(recognizer.update(keyCode: code, eventFlags: 0, timestamp: 1.2))
+            XCTAssertFalse(recognizer.update(keyCode: code, eventFlags: 0, timestamp: 1.25))
+        }
+    }
 }

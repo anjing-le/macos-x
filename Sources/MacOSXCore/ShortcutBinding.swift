@@ -58,6 +58,20 @@ public struct ModifierDoubleTap: Sendable {
         self.interval = interval; self.maximumHold = maximumHold
     }
     public mutating func reset() { downAt = nil; previousRelease = nil }
+    /// Device flags belong to the queued event; global key state may already
+    /// describe a later release. Masks are macOS NX_DEVICE modifier constants.
+    public mutating func update(keyCode: UInt16, eventFlags: UInt64, timestamp: Double) -> Bool {
+        let mask: UInt64
+        switch keyCode {
+        case 58: mask = 0x20
+        case 61: mask = 0x40
+        case 59: mask = 0x1
+        case 62: mask = 0x2000
+        default: reset(); return false
+        }
+        return update(isDown: eventFlags & mask != 0, timestamp: timestamp)
+    }
+
     public mutating func update(isDown: Bool, timestamp: Double) -> Bool {
         guard timestamp.isFinite else { reset(); return false }
         if isDown {

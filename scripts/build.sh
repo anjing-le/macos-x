@@ -4,8 +4,8 @@ set -euo pipefail
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 configuration=release
 output_dir="$root_dir/dist"
-version=0.0.21
-build_number=23
+version=0.0.22
+build_number=24
 sign_identity="${MACOSX_SIGN_IDENTITY:-}"
 sign_keychain="${MACOSX_SIGN_KEYCHAIN:-}"
 local_signing=false
@@ -15,7 +15,7 @@ feed_url="${MACOSX_FEED_URL:-https://github.com/anjing-le/macos-x/releases/lates
 usage() {
     cat <<'USAGE'
 Usage: scripts/build.sh [--disable-updates] [--configuration debug|release]
-       [--version 0.0.21] [--build-number 23] [--output-dir path]
+       [--version 0.0.22] [--build-number 24] [--output-dir path]
        [--sign-identity pinned-certificate-SHA1 | "Apple Development: ..." | "Developer ID Application: ..."]
        [--sign-keychain path]
 Default: host architecture, OTA enabled; an explicit certificate identity is required.
@@ -93,6 +93,32 @@ if enabled == 'true':
     except (OSError, ValueError) as error:
         raise SystemExit(f'OTA public key missing or invalid: {error}. Use --disable-updates only for development/CI.')
 PY
+
+# Fail before codesign can open repeated unlock dialogs. This is a build-only
+# credential; no password is printed or placed in the application/archive.
+if [[ "$local_signing" == true ]]; then
+    [[ -n "$sign_keychain" ]] || sign_keychain="$HOME/Library/Application Support/macos-x/signing/local-code-signing.keychain-db"
+    python3 - "$sign_keychain" <<'KEYCHAIN_PY'
+import pathlib, subprocess, sys
+expected = pathlib.Path.home() / 'Library/Application Support/macos-x/signing/local-code-signing.keychain-db'
+if pathlib.Path(sys.argv[1]).resolve() != expected.resolve():
+    raise SystemExit('Local signing requires the existing dedicated signing keychain')
+try:
+    credential = subprocess.run(['/usr/bin/security', 'find-generic-password', '-s',
+        'cc.anjing.macos-x.local-code-signing-keychain', '-a', 'macos-x', '-w',
+        str(pathlib.Path.home() / 'Library/Keychains/login.keychain-db')],
+        capture_output=True, timeout=10)
+    if credential.returncode != 0:
+        raise SystemExit('Signing credential unavailable; stopped before codesign. Unlock the login keychain manually.')
+    password = credential.stdout.removesuffix(b'\n').decode('utf-8')
+    result = subprocess.run(['/usr/bin/security', 'unlock-keychain', '-p', password, str(expected)],
+        capture_output=True, timeout=10)
+    if result.returncode != 0:
+        raise SystemExit('Saved signing credential cannot unlock the dedicated keychain; stopped before codesign. Repair the saved credential without replacing the certificate.')
+except subprocess.TimeoutExpired:
+    raise SystemExit('Signing keychain authentication timed out; stopped before codesign.')
+KEYCHAIN_PY
+fi
 
 cd "$root_dir"
 # Public Sparkle artifacts do not require HTTP credentials from login Keychain.
