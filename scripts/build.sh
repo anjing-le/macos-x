@@ -97,10 +97,10 @@ PY
 # Fail before codesign can open repeated unlock dialogs. This is a build-only
 # credential; no password is printed or placed in the application/archive.
 if [[ "$local_signing" == true ]]; then
-    [[ -n "$sign_keychain" ]] || sign_keychain="$HOME/Library/Application Support/macos-x/signing/local-code-signing.keychain-db"
+    [[ -n "$sign_keychain" ]] || sign_keychain="$HOME/Library/Application Support/macos-x/signing/local-code-signing-restored.keychain-db"
     python3 - "$sign_keychain" <<'KEYCHAIN_PY'
 import pathlib, subprocess, sys
-expected = pathlib.Path.home() / 'Library/Application Support/macos-x/signing/local-code-signing.keychain-db'
+expected = pathlib.Path.home() / 'Library/Application Support/macos-x/signing/local-code-signing-restored.keychain-db'
 if pathlib.Path(sys.argv[1]).resolve() != expected.resolve():
     raise SystemExit('Local signing requires the existing dedicated signing keychain')
 try:
