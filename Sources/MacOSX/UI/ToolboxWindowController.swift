@@ -165,7 +165,8 @@ private final class ToolboxContent: NSView {
             grid.arrange(width: width, minimumHeight: height)
         } else {
             let inset: CGFloat = width < 480 ? 24 : 36
-            let contentWidth = max(220, min(480, width - inset * 2))
+            let preferredWidth = max(480, detail.arrangedSubviews.map { $0.intrinsicContentSize.width }.max() ?? 480)
+            let contentWidth = max(220, min(preferredWidth, width - inset * 2))
             detail.frame = NSRect(x: inset, y: inset, width: contentWidth, height: max(0, detail.fittingSize.height))
             detail.layoutSubtreeIfNeeded()
             let contentHeight = max(0, detail.fittingSize.height)

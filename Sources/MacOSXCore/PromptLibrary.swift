@@ -1,6 +1,6 @@
 import Foundation
 
-public struct PromptEntry: Codable, Equatable, Sendable {
+public struct PromptEntry: Codable, Hashable, Sendable {
     public var title: String
     public var content: String
     public init(title: String, content: String) { self.title = title; self.content = content }
