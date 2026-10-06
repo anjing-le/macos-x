@@ -78,7 +78,7 @@ enum SketchIcons {
         case .minimize: line([(18, 32), (46, 32)])
         case .expand: line([(18, 32), (18, 18), (32, 18)]); line([(32, 46), (46, 46), (46, 32)]); line([(19, 19), (45, 45)])
         }
-        SketchPencil.stroke(path, color: SketchPalette.ink, width: kind == .plus ? 2.5 : 2.2)
+        SketchPencil.stroke(path, color: SketchPalette.ink, width: kind == .update ? 5.5 : kind == .plus ? 2.5 : 2.2)
     }
 }
 
@@ -105,7 +105,8 @@ final class SketchWindowHeader: SketchSurface {
         expand.target = self; expand.action = #selector(expandWindow)
         back.image = SketchIcons.image(.back, size: 18); back.imagePosition = .imageOnly
         back.target = self; back.action = #selector(goBack); back.toolTip = "返回首页"; back.setAccessibilityLabel("返回首页")
-        update.image = SketchIcons.image(.update, size: 18); update.imagePosition = .imageOnly
+        update.style = .primary
+        update.image = SketchIcons.image(.update, size: 28); update.imagePosition = .imageOnly
         update.target = self; update.action = #selector(checkUpdates); update.toolTip = "检查更新"; update.setAccessibilityLabel("检查更新")
         back.isHidden = true
     }
@@ -117,7 +118,7 @@ final class SketchWindowHeader: SketchSurface {
         minimize.frame = NSRect(x: 48, y: y, width: 20, height: 20)
         expand.frame = NSRect(x: 76, y: y, width: 20, height: 20)
         back.frame = NSRect(x: 116, y: (bounds.height - 30) / 2, width: 30, height: 30)
-        update.frame = NSRect(x: bounds.width - 50, y: (bounds.height - 30) / 2, width: 30, height: 30)
+        update.frame = NSRect(x: bounds.width - 58, y: (bounds.height - 38) / 2, width: 38, height: 38)
         titleLabel.frame = NSRect(x: compact ? 48 : 158, y: y - 2, width: max(0, bounds.width - (compact ? 72 : 316)), height: 24)
     }
     override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); refreshActions() }
@@ -167,5 +168,25 @@ final class SketchWindowHeader: SketchSurface {
             SketchPencil.stroke(shape, color: color, width: 0.7)
             if (hovered || showsGlyph) && isEnabled { SketchIcons.image(glyph, size: 15).draw(in: bounds.insetBy(dx: 2.5, dy: 2.5)) }
         }
+    }
+}
+
+/// Three small bundled illustrations, lazily decoded and shared by home/catalog.
+@MainActor
+enum SketchCardArt {
+    private static var images: [String: NSImage] = [:]
+    static func image(_ symbol: String) -> NSImage? {
+        let name: String
+        switch symbol {
+        case "camera.viewfinder": name = "CardCapture"
+        case "macwindow.on.rectangle": name = "CardSwitcher"
+        case "text.bubble": name = "CardPrompts"
+        default: return nil
+        }
+        if let image = images[name] { return image }
+        guard let url = Bundle.main.url(forResource: name, withExtension: "png"),
+              let image = NSImage(contentsOf: url) else { return nil }
+        images[name] = image
+        return image
     }
 }

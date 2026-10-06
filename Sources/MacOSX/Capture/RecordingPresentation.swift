@@ -24,12 +24,12 @@ import MacOSXCore
     private lazy var reveal = MinimalButton(title: "在 Finder 中显示", target: self, action: #selector(revealResult), style: .quiet)
     private lazy var results = NSStackView(views: [resultLabel, NSStackView(views: [play, reveal, copy])])
     private lazy var settings: NSStackView = {
-        recordingLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
-        resultLabel.font = .systemFont(ofSize: 12); resultLabel.textColor = .secondaryLabelColor
+        recordingLabel.font = .monospacedDigitSystemFont(ofSize: 14, weight: .medium)
+        resultLabel.font = .systemFont(ofSize: 14); resultLabel.textColor = .secondaryLabelColor
         resultLabel.lineBreakMode = .byTruncatingMiddle; resultLabel.maximumNumberOfLines = 1
         results.orientation = .vertical; results.alignment = .leading; results.spacing = 10
         let folderLabel = NSTextField(labelWithString: "保存到")
-        folderLabel.font = .systemFont(ofSize: 12); folderLabel.textColor = .secondaryLabelColor
+        folderLabel.font = SketchPalette.heading(16); folderLabel.textColor = .secondaryLabelColor
         updateFolderButton()
         let folderRow = NSStackView(views: [folderLabel, folderButton]); folderRow.spacing = 8
         let stack = NSStackView(views: [folderRow, recordingLabel, results])

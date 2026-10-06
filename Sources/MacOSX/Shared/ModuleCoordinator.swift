@@ -252,7 +252,7 @@ final class ModuleSettingsHeader: NSStackView {
         super.init(frame: .zero)
         orientation = .vertical; alignment = .leading; spacing = 16
         let enabled = NSStackView(); enabled.orientation = .horizontal; enabled.spacing = 12
-        let label = NSTextField(labelWithString: "启用"); label.font = .systemFont(ofSize: 12)
+        let label = NSTextField(labelWithString: "启用"); label.font = SketchPalette.heading(16)
         label.textColor = .secondaryLabelColor
         label.widthAnchor.constraint(equalToConstant: 88).isActive = true
         enabled.addArrangedSubview(label); enabled.addArrangedSubview(toggle)

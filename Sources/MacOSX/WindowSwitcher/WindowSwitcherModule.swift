@@ -67,14 +67,14 @@ import os
     var settingsView: NSView {
         if let settings { return settings }
         let label = NSTextField(wrappingLabelWithString: displayedStatus)
-        label.font = .systemFont(ofSize: 12); label.textColor = .secondaryLabelColor
+        label.font = SketchPalette.heading(16); label.textColor = .secondaryLabelColor
         let preview = MinimalButton(title: "预览窗口切换", target: self, action: #selector(previewPressed), style: .standard)
         preview.isEnabled = isReady
         let thumbnailToggle = MinimalToggle(title: "", target: self, action: #selector(changeThumbnails(_:)))
         thumbnailToggle.state = thumbnailsEnabled ? .on : .off
         thumbnailToggle.setAccessibilityLabel("窗口缩略图")
         let thumbnailLabel = NSTextField(labelWithString: "窗口缩略图")
-        thumbnailLabel.font = .systemFont(ofSize: 12); thumbnailLabel.textColor = .secondaryLabelColor
+        thumbnailLabel.font = SketchPalette.heading(16); thumbnailLabel.textColor = .secondaryLabelColor
         let row = NSStackView(views: [thumbnailLabel, thumbnailToggle]); row.spacing = 14
         let stack = NSStackView(views: [row, preview, label])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 10

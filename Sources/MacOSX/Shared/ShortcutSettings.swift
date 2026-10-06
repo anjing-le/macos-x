@@ -64,7 +64,7 @@ private final class ShortcutRecorder: MinimalButton {
 
     init() {
         super.init(frame: .zero)
-        font = .systemFont(ofSize: 12, weight: .medium)
+        font = SketchPalette.heading(16)
         target = self; action = #selector(begin)
         toolTip = "点击后按下新快捷键；Escape 取消"
         setAccessibilityLabel("编辑快捷键")
@@ -131,7 +131,7 @@ final class ShortcutPicker: NSStackView {
         super.init(frame: .zero)
         orientation = .vertical; alignment = .leading; spacing = 6
         let row = NSStackView(); row.orientation = .horizontal; row.spacing = 12
-        let label = NSTextField(labelWithString: title); label.font = .systemFont(ofSize: 12); label.textColor = .secondaryLabelColor
+        let label = NSTextField(labelWithString: title); label.font = SketchPalette.heading(16); label.textColor = .secondaryLabelColor
         label.widthAnchor.constraint(equalToConstant: 88).isActive = true
         row.addArrangedSubview(label)
         if allowsDoubleTap {

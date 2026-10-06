@@ -85,7 +85,7 @@ final class MinimalToggle: MinimalButton {
     override init(frame: NSRect) {
         super.init(frame: frame)
         setButtonType(.switch)
-        font = .systemFont(ofSize: 12)
+        font = SketchPalette.heading(15)
     }
     required init?(coder: NSCoder) { nil }
     convenience init(title: String, target: AnyObject?, action: Selector?) {
@@ -137,7 +137,7 @@ final class MinimalPopUpButton: NSPopUpButton {
         isBordered = false
         bezelStyle = .regularSquare
         focusRingType = .none
-        font = .systemFont(ofSize: 12)
+        font = SketchPalette.heading(15)
         contentTintColor = SketchPalette.ink
     }
     convenience init() { self.init(frame: .zero, pullsDown: false) }
@@ -185,7 +185,7 @@ private enum MinimalSurface {
         guard bounds.width.isFinite, bounds.height.isFinite, bounds.width > 2, bounds.height > 2 else { return }
         let path = SketchPencil.outline(in: bounds.insetBy(dx: 1.5, dy: 1.5), radius: 7)
         SketchPalette.fill(path, color: fill)
-        if let border { SketchPencil.stroke(path, color: border, width: 0.9) }
+        if let border { SketchPencil.stroke(path, color: border, width: 1.3) }
     }
     static func drawFocus(for view: NSView) {
         let bounds = view.bounds

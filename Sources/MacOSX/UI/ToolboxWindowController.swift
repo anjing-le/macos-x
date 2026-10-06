@@ -180,7 +180,11 @@ private final class ToolboxContent: NSView {
 }
 
 @MainActor
-private final class DetailDocument: NSView { override var isFlipped: Bool { true } }
+private final class DetailDocument: SketchSurface {
+    override var isFlipped: Bool { true }
+    override init(frame: NSRect) { super.init(frame: frame); edge = nil; radius = 0 }
+    required init?(coder: NSCoder) { nil }
+}
 
 @MainActor
 final class ToolboxWindowController: NSWindowController {
@@ -288,7 +292,7 @@ final class ToolboxWindowController: NSWindowController {
             for action in [ShortcutAction.capture, .pin, .togglePins, .recording] { views.append(modules.shortcutPicker(action)) }
         case .windowSwitcher:
             let shortcut = NSTextField(labelWithString: "⌘Tab  ·  ⇧ 反向  ·  松开切换")
-            shortcut.font = .systemFont(ofSize: 12); shortcut.textColor = .secondaryLabelColor
+            shortcut.font = SketchPalette.heading(16); shortcut.textColor = .secondaryLabelColor
             views.append(shortcut)
         }
         views.append(modules.settingsView(for: tool))

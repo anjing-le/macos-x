@@ -44,7 +44,7 @@ final class ToolCard: NSControl {
         surface.layer?.shadowRadius = 8
         surface.layer?.masksToBounds = false
 
-        symbolView.image = SketchIcons.image(symbol, size: 64)
+        symbolView.image = SketchCardArt.image(symbol) ?? SketchIcons.image(symbol, size: 128)
         symbolView.imageScaling = .scaleProportionallyUpOrDown
         symbolView.wantsLayer = true
         titleLabel.font = SketchPalette.heading(20)
@@ -64,8 +64,8 @@ final class ToolCard: NSControl {
             surface.bottomAnchor.constraint(equalTo: bottomAnchor),
             symbolView.centerXAnchor.constraint(equalTo: surface.centerXAnchor),
             symbolView.centerYAnchor.constraint(equalTo: surface.centerYAnchor),
-            symbolView.widthAnchor.constraint(equalToConstant: 56),
-            symbolView.heightAnchor.constraint(equalToConstant: 56),
+            symbolView.widthAnchor.constraint(equalToConstant: 128),
+            symbolView.heightAnchor.constraint(equalToConstant: 128),
             titleLabel.centerYAnchor.constraint(equalTo: surface.centerYAnchor),
             titleLabel.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: 12),
             titleLabel.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -12),
@@ -235,7 +235,7 @@ final class ToolCard: NSControl {
         titleLabel.textColor = SketchPalette.ink
         animate(cardLayer, "transform", NSValue(caTransform3D: CATransform3DMakeScale(cardScale, cardScale, 1)), duration)
         animate(cardLayer, "shadowOpacity", NSNumber(value: revealed ? 0.035 : 0), duration)
-        animate(iconLayer, "opacity", NSNumber(value: revealed ? 0 : (isEnabled ? 0.85 : 0.3)), duration)
+        animate(iconLayer, "opacity", NSNumber(value: revealed ? 0 : (isEnabled ? 1 : 0.3)), duration)
         animate(iconLayer, "transform", NSValue(caTransform3D: CATransform3DMakeScale(iconScale, iconScale, 1)), duration)
         animate(textLayer, "opacity", NSNumber(value: revealed ? 1 : 0), duration)
         animate(textLayer, "transform", NSValue(caTransform3D:

@@ -107,15 +107,15 @@ import MacOSXCore
         picker.target = self; picker.action = #selector(pickExisting); picker.setAccessibilityLabel("此位置的提示词")
         placement.target = self; placement.action = #selector(changePlacement); placement.setAccessibilityLabel("转盘位置")
         titleField.placeholderString = "标题"; titleField.delegate = self; titleField.isBezeled = false; titleField.drawsBackground = false
-        titleField.font = .systemFont(ofSize:14,weight:.medium); titleField.focusRingType = .none; titleField.setAccessibilityLabel("提示词标题")
+        titleField.font = .systemFont(ofSize:16,weight:.medium); titleField.focusRingType = .none; titleField.setAccessibilityLabel("提示词标题")
         body.isRichText = false; body.isAutomaticQuoteSubstitutionEnabled = false; body.isAutomaticDashSubstitutionEnabled = false
-        body.font = .systemFont(ofSize:13); body.textColor = SketchPalette.ink; body.delegate = self; body.drawsBackground = false; body.textContainerInset = NSSize(width:10,height:10)
+        body.font = .systemFont(ofSize:15); body.textColor = SketchPalette.ink; body.delegate = self; body.drawsBackground = false; body.textContainerInset = NSSize(width:10,height:10)
         body.isHorizontallyResizable = false; body.autoresizingMask = [.width]; body.textContainer?.widthTracksTextView = true; body.setAccessibilityLabel("提示词内容")
         scroll.documentView = body; scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.drawsBackground = false
         scroll.wantsLayer = true; scroll.layer?.cornerRadius = 10
         search.placeholderString = "搜索标题"; search.delegate = self; search.sendsSearchStringImmediately = true; search.setAccessibilityLabel("搜索库中提示词")
         let column = NSTableColumn(identifier: .init("title")); table.addTableColumn(column); table.headerView = nil
-        table.dataSource = self; table.delegate = self; table.rowHeight = 28; table.selectionHighlightStyle = .regular; table.backgroundColor = .clear
+        table.dataSource = self; table.delegate = self; table.rowHeight = 32; table.selectionHighlightStyle = .regular; table.backgroundColor = .clear
         table.setAccessibilityLabel("全部提示词")
         listScroll.documentView = table; listScroll.hasVerticalScroller = true; listScroll.autohidesScrollers = true; listScroll.drawsBackground = false
         status.font = .systemFont(ofSize:11); status.textColor = .secondaryLabelColor; status.maximumNumberOfLines = 2
@@ -239,7 +239,7 @@ import MacOSXCore
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { SketchTableRow() }
     func tableView(_ tableView:NSTableView,viewFor tableColumn:NSTableColumn?,row:Int)->NSView? {
         let label = NSTextField(labelWithString:collection.prompts[rows[row]].title.isEmpty ? "未命名" : collection.prompts[rows[row]].title)
-        label.font = .systemFont(ofSize:12); label.lineBreakMode = .byTruncatingTail; return label
+        label.font = .systemFont(ofSize:14); label.lineBreakMode = .byTruncatingTail; return label
     }
     func tableViewSelectionDidChange(_ notification:Notification) {
         let row = table.selectedRow; guard !loading, rows.indices.contains(row) else { return }
