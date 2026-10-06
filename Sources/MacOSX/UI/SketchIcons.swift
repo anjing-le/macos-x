@@ -85,19 +85,19 @@ enum SketchIcons {
 @MainActor
 final class SketchWindowHeader: SketchSurface {
     private let titleLabel = NSTextField(labelWithString: "macos-x")
-    private let close = WindowControl(.close, color: .systemRed)
+    private let close = WindowControl(.close, color: SketchPalette.coral)
     private let minimize = WindowControl(.minimize, color: SketchPalette.yellow)
     private let expand = WindowControl(.expand, color: SketchPalette.green)
     let back = MinimalButton(title: "", target: nil, action: nil, style: .quiet)
     let update = MinimalButton(title: "", target: nil, action: nil, style: .quiet)
     var onBack: (() -> Void)?
     var onUpdate: (() -> Void)?
-    var compact = false { didSet { needsLayout = true } }
+    var compact = false { didSet { close.showsGlyph = compact; needsLayout = true } }
     var title: String { get { titleLabel.stringValue } set { titleLabel.stringValue = newValue } }
     override init(frame: NSRect) {
         super.init(frame: frame)
         edge = nil; radius = 0
-        titleLabel.font = .systemFont(ofSize: 16, weight: .medium); titleLabel.textColor = SketchPalette.ink
+        titleLabel.font = SketchPalette.heading(20); titleLabel.textColor = SketchPalette.ink
         titleLabel.alignment = .center; titleLabel.lineBreakMode = .byTruncatingTail
         for view in [close, minimize, expand, titleLabel, back, update] { addSubview(view) }
         close.target = self; close.action = #selector(closeWindow)
@@ -128,6 +128,7 @@ final class SketchWindowHeader: SketchSurface {
         if compact { back.isHidden = true; update.isHidden = true }
     }
     override func draw(_ dirtyRect: NSRect) {
+        if compact { return }
         SketchPalette.paper.setFill(); bounds.fill()
         let line = NSBezierPath(); line.move(to: CGPoint(x: 16, y: 1)); line.line(to: CGPoint(x: bounds.width - 16, y: 1))
         SketchPencil.stroke(line, color: SketchPalette.line.withAlphaComponent(0.45), width: 0.6)
@@ -145,6 +146,7 @@ final class SketchWindowHeader: SketchSurface {
         let glyph: SketchIcons.Kind
         let color: NSColor
         private var hovered = false
+        var showsGlyph = false { didSet { needsDisplay = true } }
         private var area: NSTrackingArea?
         init(_ glyph: SketchIcons.Kind, color: NSColor) {
             self.glyph = glyph; self.color = color
@@ -163,7 +165,7 @@ final class SketchWindowHeader: SketchSurface {
             let shape = NSBezierPath(ovalIn: bounds.insetBy(dx: 2.5, dy: 2.5))
             SketchPalette.fill(shape, color: (isEnabled ? color : SketchPalette.line).withAlphaComponent(0.75))
             SketchPencil.stroke(shape, color: color, width: 0.7)
-            if hovered && isEnabled { SketchIcons.image(glyph, size: 15).draw(in: bounds.insetBy(dx: 2.5, dy: 2.5)) }
+            if (hovered || showsGlyph) && isEnabled { SketchIcons.image(glyph, size: 15).draw(in: bounds.insetBy(dx: 2.5, dy: 2.5)) }
         }
     }
 }

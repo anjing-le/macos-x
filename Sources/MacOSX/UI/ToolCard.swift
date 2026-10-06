@@ -47,7 +47,7 @@ final class ToolCard: NSControl {
         symbolView.image = SketchIcons.image(symbol, size: 64)
         symbolView.imageScaling = .scaleProportionallyUpOrDown
         symbolView.wantsLayer = true
-        titleLabel.font = .systemFont(ofSize: 18, weight: .medium)
+        titleLabel.font = SketchPalette.heading(20)
         titleLabel.alignment = .center
         titleLabel.maximumNumberOfLines = 1
         titleLabel.lineBreakMode = .byTruncatingTail

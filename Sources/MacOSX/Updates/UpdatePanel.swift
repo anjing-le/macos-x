@@ -23,6 +23,15 @@ private final class UpdatePanelButton: MinimalButton {
 }
 
 @MainActor
+private final class UpdateUnderline: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        let line = NSBezierPath()
+        line.move(to: CGPoint(x: 1, y: bounds.midY)); line.line(to: CGPoint(x: bounds.maxX - 1, y: bounds.midY))
+        SketchPencil.stroke(line, color: SketchPalette.yellow, width: 2.5)
+    }
+}
+
+@MainActor
 private final class UpdatePanelContent: SketchSurface {
     let header = SketchWindowHeader(frame: .zero)
     let titleLabel = NSTextField(labelWithString: "")
@@ -32,6 +41,7 @@ private final class UpdatePanelContent: SketchSurface {
     let secondary = UpdatePanelButton(title: "", target: nil, action: nil, style: .quiet)
     let buttons = NSView()
     private let iconPlate = NSView()
+    private let labels = NSStackView()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -51,21 +61,25 @@ private final class UpdatePanelContent: SketchSurface {
         icon.imageScaling = .scaleProportionallyUpOrDown
         icon.setAccessibilityElement(false)
         iconPlate.wantsLayer = true
-        iconPlate.layer?.cornerRadius = 9
+        iconPlate.layer?.cornerRadius = 12
         iconPlate.addSubview(icon)
         icon.translatesAutoresizingMaskIntoConstraints = false
 
-        titleLabel.font = .systemFont(ofSize: 19, weight: .medium)
+        titleLabel.font = SketchPalette.heading(32)
         titleLabel.maximumNumberOfLines = 1
         titleLabel.lineBreakMode = .byTruncatingTail
-        detailLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        detailLabel.font = SketchPalette.heading(20)
         detailLabel.textColor = .secondaryLabelColor
         detailLabel.maximumNumberOfLines = 2
-        detailLabel.preferredMaxLayoutWidth = 244
+        detailLabel.preferredMaxLayoutWidth = 306
         for label in [titleLabel, detailLabel] {
             label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         }
-        let labels = NSStackView(views: [titleLabel, detailLabel])
+        let accent = UpdateUnderline()
+        accent.translatesAutoresizingMaskIntoConstraints = false
+        accent.widthAnchor.constraint(equalToConstant: 130).isActive = true
+        accent.heightAnchor.constraint(equalToConstant: 3).isActive = true
+        for view in [titleLabel, accent, detailLabel] { labels.addArrangedSubview(view) }
         labels.orientation = .vertical
         labels.alignment = .leading
         labels.spacing = 5
@@ -73,7 +87,7 @@ private final class UpdatePanelContent: SketchSurface {
         header.orientation = .horizontal
         header.distribution = .fill
         header.alignment = .centerY
-        header.spacing = 12
+        header.spacing = 22
 
         progress.style = .bar
         progress.controlSize = .small
@@ -84,37 +98,36 @@ private final class UpdatePanelContent: SketchSurface {
 
         for button in [primary, secondary] {
             button.setButtonType(.momentaryPushIn)
-            button.font = .systemFont(ofSize: 13, weight: button === primary ? .medium : .regular)
+            button.font = SketchPalette.heading(23)
             button.translatesAutoresizingMaskIntoConstraints = false
-            button.heightAnchor.constraint(equalToConstant: 30).isActive = true
-            button.widthAnchor.constraint(greaterThanOrEqualToConstant: 80).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 48).isActive = true
+            button.widthAnchor.constraint(greaterThanOrEqualToConstant: button === primary ? 128 : 96).isActive = true
         }
         primary.keyEquivalent = "\r"
         let actions = NSStackView(views: [secondary, primary])
         actions.orientation = .horizontal
-        actions.spacing = 8
+        actions.spacing = 16
         actions.alignment = .centerY
         buttons.addSubview(actions)
         actions.translatesAutoresizingMaskIntoConstraints = false
 
-        let space = NSView()
-        let stack = NSStackView(views: [header, progress, space, buttons])
+        let stack = NSStackView(views: [header, progress, buttons])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 16
+        stack.spacing = 18
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         for view in [iconPlate, labels, header, progress, buttons] {
             view.translatesAutoresizingMaskIntoConstraints = false
         }
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 40),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -22),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 28),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -28),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 48),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -24),
             header.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            iconPlate.widthAnchor.constraint(equalToConstant: 36),
-            iconPlate.heightAnchor.constraint(equalToConstant: 36),
+            iconPlate.widthAnchor.constraint(equalToConstant: 76),
+            iconPlate.heightAnchor.constraint(equalToConstant: 76),
             icon.leadingAnchor.constraint(equalTo: iconPlate.leadingAnchor, constant: 7),
             icon.trailingAnchor.constraint(equalTo: iconPlate.trailingAnchor, constant: -7),
             icon.topAnchor.constraint(equalTo: iconPlate.topAnchor, constant: 5),
@@ -124,11 +137,10 @@ private final class UpdatePanelContent: SketchSurface {
             progress.widthAnchor.constraint(equalTo: stack.widthAnchor),
             progress.heightAnchor.constraint(equalToConstant: 4),
             buttons.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            buttons.heightAnchor.constraint(equalToConstant: 30),
+            buttons.heightAnchor.constraint(equalToConstant: 48),
             actions.trailingAnchor.constraint(equalTo: buttons.trailingAnchor),
             actions.leadingAnchor.constraint(greaterThanOrEqualTo: buttons.leadingAnchor),
             actions.centerYAnchor.constraint(equalTo: buttons.centerYAnchor),
-            space.heightAnchor.constraint(greaterThanOrEqualToConstant: 0),
         ])
         detailLabel.isHidden = true
         progress.isHidden = true
@@ -140,6 +152,12 @@ private final class UpdatePanelContent: SketchSurface {
 
     required init?(coder: NSCoder) { nil }
 
+    var preferredHeight: CGFloat {
+        let headingHeight = max(76, labels.fittingSize.height)
+        return 48 + headingHeight + (progress.isHidden ? 0 : 22)
+            + (buttons.isHidden ? 0 : 66) + 24
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateAppearance()
@@ -148,7 +166,7 @@ private final class UpdatePanelContent: SketchSurface {
     func updateAppearance() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             layer?.backgroundColor = SketchPalette.paper.cgColor
-            iconPlate.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.035).cgColor
+            iconPlate.layer?.backgroundColor = NSColor.clear.cgColor
             titleLabel.textColor = SketchPalette.ink
         }
     }
@@ -157,15 +175,15 @@ private final class UpdatePanelContent: SketchSurface {
 /// Presentation only; the update driver owns all update decisions and work.
 @MainActor
 final class UpdatePanel: NSWindowController, NSWindowDelegate {
-    private let content = UpdatePanelContent(frame: NSRect(x: 0, y: 0, width: 340, height: 210))
+    private let content = UpdatePanelContent(frame: NSRect(x: 0, y: 0, width: 460, height: 220))
     private var primaryAction: (() -> Void)?
     private var secondaryAction: (() -> Void)?
     private var closeAction: (() -> Void)?
 
     init() {
-        let panel = UpdateFloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 340, height: 210),
+        let panel = UpdateFloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 460, height: 220),
             styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
-        panel.setFrame(NSRect(x: 0, y: 0, width: 340, height: 210), display: false)
+        panel.setFrame(NSRect(x: 0, y: 0, width: 460, height: 220), display: false)
         panel.appearance = NSAppearance(named: .aqua)
         for kind: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
             panel.standardWindowButton(kind)?.isHidden = true
@@ -208,6 +226,7 @@ final class UpdatePanel: NSWindowController, NSWindowDelegate {
         content.header.refreshActions()
         setProgress(progress)
         content.updateAppearance()
+        window.setContentSize(NSSize(width: 460, height: content.preferredHeight))
         content.layoutSubtreeIfNeeded()
         window.recalculateKeyViewLoop()
         window.initialFirstResponder = nil
@@ -231,6 +250,9 @@ final class UpdatePanel: NSWindowController, NSWindowDelegate {
             content.progress.isHidden = false
             content.progress.isIndeterminate = false
             content.progress.doubleValue = value.isFinite ? min(1, max(0, value)) : 0
+        }
+        if let window, abs((window.contentView?.bounds.height ?? 0) - content.preferredHeight) > 0.5 {
+            window.setContentSize(NSSize(width: 460, height: content.preferredHeight))
         }
     }
 

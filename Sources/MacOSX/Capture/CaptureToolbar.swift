@@ -21,7 +21,7 @@ final class CaptureToolbarSurface: NSView {
 final class CaptureToolButton: NSButton {
     enum Glyph { case rectangle, arrow, pen, text, mosaic, recognition, color }
     let glyph: Glyph
-    var ink = NSColor.systemRed { didSet { needsDisplay = true } }
+    var ink = SketchPalette.coral { didSet { needsDisplay = true } }
     private var hovered = false
     private var tracking: NSTrackingArea?
     init(_ glyph: Glyph, title: String, target: AnyObject?, action: Selector) {
@@ -50,8 +50,8 @@ final class CaptureToolButton: NSButton {
     override func draw(_ dirtyRect: NSRect) {
         let selected = state == .on
         let glyphColor: NSColor = !isEnabled ? NSColor(calibratedWhite: 0.65, alpha: 1)
-            : selected ? NSColor(calibratedRed: 0.18, green: 0.52, blue: 0.76, alpha: 1)
-            : NSColor(calibratedWhite: hovered || cell?.isHighlighted == true ? 0.23 : 0.32, alpha: 1)
+            : selected ? ink
+            : glyph == .arrow ? SketchPalette.coral : glyph == .rectangle ? SketchPalette.blue : NSColor(calibratedWhite: hovered || cell?.isHighlighted == true ? 0.23 : 0.32, alpha: 1)
         glyphColor.setStroke()
         let path = NSBezierPath(); path.lineWidth = selected ? 2.7 : 1.65
         path.lineCapStyle = .round; path.lineJoinStyle = .round

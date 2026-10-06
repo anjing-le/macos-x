@@ -15,7 +15,7 @@ class MinimalButton: NSButton {
         bezelStyle = .regularSquare
         isBordered = false
         focusRingType = .none
-        font = .systemFont(ofSize: 12, weight: .medium)
+        font = SketchPalette.heading(15)
         imageScaling = .scaleProportionallyDown
         updateTint()
     }
@@ -61,7 +61,7 @@ class MinimalButton: NSButton {
         let fill: NSColor
         switch style {
         case .primary:
-            fill = SketchPalette.yellow.withAlphaComponent(isEnabled ? (pressed ? 0.44 : active ? 0.36 : 0.27) : 0.08)
+            fill = SketchPalette.yellow.withAlphaComponent(isEnabled ? (pressed ? 0.86 : active ? 0.74 : 0.62) : 0.08)
         case .standard:
             fill = SketchPalette.paper
         case .quiet:

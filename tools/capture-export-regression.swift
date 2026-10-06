@@ -48,6 +48,21 @@ import AppKit
             let changed = (20..<44).contains { y in (20..<44).contains { x in before.sample(x: x, y: y)?.hex != after.sample(x: x, y: y)?.hex } }
             check(changed, "redaction actually changes content")
         }
+        let black = CaptureRaster.context(width: 64, height: 64)!
+        black.setFillColor(CGColor(gray: 0, alpha: 1)); black.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+        let darkBase = black.makeImage()!
+        for tool in [CaptureTool.rectangle, .arrow] {
+            let mark = CaptureAnnotation(tool: tool, points: [CGPoint(x: 12, y: 12), CGPoint(x: 52, y: 52)], ink: .red, width: 4)
+            let one = CaptureAnnotationRenderer.render(base: darkBase, annotations: [mark])!
+            let two = CaptureAnnotationRenderer.render(base: darkBase, annotations: [mark])!
+            check((one.dataProvider!.data! as Data) == (two.dataProvider!.data! as Data), "crayon export is deterministic across redraws")
+            let sampler = CapturePixelSampler(image: one)!
+            check(sampler.sample(x: 2, y: 2)?.hex == "#000000", "crayon leaves unrelated pixels unchanged")
+            let colors = (8..<56).flatMap { y in (8..<56).compactMap { x in sampler.sample(x: x, y: y)?.hex } }
+            check(Set(colors).count > 8, "wax stroke has actual pigment variation")
+            check(!colors.contains("#FFFFFF"), "grain does not paint white over dark screenshots")
+            check(CaptureAnnotationRenderer.render(base: darkBase, annotations: [mark], isCurrent: { false }) == nil, "crayon export respects cancellation")
+        }
         print("PASS capture export: \(count) assertions; rename, failure recovery, no overwrite, unchanged pixels, redaction and cancellation")
     }
 }

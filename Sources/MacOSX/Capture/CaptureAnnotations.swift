@@ -9,7 +9,7 @@ enum CaptureTool: Int, CaseIterable {
 struct CaptureInk {
     let red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat
     var cgColor: CGColor { CGColor(red: red, green: green, blue: blue, alpha: alpha) }
-    static let red = CaptureInk(red: 0.95, green: 0.2, blue: 0.25, alpha: 1)
+    static let red = CaptureInk(red: 0.96, green: 0.43, blue: 0.32, alpha: 1)
     init(red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) {
         self.red = red; self.green = green; self.blue = blue; self.alpha = alpha
     }
@@ -83,18 +83,19 @@ enum CaptureAnnotationRenderer {
         context.setLineCap(.round); context.setLineJoin(.round)
         let rect = annotation.bounds
         switch annotation.tool {
-        case .rectangle: context.stroke(rect)
+        case .rectangle:
+            CaptureCrayonStroke.draw(segments: [(CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY)),
+                (CGPoint(x: rect.maxX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.maxY)),
+                (CGPoint(x: rect.maxX, y: rect.maxY), CGPoint(x: rect.minX, y: rect.maxY)),
+                (CGPoint(x: rect.minX, y: rect.maxY), CGPoint(x: rect.minX, y: rect.minY))], ink: annotation.ink, width: annotation.width, in: context)
         case .ellipse: context.strokeEllipse(in: rect)
         case .arrow:
             guard let last = annotation.points.last else { return }
-            context.move(to: first); context.addLine(to: last); context.strokePath()
             let angle = atan2(last.y - first.y, last.x - first.x)
             let length = max(12, annotation.width * 4)
-            context.move(to: last)
-            context.addLine(to: CGPoint(x: last.x - length * cos(angle - .pi / 6), y: last.y - length * sin(angle - .pi / 6)))
-            context.move(to: last)
-            context.addLine(to: CGPoint(x: last.x - length * cos(angle + .pi / 6), y: last.y - length * sin(angle + .pi / 6)))
-            context.strokePath()
+            let left = CGPoint(x: last.x - length * cos(angle - .pi / 6), y: last.y - length * sin(angle - .pi / 6))
+            let right = CGPoint(x: last.x - length * cos(angle + .pi / 6), y: last.y - length * sin(angle + .pi / 6))
+            CaptureCrayonStroke.draw(segments: [(first, last), (last, left), (last, right)], ink: annotation.ink, width: annotation.width, in: context)
         case .pen, .highlighter:
             if annotation.tool == .highlighter { context.setAlpha(0.28); context.setBlendMode(.multiply); context.setLineWidth(annotation.width * 6) }
             context.move(to: first)
@@ -113,6 +114,38 @@ enum CaptureAnnotationRenderer {
         case .mosaic, .blur:
             context.setStrokeColor(CGColor(gray: 0.3, alpha: 1)); context.setLineDash(phase: 0, lengths: [6, 4]); context.stroke(rect)
         case .eraser: break
+        }
+    }
+}
+
+/// Fixed wax-pencil passes: native geometry, no white paint over screenshot pixels,
+/// no random state, texture images, background allocation or main-thread-only APIs.
+enum CaptureCrayonStroke {
+    static func draw(segments: [(CGPoint, CGPoint)], ink: CaptureInk, width: CGFloat, in context: CGContext) {
+        guard width.isFinite, width > 0 else { return }
+        context.saveGState(); defer { context.restoreGState() }
+        context.setLineCap(.round); context.setLineJoin(.round)
+        context.setStrokeColor(ink.cgColor)
+        for lane in 0..<4 {
+            context.setAlpha(lane == 0 ? 0.46 : 0.58)
+            context.setLineWidth(lane == 0 ? width * 0.72 : max(0.35, width * 0.26))
+            context.setLineDash(phase: CGFloat(lane) * 0.31, lengths: lane == 0 ? [] : [max(0.7, width * 0.67), 0.35, max(1, width * 0.9), 0.25])
+            for (start, end) in segments {
+                let dx = end.x - start.x, dy = end.y - start.y
+                let length = hypot(dx, dy)
+                guard length.isFinite, length > 0 else { continue }
+                let steps = min(512, max(1, Int(min(length / 3, 512))))
+                let nx = -dy / length, ny = dx / length
+                for step in 0...steps {
+                    let t = CGFloat(step) / CGFloat(steps)
+                    let distance = length * t
+                    let grain = sin(distance * 1.37 + CGFloat(lane) * 2.1) * min(0.45, width * 0.13)
+                    let offset = (CGFloat(lane) - 1.5) * width * 0.22 + grain
+                    let point = CGPoint(x: start.x + dx * t + nx * offset, y: start.y + dy * t + ny * offset)
+                    if step == 0 { context.move(to: point) } else { context.addLine(to: point) }
+                }
+            }
+            context.strokePath()
         }
     }
 }

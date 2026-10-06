@@ -24,7 +24,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     private let toolbar: NSPanel
     private var toolbarVisible = true
     private var localMonitor: Any?
-    private var toolButtons = [NSButton]()
+    private var toolButtons = [CaptureToolButton]()
     private let canvas: CaptureCanvas
     private let queue = DispatchQueue(label: "cc.anjing.macos-x.capture.render", qos: .userInitiated)
     private let status = NSTextField(labelWithString: "Enter / ⌘C 复制")
@@ -86,7 +86,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         recognitionButton = CaptureToolButton(.recognition, title: "提取文字 · 6 / ⇧⌘C", target: self, action: #selector(copyRecognizedText))
         row.addArrangedSubview(recognitionButton)
         colorButton = CaptureToolButton(.color, title: "共用颜色 · 7", target: self, action: #selector(showColors))
-        colorButton.ink = .systemRed; canvas.ink = CaptureInk(colorButton.ink); row.addArrangedSubview(colorButton)
+        colorButton.ink = SketchPalette.coral; canvas.ink = CaptureInk(colorButton.ink); row.addArrangedSubview(colorButton)
         status.font = .systemFont(ofSize: 10); status.textColor = NSColor(calibratedWhite: 0.3, alpha: 1)
         status.stringValue = ""; status.isHidden = true
         let stack = NSStackView(views: [row, status]); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 4
@@ -210,7 +210,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         canvas.tool = canvas.tool == tool ? nil : tool
         updateToolButtons(); window.makeFirstResponder(canvas)
     }
-    private static let colors: [NSColor] = [.black, .systemRed, .systemOrange, .systemYellow, .systemGreen, .systemBlue, .systemPurple, .white]
+    private static let colors: [NSColor] = [SketchPalette.ink, SketchPalette.coral, SketchPalette.orange, SketchPalette.yellow, SketchPalette.green, SketchPalette.blue, SketchPalette.purple, .white]
     @objc private func showColors() {
         if colorPopover?.isShown == true { colorPopover?.close(); return }
         finishText(commit: true)
@@ -226,6 +226,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     @objc private func chooseColor(_ sender: NSButton) {
         guard Self.colors.indices.contains(sender.tag) else { return }
         let ink = Self.colors[sender.tag]; canvas.ink = CaptureInk(ink); colorButton.ink = ink
+        toolButtons.forEach { $0.ink = ink }
         colorPopover?.close(); window.makeFirstResponder(canvas)
     }
     private func cancelCurrentOperation() {

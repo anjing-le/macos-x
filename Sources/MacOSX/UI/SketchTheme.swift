@@ -1,11 +1,23 @@
 import AppKit
+import CoreText
 
 @MainActor
 enum SketchPalette {
+    private static let registerFont: Void = {
+        if let url = Bundle.main.url(forResource: "SketchFont", withExtension: "ttf") {
+            CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+        }
+    }()
+    static func heading(_ size: CGFloat) -> NSFont {
+        _ = registerFont
+        return NSFont(name: "ZCOOLKuaiLe-Regular", size: size) ?? .systemFont(ofSize: size, weight: .semibold)
+    }
     static let paper = NSColor(calibratedRed: 0.998, green: 0.993, blue: 0.975, alpha: 1)
-    static let ink = NSColor(calibratedWhite: 0.28, alpha: 1)
+    static let ink = NSColor(calibratedWhite: 0.2, alpha: 1)
     static let muted = NSColor(calibratedWhite: 0.52, alpha: 1)
-    static let line = NSColor(calibratedWhite: 0.6, alpha: 1)
+    static let line = NSColor(calibratedWhite: 0.40, alpha: 1)
+    static let coral = NSColor(calibratedRed: 0.96, green: 0.43, blue: 0.32, alpha: 1)
+    static let orange = NSColor(calibratedRed: 0.96, green: 0.64, blue: 0.32, alpha: 1)
     static let yellow = NSColor(calibratedRed: 0.96, green: 0.76, blue: 0.25, alpha: 1)
     static let blue = NSColor(calibratedRed: 0.35, green: 0.67, blue: 0.9, alpha: 1)
     static let green = NSColor(calibratedRed: 0.52, green: 0.74, blue: 0.43, alpha: 1)
@@ -20,12 +32,12 @@ enum SketchPencil {
     static func stroke(_ path: NSBezierPath, color: NSColor, width: CGFloat) {
         NSGraphicsContext.saveGraphicsState(); defer { NSGraphicsContext.restoreGraphicsState() }
         path.lineCapStyle = .round; path.lineJoinStyle = .round
-        color.withAlphaComponent(color.alphaComponent * 0.55).setStroke(); path.lineWidth = width * 0.8; path.stroke()
+        color.withAlphaComponent(color.alphaComponent * 0.72).setStroke(); path.lineWidth = width * 0.8; path.stroke()
         let retrace = path.copy() as! NSBezierPath
         retrace.transform(using: AffineTransform(translationByX: 0.18, byY: -0.12))
         let marks: [CGFloat] = [2.3, 0.65, 3.7, 0.35, 1.4, 0.8]
         retrace.setLineDash(marks, count: marks.count, phase: 0.4)
-        color.withAlphaComponent(color.alphaComponent * 0.72).setStroke(); retrace.lineWidth = width * 0.64; retrace.stroke()
+        color.withAlphaComponent(color.alphaComponent * 0.9).setStroke(); retrace.lineWidth = width * 0.64; retrace.stroke()
         let grain = path.copy() as! NSBezierPath
         let gaps: [CGFloat] = [0.2, 1.3, 0.35, 2.1, 0.15, 0.9]
         grain.setLineDash(gaps, count: gaps.count, phase: 0.2)
@@ -91,11 +103,21 @@ class SketchSurface: NSView {
         guard bounds.width > 4, bounds.height > 4 else { return }
         let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 1.5, dy: 1.5), xRadius: radius, yRadius: radius)
         fill.setFill(); shape.fill()
+        if let texture = SketchPaper.image {
+            NSGraphicsContext.saveGraphicsState(); shape.addClip()
+            // Fixed 128-point tile: no stretched paper fibers on wide windows.
+            for y in stride(from: bounds.minY, to: bounds.maxY, by: 128) {
+                for x in stride(from: bounds.minX, to: bounds.maxX, by: 128) {
+                    texture.draw(in: NSRect(x: x, y: y, width: 128, height: 128), from: .zero, operation: .multiply, fraction: 0.5)
+                }
+            }
+            NSGraphicsContext.restoreGraphicsState()
+        }
         if let edge {
             if outline == nil || lastBounds != bounds {
                 lastBounds = bounds; outline = SketchPencil.outline(in: bounds.insetBy(dx: 1.5, dy: 1.5), radius: radius)
             }
-            if let outline { SketchPencil.stroke(outline, color: edge, width: 1) }
+            if let outline { SketchPencil.stroke(outline, color: edge, width: 1.6) }
         }
     }
 }
@@ -160,4 +182,9 @@ final class SketchTableRow: NSTableRowView {
         SketchPalette.fill(shape, color: SketchPalette.yellow.withAlphaComponent(0.18))
         SketchPencil.stroke(shape, color: SketchPalette.yellow, width: 0.9)
     }
+}
+
+@MainActor
+enum SketchPaper {
+    static let image: NSImage? = Bundle.main.url(forResource: "SketchPaper", withExtension: "png").flatMap { NSImage(contentsOf: $0) }
 }
