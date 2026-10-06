@@ -24,10 +24,9 @@ import MacOSXCore
         }
         override func draw(_ dirtyRect: NSRect) {
             let active = state == .on
-            (active ? NSColor.labelColor.withAlphaComponent(0.08) : NSColor.windowBackgroundColor).setFill()
-            sector.fill()
-            NSColor.labelColor.withAlphaComponent(active ? 0.13 : 0.04).setStroke(); sector.lineWidth = 0.5; sector.stroke()
-            let text = NSAttributedString(string: title, attributes: [.font: NSFont.systemFont(ofSize: 11, weight: .medium), .foregroundColor: isEnabled ? NSColor.labelColor : NSColor.tertiaryLabelColor])
+            SketchPalette.fill(sector, color: active ? SketchPalette.purple.withAlphaComponent(0.20) : SketchPalette.paper)
+            SketchPencil.stroke(sector, color: active ? SketchPalette.purple : SketchPalette.line.withAlphaComponent(0.6), width: active ? 0.85 : 0.55)
+            let text = NSAttributedString(string: title, attributes: [.font: NSFont.systemFont(ofSize: 11, weight: .medium), .foregroundColor: isEnabled ? (active ? SketchPalette.purple : SketchPalette.ink) : SketchPalette.muted])
             let rect = CGRect(x: labelCenter.x - 35, y: labelCenter.y - 10, width: 70, height: 26)
             let paragraph = NSMutableParagraphStyle(); paragraph.alignment = .center; paragraph.lineBreakMode = .byTruncatingTail
             let styled = NSMutableAttributedString(attributedString: text); styled.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: styled.length))
@@ -59,8 +58,9 @@ import MacOSXCore
     }
     override func draw(_ dirtyRect: NSRect) {
         let diameter = min(bounds.width, bounds.height) - 16
-        NSColor.windowBackgroundColor.setFill()
-        NSBezierPath(ovalIn: CGRect(x: bounds.midX-diameter/2,y: bounds.midY-diameter/2,width: diameter,height: diameter)).fill()
+        let circle = NSBezierPath(ovalIn: CGRect(x: bounds.midX-diameter/2,y: bounds.midY-diameter/2,width: diameter,height: diameter))
+        SketchPalette.paper.setFill(); circle.fill()
+        SketchPencil.stroke(circle, color: SketchPalette.line, width: 0.95)
     }
     override func layout() {
         super.layout()
@@ -98,6 +98,7 @@ import MacOSXCore
         let y = min(max(screen.minY + 8, anchor.y - height / 2), screen.maxY - height - 8)
         wheel = PromptWheelView(size: CGSize(width: width, height: height), collection: collection)
         super.init(contentRect: CGRect(x: x, y: y, width: width, height: height), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        appearance = NSAppearance(named: .aqua)
         backgroundColor = .clear; isOpaque = false; hasShadow = true; isReleasedWhenClosed = false
         level = .popUpMenu; hidesOnDeactivate = false; becomesKeyOnlyIfNeeded = false; animationBehavior = .none
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
@@ -135,7 +136,7 @@ import MacOSXCore
 @MainActor private final class PromptWheelView: NSView, NSSearchFieldDelegate {
     var onChoose: ((Int) -> Void)?
     var onCancel: (() -> Void)?
-    let search = NSSearchField()
+    let search = SketchSearchField()
     private let collection: PromptCollection
     private let ring: PromptRingView
     private var displayed: [Int] = []

@@ -86,6 +86,7 @@ private final class CardGrid: NSView {
 @MainActor
 private final class ToolboxContent: NSView {
     let grid = CardGrid()
+    let header = SketchWindowHeader(frame: .zero)
     private let scroll = NSScrollView()
     private let detail = NSStackView()
     private let detailDocument = DetailDocument()
@@ -93,6 +94,7 @@ private final class ToolboxContent: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        addSubview(header); header.translatesAutoresizingMaskIntoConstraints = false
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
@@ -102,7 +104,11 @@ private final class ToolboxContent: NSView {
         NSLayoutConstraint.activate([
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: topAnchor),
+            header.topAnchor.constraint(equalTo: topAnchor),
+            header.leadingAnchor.constraint(equalTo: leadingAnchor),
+            header.trailingAnchor.constraint(equalTo: trailingAnchor),
+            header.heightAnchor.constraint(equalToConstant: 56),
+            scroll.topAnchor.constraint(equalTo: header.bottomAnchor),
             scroll.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
         // This root stack is sized by layout(), not by an autoresizing-mask
@@ -123,10 +129,7 @@ private final class ToolboxContent: NSView {
     }
 
     private func updateBackground() {
-        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        layer?.backgroundColor = (dark
-            ? NSColor(srgbRed: 0.105, green: 0.105, blue: 0.11, alpha: 1)
-            : NSColor(srgbRed: 0.985, green: 0.985, blue: 0.985, alpha: 1)).cgColor
+        layer?.backgroundColor = SketchPalette.paper.cgColor
     }
 
     func showCards(_ cards: [ToolCard]) {
@@ -180,13 +183,11 @@ private final class ToolboxContent: NSView {
 private final class DetailDocument: NSView { override var isFlipped: Bool { true } }
 
 @MainActor
-final class ToolboxWindowController: NSWindowController, NSToolbarDelegate {
+final class ToolboxWindowController: NSWindowController {
     private enum Page {
         case home, catalog, settings(Tool)
     }
 
-    private static let backID = NSToolbarItem.Identifier("back")
-    private static let updatesID = NSToolbarItem.Identifier("updates")
     private let added = AddedTools()
     private let content = ToolboxContent(frame: NSRect(x: 0, y: 0, width: 960, height: 640))
     private var page: Page = .home
@@ -201,22 +202,23 @@ final class ToolboxWindowController: NSWindowController, NSToolbarDelegate {
         self.canCheckUpdates = canCheckUpdates
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 960, height: 640),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false
         )
         window.title = "macos-x"
         window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.appearance = NSAppearance(named: .aqua)
+        window.backgroundColor = SketchPalette.paper
+        for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] { window.standardWindowButton(kind)?.isHidden = true }
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 360, height: 320)
         window.contentView = content
         window.toolbarStyle = .unifiedCompact
         window.center()
         super.init(window: window)
-        let toolbar = NSToolbar(identifier: "macos-x")
-        toolbar.delegate = self
-        toolbar.displayMode = .iconOnly
-        toolbar.allowsUserCustomization = false
-        window.toolbar = toolbar
+        content.header.onBack = { [weak self] in self?.goBack() }
+        content.header.onUpdate = { [weak self] in self?.checkUpdates() }
         modules.onStateChanged = { [weak self] tool in
             guard let self, case let .settings(current) = self.page, current == tool else { return }
             self.settingsHeader?.refresh()
@@ -243,13 +245,10 @@ final class ToolboxWindowController: NSWindowController, NSToolbarDelegate {
     private func navigate(_ page: Page, title: String) {
         self.page = page
         window?.title = title
-        guard let toolbar = window?.toolbar else { return }
-        let backIndex = toolbar.items.firstIndex { $0.itemIdentifier == Self.backID }
-        if case .home = page {
-            if let backIndex { toolbar.removeItem(at: backIndex) }
-        } else if backIndex == nil {
-            toolbar.insertItem(withItemIdentifier: Self.backID, at: 0)
-        }
+        content.header.title = title
+        if case .home = page { content.header.back.isHidden = true }
+        else { content.header.back.isHidden = false }
+
     }
 
     private func showHome() {
@@ -303,38 +302,4 @@ final class ToolboxWindowController: NSWindowController, NSToolbarDelegate {
         onCheckUpdates()
     }
 
-    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.flexibleSpace, Self.updatesID]
-    }
-
-    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [Self.backID, .flexibleSpace, Self.updatesID]
-    }
-
-    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier,
-                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        let item = NSToolbarItem(itemIdentifier: identifier)
-        if identifier == Self.backID {
-            item.label = "返回"
-            item.toolTip = "返回首页"
-            let button = MinimalButton(title: "", target: self, action: #selector(goBack), style: .quiet)
-            button.image = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: "返回")
-            button.imagePosition = .imageOnly
-            button.toolTip = "返回首页"
-            button.setAccessibilityLabel("返回首页")
-            button.widthAnchor.constraint(equalToConstant: 30).isActive = true
-            item.view = button
-        } else if identifier == Self.updatesID {
-            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版"
-            let button = MinimalButton(title: version, target: self, action: #selector(checkUpdates), style: .quiet)
-            button.image = NSImage(systemSymbolName: "arrow.down.to.line", accessibilityDescription: "检查更新")
-            button.imagePosition = .imageTrailing
-            button.font = .systemFont(ofSize: 12)
-            button.toolTip = "检查更新…"
-            button.setAccessibilityLabel("检查更新，当前版本 \(version)")
-            item.label = "检查更新"
-            item.view = button
-        } else { return nil }
-        return item
-    }
 }

@@ -1,4 +1,5 @@
 import CoreGraphics
+import AppKit
 import CoreText
 import Foundation
 import ImageIO
@@ -47,6 +48,8 @@ struct CapturePinTransform: Equatable {
         return CGPoint(x: floor(mapped.x), y: CGFloat(image.height - 1) - floor(mapped.y))
     }
     func render(_ image: CGImage) -> CGImage? {
+        if self == CapturePinTransform(), image.width > 0, image.height > 0,
+           image.width <= 4_000_000 / image.height { return image }
         let size = outputSize(for: image)
         let width = Int(size.width), height = Int(size.height)
         guard width > 0, height > 0, width <= 4_000_000 / height,
@@ -113,14 +116,19 @@ enum CaptureClipboard {
     static func text(_ value: String) -> CGImage? {
         guard !value.isEmpty, value.count <= 4096 else { return nil }
         if let color = CaptureClipboardColor(text: value) { return color.card() }
-        let attributed = attributedText(value, size: 22)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 7
+        paragraph.paragraphSpacing = 12
+        paragraph.lineBreakMode = .byWordWrapping
+        let attributed = NSMutableAttributedString(attributedString: attributedText(value, size: 22))
+        attributed.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: attributed.length))
         let setter = CTFramesetterCreateWithAttributedString(attributed)
         let size = CTFramesetterSuggestFrameSizeWithConstraints(setter, CFRange(location: 0, length: 0), nil,
                                                                CGSize(width: 550, height: CGFloat.greatestFiniteMagnitude), nil)
-        guard size.height <= 1800, let context = CaptureRaster.context(width: 590, height: max(80, Int(size.height.rounded(.up)) + 40)) else { return nil }
-        context.setFillColor(CGColor(red: 1, green: 0.99, blue: 0.93, alpha: 1))
+        guard size.height <= 1800, let context = CaptureRaster.context(width: 622, height: max(112, Int(size.height.rounded(.up)) + 64)) else { return nil }
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: context.width, height: context.height))
-        let path = CGPath(rect: CGRect(x: 20, y: 20, width: 550, height: context.height - 40), transform: nil)
+        let path = CGPath(rect: CGRect(x: 36, y: 32, width: 550, height: context.height - 64), transform: nil)
         CTFrameDraw(CTFramesetterCreateFrame(setter, CFRange(location: 0, length: 0), path, nil), context)
         return context.makeImage()
     }

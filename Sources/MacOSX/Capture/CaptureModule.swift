@@ -163,6 +163,7 @@ final class CaptureModule {
         guard running, !terminating, recordingState != .choosing else { return }
         guard pins.canAdd else { setStatus("最多 8 张贴图，请先关闭一张。"); return }
         if let editor { editor.pinCurrentImage() }
+        else if pins.applyActiveEdit() { return }
         else if editorPending { pinAfterEditor = true }
         else if captureInProgress { selection.pinCurrentSelection() }
         else { pinClipboard() }

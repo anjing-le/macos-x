@@ -43,6 +43,7 @@ struct CaptureAnnotation {
 enum CaptureAnnotationRenderer {
     static func render(base: CGImage, annotations: [CaptureAnnotation], isCurrent: () -> Bool = { true }) -> CGImage? {
         guard isCurrent() else { return nil }
+        if annotations.isEmpty { return base }
         guard let context = CaptureRaster.context(width: base.width, height: base.height) else { return nil }
         context.draw(base, in: CGRect(x: 0, y: 0, width: base.width, height: base.height))
         // Most exports contain only vector marks. Allocate the effects engine
@@ -130,7 +131,13 @@ final class CaptureCanvas: NSView {
     var onCopy: (() -> Void)?
     var onUndo: (() -> Void)?
     var onRedo: (() -> Void)?
+    var onConfirm: (() -> Void)?
+    var onCancel: (() -> Void)?
     private var draft: CaptureAnnotation?
+    @discardableResult func cancelDraft() -> Bool {
+        guard draft != nil else { return false }
+        draft = nil; needsDisplay = true; return true
+    }
     override var acceptsFirstResponder: Bool { true }
     init(image: CGImage) { base = image; self.image = image; super.init(frame: .zero) }
     required init?(coder: NSCoder) { nil }
@@ -187,8 +194,8 @@ final class CaptureCanvas: NSView {
         if event.modifierFlags.contains(.command), event.keyCode == 8 { onCopy?() }
         else if event.modifierFlags.contains(.command), event.keyCode == 6 {
             event.modifierFlags.contains(.shift) ? onRedo?() : onUndo?()
-        } else if event.keyCode == 36 || event.keyCode == 76 { onCopy?() }
-        else if event.keyCode == 53 { window?.close() }
+        } else if event.keyCode == 36 || event.keyCode == 76 { onConfirm?() }
+        else if event.keyCode == 53 { onCancel?() }
         else { super.keyDown(with: event) }
     }
 }

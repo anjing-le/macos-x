@@ -42,6 +42,7 @@ import MacOSXCore
 
     init() {
         panel = Panel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.appearance = NSAppearance(named: .aqua)
         panel.title = "窗口切换"; panel.animationBehavior = .none
         panel.level = .popUpMenu; panel.isOpaque = false; panel.backgroundColor = .clear
         panel.hasShadow = true; panel.hidesOnDeactivate = false; panel.acceptsMouseMovedEvents = true
@@ -126,15 +127,14 @@ import MacOSXCore
     }
     override func draw(_ dirtyRect: NSRect) {
         guard bounds.width > 32, bounds.height > 25 else { return }
-        NSColor.windowBackgroundColor.setFill()
+        SketchPalette.paper.setFill()
         NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 18, yRadius: 18).fill()
-        NSColor.labelColor.withAlphaComponent(0.06).setStroke()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 18, yRadius: 18).stroke()
+        SketchPencil.stroke(SketchPencil.outline(in: bounds.insetBy(dx: 1.5, dy: 1.5), radius: 18), color: SketchPalette.line, width: 1)
         for (index, window) in page.enumerated() {
             let rect = layout.card(at: index), selected = window.id == selectedID
             let outline = NSBezierPath(roundedRect: rect, xRadius: 10, yRadius: 10)
-            NSColor.controlAccentColor.withAlphaComponent(selected ? 0.07 : 0).setFill(); outline.fill()
-            if selected { NSColor.controlAccentColor.withAlphaComponent(0.65).setStroke(); outline.lineWidth = 1; outline.stroke() }
+            SketchPalette.paper.setFill(); outline.fill()
+            SketchPencil.stroke(SketchPencil.outline(in: rect, radius: 10), color: selected ? SketchPalette.yellow : SketchPalette.line.withAlphaComponent(0.4), width: selected ? 1.8 : 0.75)
             let picture = CGRect(x: rect.minX + 10, y: rect.minY + 10, width: rect.width - 20, height: rect.height - 48)
             if let image = images[window.id] {
                 let ratio = min(picture.width / max(1, image.size.width), picture.height / max(1, image.size.height))
@@ -150,7 +150,7 @@ import MacOSXCore
             window.icon?.draw(in: CGRect(x: rect.minX + 10, y: rect.maxY - 27, width: 16, height: 16),
                               from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
             text(window.applicationName, rect: CGRect(x: rect.minX + 32, y: rect.maxY - 33, width: rect.width - 42, height: 14),
-                 font: .systemFont(ofSize: 11, weight: .medium), color: .labelColor)
+                 font: .systemFont(ofSize: 11, weight: .medium), color: SketchPalette.ink)
             text(window.title == window.applicationName ? "" : window.title,
                  rect: CGRect(x: rect.minX + 32, y: rect.maxY - 19, width: rect.width - 42, height: 13),
                  font: .systemFont(ofSize: 10), color: .secondaryLabelColor)

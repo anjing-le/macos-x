@@ -90,9 +90,9 @@ import MacOSXCore
     private let preview = MinimalButton(title: "预览", target: nil, action: nil, style: .quiet)
     private let picker = MinimalPopUpButton()
     private let placement = MinimalPopUpButton()
-    private let titleField = NSTextField(string: "")
-    private let body = NSTextView(), table = NSTableView(), search = NSSearchField()
-    private let scroll = NSScrollView(), listScroll = NSScrollView()
+    private let titleField = SketchTextField()
+    private let body = NSTextView(), table = NSTableView(), search = SketchSearchField()
+    private let scroll = SketchScrollView(), listScroll = SketchScrollView()
     private let status = NSTextField(wrappingLabelWithString: "")
     private var compact: Bool { bounds.width < 620 }
     override var intrinsicContentSize: NSSize { NSSize(width: 700, height: compact ? 690 : 400) }
@@ -109,7 +109,7 @@ import MacOSXCore
         titleField.placeholderString = "标题"; titleField.delegate = self; titleField.isBezeled = false; titleField.drawsBackground = false
         titleField.font = .systemFont(ofSize:14,weight:.medium); titleField.focusRingType = .none; titleField.setAccessibilityLabel("提示词标题")
         body.isRichText = false; body.isAutomaticQuoteSubstitutionEnabled = false; body.isAutomaticDashSubstitutionEnabled = false
-        body.font = .systemFont(ofSize:13); body.delegate = self; body.drawsBackground = false; body.textContainerInset = NSSize(width:10,height:10)
+        body.font = .systemFont(ofSize:13); body.textColor = SketchPalette.ink; body.delegate = self; body.drawsBackground = false; body.textContainerInset = NSSize(width:10,height:10)
         body.isHorizontallyResizable = false; body.autoresizingMask = [.width]; body.textContainer?.widthTracksTextView = true; body.setAccessibilityLabel("提示词内容")
         scroll.documentView = body; scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.drawsBackground = false
         scroll.wantsLayer = true; scroll.layer?.cornerRadius = 10
@@ -137,7 +137,7 @@ import MacOSXCore
         picker.frame = NSRect(x:x,y:editTop,width:width,height:28); placement.frame = picker.frame
         titleField.frame = NSRect(x:x+10,y:editTop-42,width:width-20,height:28)
         scroll.frame = NSRect(x:x,y:66,width:width,height:max(100,editTop-112))
-        body.frame.size.width = scroll.contentSize.width; scroll.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.025).cgColor
+        body.frame.size.width = scroll.contentSize.width; scroll.layer?.backgroundColor = SketchPalette.paper.cgColor
         importer.frame = NSRect(x:0,y:28,width:110,height:28); format.frame = NSRect(x:116,y:28,width:48,height:28)
         cancelImport.frame = format.frame
         preview.frame = NSRect(x:bounds.width-60,y:28,width:60,height:28)
@@ -236,6 +236,7 @@ import MacOSXCore
         if let selected, let row = rows.firstIndex(of:selected) { table.selectRowIndexes(IndexSet(integer:row),byExtendingSelection:false) }
     }
     func numberOfRows(in tableView:NSTableView)->Int { rows.count }
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { SketchTableRow() }
     func tableView(_ tableView:NSTableView,viewFor tableColumn:NSTableColumn?,row:Int)->NSView? {
         let label = NSTextField(labelWithString:collection.prompts[rows[row]].title.isEmpty ? "未命名" : collection.prompts[rows[row]].title)
         label.font = .systemFont(ofSize:12); label.lineBreakMode = .byTruncatingTail; return label

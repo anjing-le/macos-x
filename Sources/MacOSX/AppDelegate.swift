@@ -56,6 +56,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             ("复制", "copy:", "c"), ("粘贴", "paste:", "v"), ("全选", "selectAll:", "a")] {
             edit.addItem(NSMenuItem(title: title, action: Selector(selector), keyEquivalent: key))
         }
+        let redo = NSMenuItem(title: "重做", action: NSSelectorFromString("redo:"), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]; edit.insertItem(redo, at: 1)
         editItem.submenu = edit; menuBar.addItem(editItem)
         let windowItem = NSMenuItem()
         let windowMenu = NSMenu(title: "窗口")

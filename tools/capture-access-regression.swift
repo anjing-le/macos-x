@@ -115,6 +115,7 @@ final class NSSavePanel {
     func resume() {}
 }
 @MainActor final class CapturePins {
+    func applyActiveEdit() -> Bool { false }
     var onStatus: ((String) -> Void)?
     var canAdd = true
     static var pending: [(Bool) -> Void] = []

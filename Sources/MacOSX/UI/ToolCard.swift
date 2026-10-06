@@ -4,7 +4,7 @@ import QuartzCore
 /// A native, keyboard-accessible entry card. Its parent owns sizing and navigation.
 @MainActor
 final class ToolCard: NSControl {
-    private let surface = NSView()
+    private let surface = SketchSurface()
     private let symbolView = NSImageView()
     private let titleLabel: NSTextField
     private let activate: () -> Void
@@ -39,16 +39,15 @@ final class ToolCard: NSControl {
         focusRingType = .none
         surface.wantsLayer = true
         surface.layer?.cornerRadius = 12
-        surface.layer?.borderWidth = 0.5
+        surface.layer?.borderWidth = 0
         surface.layer?.shadowOffset = NSSize(width: 0, height: -3)
         surface.layer?.shadowRadius = 8
         surface.layer?.masksToBounds = false
 
-        symbolView.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 56, weight: .light))
+        symbolView.image = SketchIcons.image(symbol, size: 64)
         symbolView.imageScaling = .scaleProportionallyUpOrDown
         symbolView.wantsLayer = true
-        titleLabel.font = .systemFont(ofSize: 20, weight: .light)
+        titleLabel.font = .systemFont(ofSize: 18, weight: .medium)
         titleLabel.alignment = .center
         titleLabel.maximumNumberOfLines = 1
         titleLabel.lineBreakMode = .byTruncatingTail
@@ -227,19 +226,16 @@ final class ToolCard: NSControl {
         let cardScale: CGFloat = reducedMotion ? 1 : (pressed ? 0.97 : (revealed ? 1.03 : 1))
         let iconScale: CGFloat = reducedMotion || !revealed ? 1 : 0.95
 
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            cardLayer.backgroundColor = (dark
-                ? NSColor(srgbRed: 0.14, green: 0.14, blue: 0.145, alpha: 1)
-                : NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)).cgColor
-            cardLayer.borderColor = NSColor.labelColor.withAlphaComponent(revealed ? 0.13 : 0.07).cgColor
-            cardLayer.shadowColor = NSColor.black.cgColor
-            symbolView.contentTintColor = .secondaryLabelColor
-            titleLabel.textColor = .labelColor
-        }
+        surface.fill = SketchPalette.paper
+        surface.edge = revealed ? SketchPalette.yellow : SketchPalette.line.withAlphaComponent(0.6)
+        cardLayer.backgroundColor = NSColor.clear.cgColor
+        cardLayer.borderColor = NSColor.clear.cgColor
+        cardLayer.shadowColor = NSColor.black.cgColor
+        symbolView.contentTintColor = nil
+        titleLabel.textColor = SketchPalette.ink
         animate(cardLayer, "transform", NSValue(caTransform3D: CATransform3DMakeScale(cardScale, cardScale, 1)), duration)
-        animate(cardLayer, "shadowOpacity", NSNumber(value: revealed ? 0.09 : 0.03), duration)
-        animate(iconLayer, "opacity", NSNumber(value: revealed ? 0 : (isEnabled ? 0.5 : 0.25)), duration)
+        animate(cardLayer, "shadowOpacity", NSNumber(value: revealed ? 0.035 : 0), duration)
+        animate(iconLayer, "opacity", NSNumber(value: revealed ? 0 : (isEnabled ? 0.85 : 0.3)), duration)
         animate(iconLayer, "transform", NSValue(caTransform3D: CATransform3DMakeScale(iconScale, iconScale, 1)), duration)
         animate(textLayer, "opacity", NSNumber(value: revealed ? 1 : 0), duration)
         animate(textLayer, "transform", NSValue(caTransform3D:

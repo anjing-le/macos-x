@@ -58,6 +58,7 @@ final class CapturePins {
         insert(PinEntry(snapshot: snapshot, queue: queue))
         return true
     }
+    func applyActiveEdit() -> Bool { entries.contains { $0.applyEditIfKey() } }
     func toggleAll() { entries.contains(where: { $0.window.isVisible }) ? hideAll() : showAll() }
     func hideAll() { entries.forEach { $0.window.orderOut(nil) }; onStatus?("贴图已隐藏 · ⇧F3 显示") }
     func showAll() {
@@ -83,7 +84,7 @@ private struct PinSnapshot {
     let opacity: CGFloat
 }
 
-private enum PinCommand { case copy, save, close, hide, zoom(CGFloat), opacity(CGFloat), rotate(Bool), horizontal, vertical, thumbnail }
+private enum PinCommand { case copy, save, edit, close, hide, zoom(CGFloat), opacity(CGFloat), rotate(Bool), horizontal, vertical, thumbnail }
 
 @MainActor
 private final class PinEntry: NSObject, NSWindowDelegate {
@@ -93,7 +94,7 @@ private final class PinEntry: NSObject, NSWindowDelegate {
         override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
     }
     let window: NSPanel
-    private let image: CGImage
+    private var image: CGImage
     private let view: PinView
     private let queue: DispatchQueue
     private var transform = CapturePinTransform()
@@ -106,6 +107,8 @@ private final class PinEntry: NSObject, NSWindowDelegate {
     private var samplingTicket: CaptureImageService.Ticket?
     private let lifetime = CaptureImageService.Ticket()
     private var savePanel: NSSavePanel?
+    private var editor: CaptureEditor?
+    private var preparingEditor = false
     var onClose: (() -> Void)?
     var onStatus: ((String) -> Void)?
     var snapshot: PinSnapshot {
@@ -158,10 +161,15 @@ private final class PinEntry: NSObject, NSWindowDelegate {
         else { window.orderFrontRegardless() }
         window.displayIfNeeded()
     }
+    func applyEditIfKey() -> Bool {
+        guard !closed, let editor, editor.window.isKeyWindow else { return false }
+        editor.pinCurrentImage(); return true
+    }
     func windowDidResignKey(_ notification: Notification) { view.pauseSampling() }
     func windowWillClose(_ notification: Notification) {
         guard !closed else { return }
         closed = true; lifetime.cancel(); samplingTicket?.cancel(); samplingTicket = nil
+        editor?.onClose = nil; editor?.close(); editor = nil
         savePanel?.cancel(nil); savePanel = nil; view.stopTracking(); window.acceptsMouseMovedEvents = false
         onClose?(); onClose = nil; onStatus = nil
         view.onCommand = nil; view.onMenu = nil; view.onSampling = nil; view.onColor = nil
@@ -180,9 +188,14 @@ private final class PinEntry: NSObject, NSWindowDelegate {
     }
     private func perform(_ command: PinCommand) {
         guard !closed else { return }
+        if preparingEditor {
+            if case .close = command { window.close() }
+            return
+        }
         switch command {
         case .copy: copyImage()
         case .save: saveImage()
+        case .edit: editImage()
         case .close: window.close()
         case .hide: window.close()
         case let .zoom(factor): thumbnail = false; zoom = min(4, max(0.15, zoom * factor)); resize()
@@ -211,6 +224,34 @@ private final class PinEntry: NSObject, NSWindowDelegate {
         }
     }
     @objc private func copyImage() { encode(to: nil) }
+    @objc private func editImage() {
+        guard !closed, editor == nil, !preparingEditor, !exporting else { return }
+        preparingEditor = true; view.pauseSampling()
+        let image = image, transform = transform, lifetime = lifetime
+        queue.async { [weak self] in
+            let rendered = lifetime.valid ? transform.render(image) : nil
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.closed, lifetime.valid else { return }
+                self.preparingEditor = false
+                guard let rendered else { self.onStatus?("贴图编辑失败。"); return }
+                let editor = CaptureEditor(image: rendered, selectionFrame: self.window.frame, editingPin: true)
+                self.editor = editor
+                editor.onApply = { [weak self] result in
+                    guard let self, !self.closed else { return }
+                    self.image = result; self.view.image = result
+                    self.transform = CapturePinTransform(); self.view.transform = self.transform
+                    self.baseSize = self.window.frame.size; self.zoom = 1; self.thumbnail = false
+                    self.samplingTicket?.cancel(); self.view.sampler = nil; self.view.needsDisplay = true
+                }
+                editor.onClose = { [weak self] in
+                    guard let self, !self.closed else { return }
+                    self.editor = nil; self.present()
+                }
+                editor.present()
+                self.window.orderOut(nil)
+            }
+        }
+    }
     @objc private func saveImage() {
         guard !closed, !exporting else { return }
         exporting = true
@@ -258,7 +299,7 @@ private final class PinEntry: NSObject, NSWindowDelegate {
     }
     private func menu() -> NSMenu {
         let menu = NSMenu()
-        for (title, selector, key) in [("复制", #selector(copyImage), "c"), ("另存为…", #selector(saveImage), "s")] {
+        for (title, selector, key) in [("复制", #selector(copyImage), "c"), ("编辑", #selector(editImage), "e"), ("另存为…", #selector(saveImage), "s")] {
             let item = NSMenuItem(title: title, action: selector, keyEquivalent: key); item.target = self; menu.addItem(item)
         }
         menu.addItem(.separator())
@@ -273,7 +314,7 @@ private final class PinEntry: NSObject, NSWindowDelegate {
 
 @MainActor
 private final class PinView: NSView {
-    private let image: CGImage
+    var image: CGImage
     var transform = CapturePinTransform()
     var sampler: CapturePixelSampler?
     private(set) var isSampling = false
@@ -353,6 +394,7 @@ private final class PinView: NSView {
         switch event.charactersIgnoringModifiers?.lowercased() {
         case "c": onCommand?(.copy)
         case "s": onCommand?(.save)
+        case "e": onCommand?(.edit)
         case "w": onCommand?(.close)
         case "+", "=": onCommand?(.opacity(0.1))
         case "-", "_": onCommand?(.opacity(-0.1))
@@ -360,8 +402,10 @@ private final class PinView: NSView {
         }
         return true
     }
+    @objc func copy(_ sender: Any?) { onCommand?(.copy) }
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 53 { onCommand?(.close); return }
+        if event.keyCode == 36 || event.keyCode == 76 { onCommand?(.copy); return }
         if event.modifierFlags.contains(.command) {
             if !performKeyEquivalent(with: event) { super.keyDown(with: event) }
             return

@@ -23,7 +23,8 @@ private final class UpdatePanelButton: MinimalButton {
 }
 
 @MainActor
-private final class UpdatePanelContent: NSView {
+private final class UpdatePanelContent: SketchSurface {
+    let header = SketchWindowHeader(frame: .zero)
     let titleLabel = NSTextField(labelWithString: "")
     let detailLabel = NSTextField(wrappingLabelWithString: "")
     let progress = NSProgressIndicator()
@@ -34,6 +35,9 @@ private final class UpdatePanelContent: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        header.compact = true; header.title = ""; addSubview(header)
+        header.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([header.topAnchor.constraint(equalTo: topAnchor), header.leadingAnchor.constraint(equalTo: leadingAnchor), header.trailingAnchor.constraint(equalTo: trailingAnchor), header.heightAnchor.constraint(equalToConstant: 32)])
         wantsLayer = true
         layer?.cornerRadius = 14
         layer?.masksToBounds = true
@@ -143,9 +147,9 @@ private final class UpdatePanelContent: NSView {
 
     func updateAppearance() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+            layer?.backgroundColor = SketchPalette.paper.cgColor
             iconPlate.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.035).cgColor
-            titleLabel.textColor = .labelColor
+            titleLabel.textColor = SketchPalette.ink
         }
     }
 }
@@ -162,6 +166,10 @@ final class UpdatePanel: NSWindowController, NSWindowDelegate {
         let panel = UpdateFloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 340, height: 210),
             styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         panel.setFrame(NSRect(x: 0, y: 0, width: 340, height: 210), display: false)
+        panel.appearance = NSAppearance(named: .aqua)
+        for kind: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
+            panel.standardWindowButton(kind)?.isHidden = true
+        }
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
         panel.isMovableByWindowBackground = true
@@ -197,6 +205,7 @@ final class UpdatePanel: NSWindowController, NSWindowDelegate {
         configure(content.secondary, title: secondaryTitle, enabled: secondaryAction != nil)
         content.buttons.isHidden = content.primary.isHidden && content.secondary.isHidden
         window.standardWindowButton(.closeButton)?.isEnabled = onClose != nil
+        content.header.refreshActions()
         setProgress(progress)
         content.updateAppearance()
         content.layoutSubtreeIfNeeded()
@@ -239,6 +248,7 @@ final class UpdatePanel: NSWindowController, NSWindowDelegate {
         secondaryAction = nil
         closeAction = nil
         window?.standardWindowButton(.closeButton)?.isEnabled = false
+        content.header.refreshActions()
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {

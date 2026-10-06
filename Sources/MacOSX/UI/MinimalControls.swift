@@ -61,20 +61,20 @@ class MinimalButton: NSButton {
         let fill: NSColor
         switch style {
         case .primary:
-            fill = isEnabled ? .labelColor.withAlphaComponent(pressed ? 0.76 : active ? 0.88 : 1) : .labelColor.withAlphaComponent(0.08)
+            fill = SketchPalette.yellow.withAlphaComponent(isEnabled ? (pressed ? 0.44 : active ? 0.36 : 0.27) : 0.08)
         case .standard:
-            fill = .labelColor.withAlphaComponent(pressed ? 0.12 : selected ? (isEnabled ? 0.085 : 0.05) : active ? 0.075 : 0.035)
+            fill = SketchPalette.paper
         case .quiet:
-            fill = .labelColor.withAlphaComponent(pressed ? 0.14 : selected ? (isEnabled ? 0.10 : 0.05) : active ? 0.055 : 0)
+            fill = SketchPalette.yellow.withAlphaComponent(pressed ? 0.2 : selected ? 0.14 : active ? 0.09 : 0)
         }
         MinimalSurface.draw(in: bounds, fill: fill,
-            border: style == .quiet ? nil : .labelColor.withAlphaComponent(isEnabled ? 0.12 : 0.06))
+            border: style == .quiet ? nil : SketchPalette.line.withAlphaComponent(isEnabled ? 1 : 0.4))
         super.draw(dirtyRect)
         MinimalSurface.drawFocus(for: self)
     }
 
     private func updateTint() {
-        contentTintColor = !isEnabled ? .disabledControlTextColor : style == .primary ? .windowBackgroundColor : .labelColor
+        contentTintColor = !isEnabled ? .disabledControlTextColor : SketchPalette.ink
         needsDisplay = true
     }
 }
@@ -101,12 +101,12 @@ final class MinimalToggle: MinimalButton {
         let on = state != .off
         let pressed = isEnabled && cell?.isHighlighted == true
         let track = NSRect(x: 1, y: (bounds.height - 18) / 2, width: 32, height: 18)
-        let fill: NSColor = on && isEnabled ? .labelColor : .labelColor.withAlphaComponent(isEnabled ? 0.10 : 0.05)
+        let fill: NSColor = on && isEnabled ? SketchPalette.green.withAlphaComponent(0.66) : SketchPalette.line.withAlphaComponent(isEnabled ? 0.12 : 0.05)
         let path = NSBezierPath(roundedRect: track, xRadius: 9, yRadius: 9)
         fill.withAlphaComponent(pressed && on ? 0.78 : fill.alphaComponent).setFill(); path.fill()
         NSColor.labelColor.withAlphaComponent(isEnabled && hovered && window?.isKeyWindow == true ? 0.30 : 0.14).setStroke()
-        path.lineWidth = 1; path.stroke()
-        let knobColor: NSColor = !isEnabled ? .disabledControlTextColor : on ? .windowBackgroundColor : .labelColor.withAlphaComponent(0.55)
+        SketchPencil.stroke(path, color: SketchPalette.line, width: 0.85)
+        let knobColor: NSColor = !isEnabled ? .disabledControlTextColor : on ? SketchPalette.paper : SketchPalette.muted
         knobColor.setFill()
         if state == .mixed {
             NSBezierPath(roundedRect: NSRect(x: track.midX - 5, y: track.midY - 1, width: 10, height: 2), xRadius: 1, yRadius: 1).fill()
@@ -138,7 +138,7 @@ final class MinimalPopUpButton: NSPopUpButton {
         bezelStyle = .regularSquare
         focusRingType = .none
         font = .systemFont(ofSize: 12)
-        contentTintColor = .labelColor
+        contentTintColor = SketchPalette.ink
     }
     convenience init() { self.init(frame: .zero, pullsDown: false) }
     required init?(coder: NSCoder) { nil }
@@ -147,7 +147,7 @@ final class MinimalPopUpButton: NSPopUpButton {
         isEnabled && !isHiddenOrHasHiddenAncestor && window?.canBecomeKey == true
     }
     override var isEnabled: Bool {
-        didSet { contentTintColor = isEnabled ? .labelColor : .disabledControlTextColor; needsDisplay = true }
+        didSet { contentTintColor = isEnabled ? SketchPalette.ink : .disabledControlTextColor; needsDisplay = true }
     }
     override var intrinsicContentSize: NSSize {
         let native = super.intrinsicContentSize
@@ -172,9 +172,8 @@ final class MinimalPopUpButton: NSPopUpButton {
     override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
     override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
     override func draw(_ dirtyRect: NSRect) {
-        let pressed = isEnabled && cell?.isHighlighted == true
-        MinimalSurface.draw(in: bounds, fill: .labelColor.withAlphaComponent(pressed ? 0.12 : isEnabled && hovered && window?.isKeyWindow == true ? 0.075 : 0.035),
-            border: .labelColor.withAlphaComponent(isEnabled ? 0.12 : 0.06))
+        MinimalSurface.draw(in: bounds, fill: SketchPalette.paper,
+            border: SketchPalette.line.withAlphaComponent(isEnabled ? 0.8 : 0.35))
         super.draw(dirtyRect)
         MinimalSurface.drawFocus(for: self)
     }
@@ -184,18 +183,18 @@ final class MinimalPopUpButton: NSPopUpButton {
 private enum MinimalSurface {
     static func draw(in bounds: NSRect, fill: NSColor, border: NSColor?) {
         guard bounds.width.isFinite, bounds.height.isFinite, bounds.width > 2, bounds.height > 2 else { return }
-        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 8, yRadius: 8)
-        fill.setFill(); path.fill()
-        if let border { border.setStroke(); path.lineWidth = 1; path.stroke() }
+        let path = SketchPencil.outline(in: bounds.insetBy(dx: 1.5, dy: 1.5), radius: 7)
+        SketchPalette.fill(path, color: fill)
+        if let border { SketchPencil.stroke(path, color: border, width: 0.9) }
     }
     static func drawFocus(for view: NSView) {
         let bounds = view.bounds
         guard bounds.width.isFinite, bounds.height.isFinite, bounds.width > 2, bounds.height > 2 else { return }
         guard view.window?.isKeyWindow == true, view.window?.firstResponder === view,
               (view as? NSControl)?.isEnabled != false else { return }
-        NSColor.labelColor.withAlphaComponent(0.65).setStroke()
+        SketchPalette.yellow.setStroke()
         let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 8, yRadius: 8)
-        path.lineWidth = 1.5; path.stroke()
+        SketchPencil.stroke(path, color: SketchPalette.yellow, width: 1.5)
     }
 }
 
