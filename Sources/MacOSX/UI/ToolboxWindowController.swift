@@ -192,6 +192,8 @@ final class ToolboxWindowController: NSWindowController {
         case home, catalog, settings(Tool)
     }
 
+    func setUpdateAvailable(_ available: Bool) { content.header.setUpdateAvailable(available) }
+
     private let added = AddedTools()
     private let content = ToolboxContent(frame: NSRect(x: 0, y: 0, width: 960, height: 640))
     private var page: Page = .home

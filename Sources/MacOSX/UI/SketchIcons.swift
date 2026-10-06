@@ -105,7 +105,7 @@ final class SketchWindowHeader: SketchSurface {
         expand.target = self; expand.action = #selector(expandWindow)
         back.image = SketchIcons.image(.back, size: 18); back.imagePosition = .imageOnly
         back.target = self; back.action = #selector(goBack); back.toolTip = "返回首页"; back.setAccessibilityLabel("返回首页")
-        update.style = .primary
+        update.style = .icon
         update.image = SketchIcons.image(.update, size: 28); update.imagePosition = .imageOnly
         update.target = self; update.action = #selector(checkUpdates); update.toolTip = "检查更新"; update.setAccessibilityLabel("检查更新")
         back.isHidden = true
@@ -141,6 +141,13 @@ final class SketchWindowHeader: SketchSurface {
     @objc private func minimizeWindow() { window?.performMiniaturize(nil) }
     @objc private func expandWindow() { window?.toggleFullScreen(nil) }
     @objc private func goBack() { onBack?() }
+    func setUpdateAvailable(_ available: Bool) {
+        let style: MinimalButton.Style = available ? .primary : .icon
+        guard update.style != style else { return }
+        update.style = style
+        let label = available ? "有新版本 · 点击更新" : "检查更新"
+        update.toolTip = label; update.setAccessibilityLabel(label)
+    }
     @objc private func checkUpdates() { onUpdate?() }
 
     private final class WindowControl: NSButton {

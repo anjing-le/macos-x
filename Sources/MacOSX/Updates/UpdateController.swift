@@ -5,12 +5,18 @@ import Sparkle
 /// Sparkle owns scheduling, verification and installation; our driver owns presentation.
 /// An unconfigured development executable never starts network update checks.
 @MainActor
-final class UpdateController: NSObject {
+final class UpdateController: NSObject, SPUUpdaterDelegate {
     private let logger = Logger(subsystem: "cc.anjing.macos-x", category: "updates")
     private var updater: SPUUpdater?
+    private let driver = UpdateUserDriver()
+    private(set) var hasAvailableUpdate = false
+    var onAvailabilityChanged: ((Bool) -> Void)?
 
     override init() {
         super.init()
+        driver.onAvailabilityChanged = { [weak self] available in
+            self?.setAvailable(available)
+        }
     }
 
     var canCheckForUpdates: Bool {
@@ -37,14 +43,29 @@ final class UpdateController: NSObject {
             return
         }
         let created = SPUUpdater(hostBundle: .main, applicationBundle: .main,
-                                 userDriver: UpdateUserDriver(), delegate: nil)
+                                 userDriver: driver, delegate: self)
         do {
             try created.start()
             updater = created
+            // Only at startup: reuse Sparkle's single session and scheduler.
+            // Its stored preferences remain authoritative; never override them on launch.
+            if created.automaticallyChecksForUpdates,
+               created.lastUpdateCheckDate.map({ Date().timeIntervalSince($0) >= max(3600, created.updateCheckInterval) }) ?? true {
+                created.checkForUpdatesInBackground()
+            }
         } catch {
             logger.error("Unable to start the updater: \(error.localizedDescription)")
         }
     }
+
+    private func setAvailable(_ available: Bool) {
+        guard hasAvailableUpdate != available else { return }
+        hasAvailableUpdate = available
+        onAvailabilityChanged?(available)
+    }
+
+    // Scheduled "no update" results may not be sent to the user driver.
+    func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) { setAvailable(false) }
 
     @objc func checkForUpdates(_ sender: Any?) {
         guard canCheckForUpdates else { return }

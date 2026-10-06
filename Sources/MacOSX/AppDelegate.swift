@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
+        updates.onAvailabilityChanged = { [weak self] available in self?.client?.setUpdateAvailable(available) }
         updates.start()
         showClient()
     }
@@ -34,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 canCheckUpdates: { [weak self] in self?.updates.canCheckForUpdates ?? false }
             )
         }
+        client?.setUpdateAvailable(updates.hasAvailableUpdate)
         client?.present()
     }
 

@@ -23,5 +23,7 @@ jobs:
         run: zsh tools/run-switcher-regression.sh
       - name: Check same-process window thread routing and cancellation
         run: zsh tools/run-local-window-regression.sh
+      - name: Check quiet update reminders and manual installation choices
+        run: zsh tools/run-update-presentation-regression.sh
       - name: Build a development app with OTA explicitly disabled
         run: scripts/build.sh --disable-updates

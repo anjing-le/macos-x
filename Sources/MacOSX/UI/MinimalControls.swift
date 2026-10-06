@@ -3,7 +3,7 @@ import AppKit
 /// Neutral surfaces; AppKit still owns tracking, actions, keyboard activation and accessibility.
 @MainActor
 class MinimalButton: NSButton {
-    enum Style { case standard, primary, quiet }
+    enum Style { case standard, primary, quiet, icon }
     var style: Style = .standard { didSet { updateTint() } }
     fileprivate var hovered = false
     private var hoverArea: NSTrackingArea?
@@ -64,11 +64,13 @@ class MinimalButton: NSButton {
             fill = SketchPalette.yellow.withAlphaComponent(isEnabled ? (pressed ? 0.86 : active ? 0.74 : 0.62) : 0.08)
         case .standard:
             fill = SketchPalette.paper
+        case .icon:
+            fill = SketchPalette.ink.withAlphaComponent(pressed ? 0.08 : active ? 0.04 : 0)
         case .quiet:
             fill = SketchPalette.yellow.withAlphaComponent(pressed ? 0.2 : selected ? 0.14 : active ? 0.09 : 0)
         }
         MinimalSurface.draw(in: bounds, fill: fill,
-            border: style == .quiet ? nil : SketchPalette.line.withAlphaComponent(isEnabled ? 1 : 0.4))
+            border: style == .quiet || style == .icon ? nil : SketchPalette.line.withAlphaComponent(isEnabled ? 1 : 0.4))
         super.draw(dirtyRect)
         MinimalSurface.drawFocus(for: self)
     }

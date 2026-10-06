@@ -6,6 +6,8 @@ import Sparkle
 final class UpdateUserDriver: NSObject, SPUUserDriver {
     private enum Phase { case idle, checking, choosing, downloading, extracting, installing }
     private var phase: Phase = .idle
+    private var userInitiatedSession = false
+    var onAvailabilityChanged: ((Bool) -> Void)?
     private var panel: UpdatePanel?
     private var response: ((Bool) -> Void)?
     private var screen: UInt64 = 0
@@ -23,12 +25,17 @@ final class UpdateUserDriver: NSObject, SPUUserDriver {
     }
 
     func showUserInitiatedUpdateCheck(cancellation: @escaping () -> Void) {
+        userInitiatedSession = true
         phase = .checking
         prompt(title: "检查更新", progress: .indeterminate, secondary: "取消") { _ in cancellation() }
     }
 
     func showUpdateFound(with appcastItem: SUAppcastItem, state: SPUUserUpdateState,
                          reply: @escaping (SPUUserUpdateChoice) -> Void) {
+        onAvailabilityChanged?(true)
+        userInitiatedSession = state.userInitiated
+        // A scheduled check only signals availability. No dialog, download or installation.
+        guard state.userInitiated else { phase = .idle; reply(.dismiss); return }
         phase = .choosing
         targetVersion = String(appcastItem.displayVersionString.prefix(40))
         let versions = currentVersion.isEmpty ? targetVersion : "\(currentVersion) → \(targetVersion)"
@@ -53,9 +60,11 @@ final class UpdateUserDriver: NSObject, SPUUserDriver {
     func showUpdateReleaseNotesFailedToDownloadWithError(_ error: Error) {}
 
     func showUpdateNotFoundWithError(_ error: Error, acknowledgement: @escaping () -> Void) {
-        phase = .choosing
         let nsError = error as NSError
         let reason = (nsError.userInfo[SPUNoUpdateFoundReasonKey] as? NSNumber)?.int32Value
+        if reason != nil { onAvailabilityChanged?(false) }
+        guard userInitiatedSession else { acknowledgement(); return }
+        phase = .choosing
         let title: String
         let detail: String?
         switch reason {
@@ -80,6 +89,7 @@ final class UpdateUserDriver: NSObject, SPUUserDriver {
     }
 
     func showUpdaterError(_ error: Error, acknowledgement: @escaping () -> Void) {
+        guard userInitiatedSession else { acknowledgement(); return }
         phase = .choosing
         let nsError = error as NSError
         let detail = nsError.domain == NSURLErrorDomain
@@ -146,6 +156,7 @@ final class UpdateUserDriver: NSObject, SPUUserDriver {
     }
 
     func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) {
+        onAvailabilityChanged?(false)
         phase = .choosing
         // The old application bundle may no longer exist. Do not access it here.
         prompt(title: "更新完成", primary: "好") { _ in acknowledgement() }
@@ -153,6 +164,7 @@ final class UpdateUserDriver: NSObject, SPUUserDriver {
 
     func dismissUpdateInstallation() {
         phase = .idle
+        userInitiatedSession = false
         clearResponse()
         expectedBytes = 0
         receivedBytes = 0
