@@ -2,6 +2,26 @@ import XCTest
 @testable import MacOSXCore
 
 final class SwitcherLayoutTests: XCTestCase {
+    func testAllModeKeepsEveryWindowAndBoundsVisibleThumbnails() {
+        for size in [CGSize(width: 320, height: 240), CGSize(width: 1440, height: 900), CGSize(width: 6016, height: 3384)] {
+            for count in [1, 9, 11, 256, Int.max] {
+                let layout = SwitcherLayout(windowCount: count, available: size, presentation: .all)
+                let document = layout.pageSize(visibleCount: count)
+                XCTAssertEqual(layout.capacity, min(256, count))
+                XCTAssertEqual(layout.pageStart(selectedIndex: 255), 0)
+                XCTAssertLessThanOrEqual(layout.size.width, size.width)
+                XCTAssertLessThanOrEqual(layout.size.height, size.height)
+                let last = layout.card(at: layout.capacity - 1)
+                XCTAssertLessThanOrEqual(last.maxY, document.height - 22)
+                let height = layout.size.height - 38
+                for row in 0..<(layout.capacity + layout.columns - 1) / layout.columns {
+                    let y = min(max(0, document.height - 38 - height), CGFloat(row) * (layout.cardSize.height + layout.gap))
+                    let indices = layout.visibleIndices(in: CGRect(x: 0, y: y, width: layout.size.width, height: height), count: count)
+                    XCTAssertLessThanOrEqual(indices.count, 16)
+                }
+            }
+        }
+    }
     func testVerticalNavigationPreservesColumnWithIncompleteLastRow() {
         var selection = SwitcherSelection(windowIDs: Array(1...11), initialOffset: 1)
         selection.moveVertically(direction: -1, columns: 4)

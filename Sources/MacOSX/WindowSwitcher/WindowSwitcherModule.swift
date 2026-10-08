@@ -8,6 +8,7 @@ import os
     var onPreviewSettingsChanged: (() -> Void)?
     private let logger = Logger(subsystem: "cc.anjing.macos-x", category: "window-switcher")
     private let defaults: UserDefaults
+    var presentation: SwitcherPresentation { SwitcherPresentation(rawValue: defaults.string(forKey: "switcher.presentation") ?? "twoRows") ?? .twoRows }
     var thumbnailsEnabled: Bool { defaults.object(forKey: "switcher.thumbnails") as? Bool ?? true }
     private(set) var hasConfirmedThumbnailAccess = false
     private(set) var thumbnailPermissionDenied = false
@@ -76,7 +77,15 @@ import os
         let thumbnailLabel = NSTextField(labelWithString: "窗口缩略图")
         thumbnailLabel.font = SketchPalette.heading(16); thumbnailLabel.textColor = .secondaryLabelColor
         let row = NSStackView(views: [thumbnailLabel, thumbnailToggle]); row.spacing = 14
-        let stack = NSStackView(views: [row, preview, label])
+        let mode = MinimalPopUpButton()
+        mode.addItems(withTitles: ["两行 · 分页", "全部 · 滚动"])
+        mode.selectItem(at: presentation == .all ? 1 : 0)
+        mode.target = self; mode.action = #selector(changePresentation(_:))
+        mode.setAccessibilityLabel("窗口展示方式")
+        let modeLabel = NSTextField(labelWithString: "展示方式")
+        modeLabel.font = SketchPalette.heading(16)
+        let modeRow = NSStackView(views: [modeLabel, mode]); modeRow.spacing = 14
+        let stack = NSStackView(views: [modeRow, row, preview, label])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 10
         settings = stack; statusLabel = label; previewButton = preview
         return stack
@@ -246,14 +255,22 @@ import os
                 self?.logger.notice("panel keyboard cancellation")
                 self?.cancel()
             }
+            created.onViewportChanged = { [weak self] in self?.requestVisibleThumbnails() }
             panel = created
         }
         panel?.show(windows: sessionWindows, selectedID: session?.selectedWindowID,
-                    thumbnails: thumbnailImages, preview: sessionKind == .preview)
+                    thumbnails: thumbnailImages, preview: sessionKind == .preview, presentation: presentation)
         requestVisibleThumbnails()
     }
 
     func retryThumbnailPermission() { thumbnailPermissionDenied = false; thumbnailPage.removeAll() }
+
+    @objc private func changePresentation(_ sender: NSPopUpButton) {
+        defaults.set(sender.indexOfSelectedItem == 1 ? "all" : "twoRows", forKey: "switcher.presentation")
+        thumbnailTicket?.cancel(); thumbnailTicket = nil; thumbnailPage.removeAll()
+        if session != nil { enqueueRender() }
+        onPreviewSettingsChanged?()
+    }
 
     @objc private func changeThumbnails(_ sender: NSButton) {
         defaults.set(sender.state == .on, forKey: "switcher.thumbnails")

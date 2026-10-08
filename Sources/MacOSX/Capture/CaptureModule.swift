@@ -84,7 +84,7 @@ final class CaptureModule: NSObject {
         let timing = CaptureTiming()
         let screens = screenDescriptors()
         setStatus("正在截图…")
-        captureTicket = images.capture(screens) { [weak self] result in
+        captureTicket = images.capture(screens, ownWindowIDs: CaptureImageService.localWindowIDs()) { [weak self] result in
             MainActor.assumeIsolated {
                 guard let self, self.running, self.generation == expected, self.captureRevision == captureRevision else { return }
                 switch result {
@@ -272,7 +272,7 @@ final class CaptureModule: NSObject {
         recordingState = .choosing; recordingRevision &+= 1
         let expected = generation, revision = recordingRevision
         setStatus("选择录屏区域 · Esc 取消")
-        captureTicket = images.capture([screen]) { [weak self] result in
+        captureTicket = images.capture([screen], ownWindowIDs: CaptureImageService.localWindowIDs()) { [weak self] result in
             MainActor.assumeIsolated {
                 guard let self, self.running, !self.terminating, self.generation == expected,
                       self.recordingRevision == revision, self.recordingState == .choosing else { return }
@@ -424,7 +424,10 @@ final class CaptureModule: NSObject {
         status.isHidden = ["未启用", "已就绪", "已停用", "录屏中", "已保存录屏"].contains(status.stringValue)
         let outline = MinimalToggle(title: "贴图白光边缘", target: self, action: #selector(setPinOutline(_:)))
         outline.state = pins.showsOutline ? .on : .off
-        let stack = NSStackView(views: [outline, recordingPresentation.settingsView, status])
+        let hint = NSTextField(wrappingLabelWithString: "开启后，贴图显示白色柔光边缘；复制与保存不带边缘。选中贴图后，空格切换编辑状态。")
+        hint.font = .systemFont(ofSize: 12); hint.textColor = .secondaryLabelColor
+        hint.preferredMaxLayoutWidth = 600
+        let stack = NSStackView(views: [outline, hint, recordingPresentation.settingsView, status])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 14
         return stack
     }

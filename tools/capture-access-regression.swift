@@ -229,6 +229,16 @@ private struct CheckFailure: Error { let message: String }
     }
     static func main() async {
         do {
+            let ownPID = ProcessInfo.processInfo.processIdentifier
+            var metadata: [String: Any] = [kCGWindowLayer as String: NSNumber(value: 0),
+                kCGWindowOwnerPID as String: NSNumber(value: ownPID), kCGWindowNumber as String: NSNumber(value: 42),
+                kCGWindowBounds as String: CGRect(x: 10, y: 20, width: 300, height: 200).dictionaryRepresentation]
+            try require(CaptureImageService.windowTarget(metadata, primaryTop: 900, ownPID: ownPID, ownWindowIDs: [42])?.frame == CGRect(x: 10, y: 680, width: 300, height: 200), "own main window must snap with stable ID and AppKit coordinates")
+            try require(CaptureImageService.windowTarget(metadata, primaryTop: 900, ownPID: ownPID, ownWindowIDs: []) == nil, "own panels remain excluded")
+            metadata[kCGWindowOwnerPID as String] = NSNumber(value: ownPID + 1)
+            try require(CaptureImageService.windowTarget(metadata, primaryTop: 900, ownPID: ownPID, ownWindowIDs: [])?.id == 42, "other app window remains eligible")
+            metadata[kCGWindowLayer as String] = NSNumber(value: 3)
+            try require(CaptureImageService.windowTarget(metadata, primaryTop: 900, ownPID: ownPID, ownWindowIDs: [42]) == nil, "floating layer must not snap")
             let image = fixture()
             let refusal = NSError(domain: SCStreamErrorDomain, code: -3801)
             let unrelated = NSError(domain: SCStreamErrorDomain, code: -3811)

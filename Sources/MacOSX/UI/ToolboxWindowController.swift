@@ -288,7 +288,7 @@ final class ToolboxWindowController: NSWindowController {
         navigate(.settings(tool), title: tool.title)
         let header = ModuleSettingsHeader(tool: tool, module: modules)
         settingsHeader = header
-        var views: [NSView] = [header]
+        var views: [NSView] = [header, SettingsGuideView(kind: tool.rawValue)]
         switch tool {
         case .kaomoji: views.append(modules.shortcutPicker(.wheel))
         case .capture:

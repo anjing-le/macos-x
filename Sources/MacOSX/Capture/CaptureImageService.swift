@@ -71,6 +71,7 @@ final class CaptureImageService {
         let timing: CaptureTiming
         let screens: [CaptureScreen]
         let window: CaptureWindow?
+        let ownWindowIDs: Set<CGWindowID>
         let ticket: Ticket
         let completion: (Result<[CaptureFrame], Error>) -> Void
     }
@@ -82,12 +83,12 @@ final class CaptureImageService {
     private let lock = NSLock()
 
     @discardableResult
-    func capture(_ screens: [CaptureScreen], window: CaptureWindow? = nil, completion: @escaping (Result<[CaptureFrame], Error>) -> Void) -> Ticket {
+    func capture(_ screens: [CaptureScreen], window: CaptureWindow? = nil, ownWindowIDs: Set<CGWindowID> = [], completion: @escaping (Result<[CaptureFrame], Error>) -> Void) -> Ticket {
         let ticket = Ticket()
         let timing = CaptureTiming()
         lock.lock(); latest?.cancel(); latest = ticket; lock.unlock()
         queue.async { [self] in
-            pending = Request(timing: timing, screens: screens, window: window, ticket: ticket, completion: completion)
+            pending = Request(timing: timing, screens: screens, window: window, ownWindowIDs: ownWindowIDs, ticket: ticket, completion: completion)
             beginNext()
         }
         return ticket
@@ -118,7 +119,7 @@ final class CaptureImageService {
                 let totalPixels = request.screens.reduce(CGFloat(0)) { $0 + $1.frame.width * $1.frame.height * $1.scale * $1.scale }
                 let reduction = min(1, sqrt(32_000_000 / max(1, totalPixels)))
                 let metadataTiming = CaptureTiming()
-                let windows = Self.windowRegions(primaryTop: request.screens.first?.frame.maxY ?? 0)
+                let windows = Self.windowRegions(primaryTop: request.screens.first?.frame.maxY ?? 0, ownWindowIDs: request.ownWindowIDs)
                 metadataTiming.record("window-metadata")
                 self.captureDisplay(request, displays: content.displays, windows: windows,
                                     index: 0, reduction: reduction, frames: [])
@@ -194,19 +195,33 @@ final class CaptureImageService {
     }
 
     /// One ordered metadata snapshot per user capture, never an idle scan or AX query.
-    private static func windowRegions(primaryTop: CGFloat) -> [CaptureWindow] {
+    private static func windowRegions(primaryTop: CGFloat, ownWindowIDs: Set<CGWindowID>) -> [CaptureWindow] {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
                                                    kCGNullWindowID) as? [[String: Any]] else { return [] }
-        let ownPID = ProcessInfo.processInfo.processIdentifier
-        return list.prefix(256).compactMap { item in
-            guard (item[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
-                  (item[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value != ownPID,
-                  let id = (item[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
-                  let bounds = item[kCGWindowBounds as String] as? [String: Any],
-                  let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary),
-                  rect.width > 1, rect.height > 1 else { return nil }
-            return CaptureWindow(id: id, frame: CGRect(x: rect.minX, y: primaryTop - rect.maxY, width: rect.width, height: rect.height))
+        return list.prefix(256).compactMap {
+            windowTarget($0, primaryTop: primaryTop, ownPID: ProcessInfo.processInfo.processIdentifier, ownWindowIDs: ownWindowIDs)
         }
+    }
+
+    /// Own main/settings windows are opted in by main-thread AppKit metadata.
+    /// Panels, pins and screenshot surfaces remain excluded, with no AX query.
+    @MainActor static func localWindowIDs() -> Set<CGWindowID> {
+        Set((NSApp?.windows ?? []).filter {
+            $0.isVisible && !$0.isMiniaturized && $0.level == .normal && !($0 is NSPanel)
+                && $0.styleMask.contains(.titled) && $0.windowNumber > 0
+        }.map { CGWindowID($0.windowNumber) })
+    }
+
+    static func windowTarget(_ item: [String: Any], primaryTop: CGFloat, ownPID: pid_t,
+                             ownWindowIDs: Set<CGWindowID>) -> CaptureWindow? {
+        guard (item[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
+              let pid = (item[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
+              let id = (item[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
+              pid != ownPID || ownWindowIDs.contains(id),
+              let bounds = item[kCGWindowBounds as String] as? [String: Any],
+              let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary),
+              rect.width > 1, rect.height > 1 else { return nil }
+        return CaptureWindow(id: id, frame: CGRect(x: rect.minX, y: primaryTop - rect.maxY, width: rect.width, height: rect.height))
     }
 
     private func finish(_ request: Request, _ result: Result<[CaptureFrame], Error>) {
