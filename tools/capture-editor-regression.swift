@@ -24,6 +24,49 @@ import AppKit
         precondition(states.last == true, "Arrow also locks selection while drawing")
         precondition(editor.handleSelectionKey(key(53, "\u{1b}")))
         precondition(states.last == false && editor.window.ignoresMouseEvents, "Leaving annotation restores draggable selection rather than closing")
+        let canvas = editor.window.contentView as! CaptureCanvas
+        func wheel(_ delta: Int32) -> NSEvent {
+            NSEvent(cgEvent: CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: delta, wheel2: 0, wheel3: 0)!)!
+        }
+        precondition(!editor.handleThicknessScroll(wheel(1)) && canvas.lineWidth == 3, "Idle selection must not consume wheel")
+        precondition(editor.handleSelectionKey(key(20, "3")))
+        precondition(editor.handleThicknessScroll(wheel(1)) && canvas.lineWidth == 4, "One wheel notch increases stroke width")
+        precondition(editor.handleThicknessScroll(wheel(-1)) && canvas.lineWidth == 3, "Opposite wheel notch decreases stroke width")
+        func preciseWheel(_ delta: Int32, momentum: Bool = false) -> NSEvent {
+            let value = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: delta, wheel2: 0, wheel3: 0)!
+            value.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+            value.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: Int64(delta))
+            if momentum { value.setIntegerValueField(.scrollWheelEventMomentumPhase, value: 2) }
+            return NSEvent(cgEvent: value)!
+        }
+        precondition(preciseWheel(3).hasPreciseScrollingDeltas)
+        _ = editor.handleThicknessScroll(preciseWheel(3))
+        _ = editor.handleThicknessScroll(preciseWheel(3))
+        precondition(canvas.lineWidth == 3, "Small touchpad movement does not jump stroke width")
+        _ = editor.handleThicknessScroll(preciseWheel(2))
+        precondition(canvas.lineWidth == 4, "Touchpad movement accumulates to one controlled step")
+        _ = editor.handleThicknessScroll(preciseWheel(80, momentum: true))
+        precondition(canvas.lineWidth == 4, "Momentum cannot change stroke width")
+        for _ in 0..<30 { _ = editor.handleThicknessScroll(wheel(1)) }
+        precondition(canvas.lineWidth == 12, "Stroke width upper bound")
+        for _ in 0..<30 { _ = editor.handleThicknessScroll(wheel(-1)) }
+        precondition(canvas.lineWidth == 1 && !editor.window.isVisible, "Stroke width lower bound without presenting windows")
+        precondition(editor.handleSelectionKey(key(21, "4")))
+        precondition(!editor.handleThicknessScroll(wheel(1)), "Text tool must not accidentally change font size")
+        precondition(editor.handleSelectionKey(key(53, "\u{1b}")))
+        let palette = CaptureColorPalette(colors: [SketchPalette.ink, SketchPalette.coral, SketchPalette.orange, SketchPalette.yellow, SketchPalette.green, SketchPalette.blue, SketchPalette.purple, .white], selected: SketchPalette.coral, target: editor, action: NSSelectorFromString("copy:"))
+        precondition(palette.subviews.count == 8, "All eight preset colours remain directly selectable")
+        if let output = ProcessInfo.processInfo.environment["MACOSX_PALETTE_PREVIEW"] {
+            NSApp.appearance = NSAppearance(named: .aqua)
+            let host = CaptureToolbarSurface(frame: CGRect(x: 0, y: 0, width: 290, height: 170))
+            palette.frame.origin = CGPoint(x: 62, y: 8); host.addSubview(palette)
+            let button = CaptureToolButton(.color, title: "调色盘", target: editor, action: NSSelectorFromString("copy:"))
+            button.frame = CGRect(x: 12, y: 72, width: 34, height: 34); host.addSubview(button)
+            if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+                try! bitmap.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: output))
+            }
+        }
         let before = editor.selectionFrame
         editor.beginRegionAdjustment(); editor.beginRegionAdjustment()
         precondition(!editor.handleSelectionKey(key(18, "1")), "Pending crop cannot start a drawing tool")

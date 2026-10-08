@@ -31,6 +31,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     private var colorButton: CaptureToolButton!
     private var recognitionButton: CaptureToolButton!
     private var colorPopover: NSPopover?
+    private var wheelRemainder: CGFloat = 0
     private var recognition: VNRecognizeTextRequest?
     private let editingPin: Bool
     var onApply: ((CGImage) -> Void)?
@@ -122,11 +123,11 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         NSApp.activate(ignoringOtherApps: true)
         updateSelectionInput()
         if localMonitor == nil {
-            localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .scrollWheel]) { [weak self] event in
                 let handled = MainActor.assumeIsolated {
                     guard let self, !self.closed, self.window.attachedSheet == nil,
                           event.window === self.window || event.window === self.toolbar else { return false }
-                    return self.handleSelectionKey(event)
+                    return event.type == .scrollWheel ? self.handleThicknessScroll(event) : self.handleSelectionKey(event)
                 }
                 return handled ? nil : event
             }
@@ -179,13 +180,36 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
                 case "6": copyRecognizedText()
                 case "7": showColors()
                 case "e": selectTool(.eraser)
-                case "[": canvas.lineWidth = max(1, canvas.lineWidth - 1)
-                case "]": canvas.lineWidth = min(12, canvas.lineWidth + 1)
+                case "[": adjustLineWidth(by: -1)
+                case "]": adjustLineWidth(by: 1)
                 default: return false
                 }
             }
         }
         return true
+    }
+    /// Only the active drawing tool consumes wheel input. No global listener or idle timer.
+    func handleThicknessScroll(_ event: NSEvent) -> Bool {
+        guard !closed, !exporting, !adjustingRegion, textInput == nil,
+              let tool = canvas.tool, [.rectangle, .ellipse, .arrow, .pen, .highlighter].contains(tool),
+              event.momentumPhase.isEmpty else { return false }
+        if event.phase.contains(.began) { wheelRemainder = 0 }
+        let delta = event.scrollingDeltaY * (event.isDirectionInvertedFromDevice ? -1 : 1)
+        if event.hasPreciseScrollingDeltas {
+            wheelRemainder = max(-96, min(96, wheelRemainder + delta))
+            let steps = Int(max(-12, min(12, wheelRemainder / 8)))
+            if steps != 0 { wheelRemainder -= CGFloat(steps) * 8; adjustLineWidth(by: steps) }
+            if event.phase.contains(.ended) || event.phase.contains(.cancelled) { wheelRemainder = 0 }
+        } else if delta != 0 { adjustLineWidth(by: delta > 0 ? 1 : -1) }
+        return true
+    }
+    private func adjustLineWidth(by steps: Int) {
+        let width = max(1, min(12, canvas.lineWidth + CGFloat(steps)))
+        guard width != canvas.lineWidth else { return }
+        canvas.lineWidth = width
+        status.stringValue = "粗细 \(Int(width)) · 滚轮调节"; status.isHidden = false
+        toolButtons.forEach { $0.setAccessibilityValue("粗细 \(Int(width))") }
+        if window.isVisible { positionToolbar() }
     }
     func copyCurrentImage() { guard !adjustingRegion else { return }; copyImage(closeAfter: !editingPin) }
     func beginRegionAdjustment() {
@@ -250,8 +274,11 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     }
     @objc private func reselect() { guard !exporting else { return }; onReselect?() }
     private func selectTool(_ tool: CaptureTool) {
-        finishText(commit: true); canvas.cancelDraft()
+        finishText(commit: true); canvas.cancelDraft(); wheelRemainder = 0
         canvas.tool = canvas.tool == tool ? nil : tool
+        if status.stringValue.hasPrefix("粗细 "), canvas.tool == nil || canvas.tool == .text || canvas.tool == .mosaic || canvas.tool == .blur || canvas.tool == .eraser {
+            status.stringValue = ""; status.isHidden = true
+        }
         updateToolButtons(); updateSelectionInput()
         if editingPin { window.makeFirstResponder(canvas) }
     }
@@ -259,12 +286,9 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     @objc private func showColors() {
         if colorPopover?.isShown == true { colorPopover?.close(); return }
         finishText(commit: true)
-        let row = NSStackView(); row.spacing = 3; row.edgeInsets = NSEdgeInsets(top: 7, left: 7, bottom: 7, right: 7)
-        for (index, ink) in Self.colors.enumerated() {
-            let button = CaptureToolButton(.color, title: ["黑", "红", "橙", "黄", "绿", "蓝", "紫", "白"][index], target: self, action: #selector(chooseColor(_:)))
-            button.ink = ink; button.tag = index; row.addArrangedSubview(button)
-        }
-        let controller = NSViewController(); controller.view = row
+        let controller = NSViewController()
+        controller.view = CaptureColorPalette(colors: Self.colors, selected: colorButton.ink, target: self, action: #selector(chooseColor(_:)))
+        controller.preferredContentSize = controller.view.frame.size
         let popover = NSPopover(); popover.behavior = .transient; popover.contentViewController = controller
         colorPopover = popover; popover.show(relativeTo: colorButton.bounds, of: colorButton, preferredEdge: .minY)
     }
