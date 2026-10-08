@@ -18,7 +18,7 @@ s = (root / 'Sources/MacOSX/WindowSwitcher/WindowInventory.swift').read_text()
 PY
 xcrun swiftc -I "$guide_bin/Modules" "$guide_bin"/MacOSXCore.build/*.swift.o \
  Sources/MacOSX/UI/SketchTheme.swift Sources/MacOSX/UI/SketchIcons.swift Sources/MacOSX/UI/MinimalControls.swift \
- Sources/MacOSX/UI/SettingsGuideView.swift Sources/MacOSX/WindowSwitcher/SwitcherPanel.swift \
+ Sources/MacOSX/UI/SettingsGuideView.swift Sources/MacOSX/UI/SettingsBoardView.swift Sources/MacOSX/WindowSwitcher/SwitcherPanel.swift \
  "$guide_dir/SwitcherWindow.swift" tools/settings-switcher-regression.swift \
  -o "$guide_dir/Preview.app/Contents/MacOS/Preview"
 "$guide_dir/Preview.app/Contents/MacOS/Preview"

@@ -69,6 +69,22 @@ import MacOSXCore
         precondition(restored.first { $0.identifier?.rawValue == "prompt-ring-count" }!.indexOfSelectedItem == 0)
         precondition(restored.first { $0.identifier?.rawValue == "prompt-list-count" }!.indexOfSelectedItem == 6)
         precondition(defaults.data(forKey:"promptLibrary.collection.v1") == data)
+        let promptSettings=module.settingsView
+        promptSettings.frame.size=NSSize(width:840,height:420); promptSettings.layoutSubtreeIfNeeded()
+        let styleButtons=promptSettings.subviews.compactMap { $0 as? IllustratedSettingChoice }
+        precondition(styleButtons.count == 2)
+        for button in styleButtons {
+            button.performClick(nil)
+            precondition(defaults.string(forKey:"promptLibrary.presentation") == (button.tag == 0 ? "ring" : "list"))
+            precondition(styleButtons.filter { $0.state == .on }.count == 1)
+        }
+        precondition(promptSettings.subviews.filter { !$0.isHidden }.allSatisfy { promptSettings.bounds.contains($0.frame) })
+        if let output=ProcessInfo.processInfo.environment["MACOSX_SETTINGS_PREVIEW"], let bitmap=promptSettings.bitmapImageRepForCachingDisplay(in:promptSettings.bounds) {
+            promptSettings.cacheDisplay(in:promptSettings.bounds,to:bitmap)
+            try bitmap.representation(using:.png,properties:[:])?.write(to:URL(fileURLWithPath:output).appendingPathComponent("prompts-board.png"))
+        }
+        promptSettings.frame.size=NSSize(width:300,height:798); promptSettings.layoutSubtreeIfNeeded()
+        precondition(promptSettings.subviews.filter { !$0.isHidden }.allSatisfy { promptSettings.bounds.contains($0.frame) })
         var searchable = collection
         for index in 11...23 { searchable.prompts.append(LibraryPrompt(id:"search-\(index)",title:"办公 \(index)",content:"正文 \(index)")) }
         let panel = PhraseWheelPanel(anchor: .zero, screen: CGRect(x:0,y:0,width:900,height:900), collection: searchable)

@@ -104,6 +104,7 @@ import MacOSXCore
     private let format = MinimalButton(title: "格式", target: nil, action: nil, style: .quiet)
     private let preview = MinimalButton(title: "预览", target: nil, action: nil, style: .quiet)
     private let displayStyle = MinimalPopUpButton()
+    private var styleButtons: [IllustratedSettingChoice] = []
     private let ringCount = MinimalPopUpButton(), listCount = MinimalPopUpButton()
     private let ringCountLabel = NSTextField(labelWithString: "轮盘")
     private let listCountLabel = NSTextField(labelWithString: "清单")
@@ -114,7 +115,7 @@ import MacOSXCore
     private let scroll = SketchScrollView(), listScroll = SketchScrollView()
     private let status = NSTextField(wrappingLabelWithString: "")
     private var compact: Bool { bounds.width < 740 }
-    override var intrinsicContentSize: NSSize { NSSize(width: 760, height: compact ? 798 : 508) }
+    override var intrinsicContentSize: NSSize { NSSize(width: 760, height: compact ? 798 : 420) }
     init(collection: PromptCollection, presentation: PromptPresentation) {
         self.presentation = presentation
         self.collection = collection; encodedSize = (try? JSONEncoder().encode(collection).count) ?? 0
@@ -125,6 +126,13 @@ import MacOSXCore
         displayStyle.addItems(withTitles: ["轮盘", "清单"])
         displayStyle.selectItem(at: presentation.style == .ring ? 0 : 1)
         displayStyle.setAccessibilityLabel("提示词展示样式")
+        displayStyle.isHidden = true
+        for (index,title) in ["轮盘", "清单"].enumerated() {
+            let button = IllustratedSettingChoice(title:title,asset:"",
+                slice:CGRect(x:CGFloat(index)/3,y:0,width:1/3,height:1),target:self,action:#selector(chooseStyle(_:)))
+            button.promptList=index == 1; button.tag=index; button.state=index == displayStyle.indexOfSelectedItem ? .on : .off
+            styleButtons.append(button); addSubview(button)
+        }
         for (control,label,count) in [(ringCount,"轮盘常用数量",presentation.wheelCount),(listCount,"清单常用数量",presentation.listCount)] {
             control.addItems(withTitles: (0...10).map(String.init)); control.selectItem(at: count)
             control.setAccessibilityLabel(label); control.toolTip = "0：仅搜索；减少数量不会删除提示词"
@@ -157,14 +165,21 @@ import MacOSXCore
     override func layout() {
         super.layout()
         displayStyle.frame = CGRect(x:0,y:bounds.height-32,width:100,height:28)
-        ringCountLabel.frame = CGRect(x:114,y:bounds.height-26,width:32,height:18)
-        ringCount.frame = CGRect(x:148,y:bounds.height-32,width:58,height:28)
-        listCountLabel.frame = CGRect(x:220,y:bounds.height-26,width:32,height:18)
-        listCount.frame = CGRect(x:254,y:bounds.height-32,width:58,height:28)
-        let top = bounds.height-80, left = compact ? bounds.width : 360
+        for (i,button) in styleButtons.enumerated() { button.frame=CGRect(x:CGFloat(i)*90,y:bounds.height-60,width:84,height:58) }
+        ringCountLabel.frame = CGRect(x:192,y:bounds.height-26,width:32,height:18)
+        ringCount.frame = CGRect(x:224,y:bounds.height-32,width:58,height:28)
+        listCountLabel.frame = CGRect(x:290,y:bounds.height-26,width:32,height:18)
+        listCount.frame = CGRect(x:322,y:bounds.height-32,width:58,height:28)
+        if compact {
+            ringCountLabel.frame=CGRect(x:0,y:bounds.height-96,width:32,height:18)
+            ringCount.frame=CGRect(x:32,y:bounds.height-102,width:58,height:28)
+            listCountLabel.frame=CGRect(x:110,y:bounds.height-96,width:32,height:18)
+            listCount.frame=CGRect(x:142,y:bounds.height-102,width:58,height:28)
+        }
+        let top = bounds.height-(compact ? 142 : 80), left = compact ? bounds.width : 360
         wheelTab.frame = NSRect(x:0,y:top,width:54,height:28); libraryTab.frame = NSRect(x:58,y:top,width:54,height:28)
         add.frame = NSRect(x:left-32,y:top,width:28,height:28)
-        let ringSize = min(360,left)
+        let ringSize = min(compact ? 360 : 268,left)
         presentationHost.frame = NSRect(x:0,y:top-ringSize-12,width:ringSize,height:ringSize)
         layoutPreview()
         search.frame = NSRect(x:0,y:top-44,width:left,height:28)
@@ -306,10 +321,14 @@ import MacOSXCore
         let index = rows[row]; guard selected != index else { return }
         window?.makeFirstResponder(nil); selected = index; loadEntry(); refresh()
     }
+    @objc private func chooseStyle(_ sender: NSButton) {
+        displayStyle.selectItem(at:sender.tag); presentationChanged()
+    }
     @objc private func presentationChanged() {
         window?.makeFirstResponder(nil)
         presentation = PromptPresentation(style: displayStyle.indexOfSelectedItem == 0 ? .ring : .list,
                                           wheelCount: ringCount.indexOfSelectedItem, listCount: listCount.indexOfSelectedItem)
+        for button in styleButtons { button.state = button.tag == displayStyle.indexOfSelectedItem ? .on : .off; button.needsDisplay = true }
         rebuildPreview(); needsLayout = true
         onPresentationChange?(presentation)
     }

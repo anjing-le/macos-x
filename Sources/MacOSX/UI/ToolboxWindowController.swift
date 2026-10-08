@@ -116,7 +116,7 @@ private final class ToolboxContent: NSView {
         detail.translatesAutoresizingMaskIntoConstraints = false
         detail.orientation = .vertical
         detail.alignment = .leading
-        detail.spacing = 20
+        detail.spacing = 12
         detailDocument.addSubview(detail)
         updateBackground()
     }
@@ -167,7 +167,7 @@ private final class ToolboxContent: NSView {
         if scroll.documentView === grid {
             grid.arrange(width: width, minimumHeight: height)
         } else {
-            let inset: CGFloat = width < 480 ? 24 : 36
+            let inset: CGFloat = 24
             let preferredWidth = max(480, detail.arrangedSubviews.map { $0.intrinsicContentSize.width }.max() ?? 480)
             let contentWidth = max(220, min(preferredWidth, width - inset * 2))
             detail.frame = NSRect(x: inset, y: inset, width: contentWidth, height: max(0, detail.fittingSize.height))
@@ -288,18 +288,17 @@ final class ToolboxWindowController: NSWindowController {
         navigate(.settings(tool), title: tool.title)
         let header = ModuleSettingsHeader(tool: tool, module: modules)
         settingsHeader = header
-        var views: [NSView] = [header, SettingsGuideView(kind: tool.rawValue)]
+        let shortcuts: [NSView]
         switch tool {
-        case .kaomoji: views.append(modules.shortcutPicker(.wheel))
-        case .capture:
-            for action in [ShortcutAction.capture, .pin, .togglePins, .recording] { views.append(modules.shortcutPicker(action)) }
+        case .kaomoji: shortcuts = [modules.shortcutPicker(.wheel)]
+        case .capture: shortcuts = [ShortcutAction.capture, .pin, .togglePins, .recording].map { modules.shortcutPicker($0) }
         case .windowSwitcher:
-            let shortcut = NSTextField(labelWithString: "⌘Tab  ·  ⇧ 反向  ·  松开切换")
-            shortcut.font = SketchPalette.heading(16); shortcut.textColor = .secondaryLabelColor
-            views.append(shortcut)
+            let label = NSTextField(labelWithString: "⌘ Tab\n松开确认 · ⇧ 反向")
+            label.font = SketchPalette.heading(16); label.textColor = SketchPalette.ink
+            shortcuts = [label]
         }
-        views.append(modules.settingsView(for: tool))
-        content.showDetail(views)
+        let board = SettingsBoardView(kind: tool.rawValue, settings: modules.settingsView(for: tool), shortcuts: shortcuts)
+        content.showDetail([header, board])
     }
 
     @objc private func goBack() { showHome() }

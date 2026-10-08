@@ -423,8 +423,10 @@ final class CaptureModule: NSObject {
         status.preferredMaxLayoutWidth = 600
         status.isHidden = ["未启用", "已就绪", "已停用", "录屏中", "已保存录屏"].contains(status.stringValue)
         let outline = MinimalToggle(title: "贴图白光边缘", target: self, action: #selector(setPinOutline(_:)))
+        outline.identifier = .init("capture-pin-outline")
         outline.state = pins.showsOutline ? .on : .off
         let hint = NSTextField(wrappingLabelWithString: "开启后，贴图显示白色柔光边缘；复制与保存不带边缘。选中贴图后，空格切换编辑状态。")
+        hint.identifier = .init("capture-pin-help")
         hint.font = .systemFont(ofSize: 12); hint.textColor = .secondaryLabelColor
         hint.preferredMaxLayoutWidth = 600
         let stack = NSStackView(views: [outline, hint, recordingPresentation.settingsView, status])

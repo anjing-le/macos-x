@@ -85,6 +85,7 @@ import os
         let modeLabel = NSTextField(labelWithString: "展示方式")
         modeLabel.font = SketchPalette.heading(16)
         let modeRow = NSStackView(views: [modeLabel, mode]); modeRow.spacing = 14
+        modeRow.identifier = .init("switcher-presentation-row")
         let stack = NSStackView(views: [modeRow, row, preview, label])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 10
         settings = stack; statusLabel = label; previewButton = preview

@@ -250,7 +250,7 @@ final class ModuleSettingsHeader: NSStackView {
     init(tool: Tool, module: ModuleCoordinator) {
         self.tool = tool; self.module = module
         super.init(frame: .zero)
-        orientation = .vertical; alignment = .leading; spacing = 16
+        orientation = .vertical; alignment = .leading; spacing = 8
         let enabled = NSStackView(); enabled.orientation = .horizontal; enabled.spacing = 12
         let label = NSTextField(labelWithString: "启用"); label.font = SketchPalette.heading(16)
         label.textColor = .secondaryLabelColor
