@@ -431,6 +431,7 @@ final class CaptureModule: NSObject {
         hint.preferredMaxLayoutWidth = 600
         let stack = NSStackView(views: [outline, hint, recordingPresentation.settingsView, status])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 14
+        recordingPresentation.settingsView.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         return stack
     }
 }

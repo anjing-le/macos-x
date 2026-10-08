@@ -55,6 +55,7 @@ final class ShortcutStore {
 @MainActor
 private final class ShortcutRecorder: MinimalButton {
     var onBinding: ((ShortcutBinding) -> Void)?
+    var illustrated = false
     var onRecording: ((Bool) -> Void)?
     private var recording = false
     private var previousTitle = ""
@@ -74,7 +75,7 @@ private final class ShortcutRecorder: MinimalButton {
 
     @objc private func begin() {
         guard !recording else { finish(); return }
-        previousTitle = title; recording = true; title = "按下快捷键…"
+        previousTitle = title; recording = true; title = illustrated ? "按键…" : "按下快捷键…"
         window?.makeFirstResponder(self)
         onRecording?(true)
         if let window {
@@ -132,8 +133,10 @@ final class ShortcutPicker: NSStackView {
         orientation = .vertical; alignment = .leading; spacing = 6
         let row = NSStackView(); row.orientation = .horizontal; row.spacing = 12
         let label = NSTextField(labelWithString: title); label.font = SketchPalette.heading(16); label.textColor = .secondaryLabelColor
-        label.widthAnchor.constraint(equalToConstant: 88).isActive = true
-        row.addArrangedSubview(label)
+        if !title.isEmpty {
+            label.widthAnchor.constraint(equalToConstant: 88).isActive = true
+            row.addArrangedSubview(label)
+        }
         if allowsDoubleTap {
             mode.addItems(withTitles: ["双击右 Option", "双击左 Option", "组合键"])
             mode.target = self; mode.action = #selector(selectTriggerMode)
@@ -141,8 +144,15 @@ final class ShortcutPicker: NSStackView {
             row.addArrangedSubview(mode)
         }
         row.addArrangedSubview(recorder)
-        recorder.widthAnchor.constraint(greaterThanOrEqualToConstant: 104).isActive = true
         addArrangedSubview(row)
+        recorder.widthAnchor.constraint(greaterThanOrEqualToConstant: title.isEmpty ? 46 : 104).isActive = true
+        if title.isEmpty && !allowsDoubleTap {
+            edgeInsets = NSEdgeInsets(top:6,left:0,bottom:0,right:0)
+            recorder.illustrated = true; recorder.style = .quiet; recorder.font = .systemFont(ofSize:16)
+            row.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
+            recorder.widthAnchor.constraint(equalTo: row.widthAnchor).isActive = true
+            recorder.cell?.lineBreakMode = .byTruncatingTail
+        }
         notice.font = .systemFont(ofSize: 11); notice.textColor = .systemRed; notice.maximumNumberOfLines = 2
         addArrangedSubview(notice)
         recorder.onRecording = recordingChanged
@@ -154,6 +164,7 @@ final class ShortcutPicker: NSStackView {
 
     private func refresh() {
         recorder.title = editingChord ? "设置快捷键…" : binding.displayName
+        recorder.toolTip = "\(binding.displayName) · 点击修改；功能键可能需要同时按 Fn，Escape 取消"
         recorder.isHidden = binding.kind == .doubleModifier && !editingChord
         if binding.kind == .doubleModifier && !editingChord {
             mode.selectItem(at: [UInt16(61), 58].firstIndex(of: binding.keyCode) ?? 0)

@@ -89,6 +89,7 @@ private final class ToolboxContent: NSView {
     let header = SketchWindowHeader(frame: .zero)
     private let scroll = NSScrollView()
     private let detail = NSStackView()
+    private lazy var detailWidth = detail.widthAnchor.constraint(equalToConstant:480)
     private let detailDocument = DetailDocument()
 
     override init(frame: NSRect) {
@@ -114,6 +115,7 @@ private final class ToolboxContent: NSView {
         // This root stack is sized by layout(), not by an autoresizing-mask
         // constraint that pins its initial empty frame to zero.
         detail.translatesAutoresizingMaskIntoConstraints = false
+        detailWidth.isActive = true
         detail.orientation = .vertical
         detail.alignment = .leading
         detail.spacing = 12
@@ -148,7 +150,7 @@ private final class ToolboxContent: NSView {
         scroll.documentView = detailDocument
         views.forEach { view in
             detail.addArrangedSubview(view)
-            if view is SettingsBoardView {
+            if view is SettingsBoardView || view is ModuleSettingsHeader {
                 view.widthAnchor.constraint(equalTo: detail.widthAnchor).isActive = true
             }
         }
@@ -176,6 +178,7 @@ private final class ToolboxContent: NSView {
             let preferredWidth = max(480, detail.arrangedSubviews.map { $0.intrinsicContentSize.width }.max() ?? 480)
             let fillsPage = detail.arrangedSubviews.contains { $0 is SettingsBoardView }
             let contentWidth = max(220, fillsPage ? width - inset * 2 : min(preferredWidth, width - inset * 2))
+            detailWidth.constant = contentWidth
             detail.frame = NSRect(x: inset, y: inset, width: contentWidth, height: max(0, detail.fittingSize.height))
             detail.layoutSubtreeIfNeeded()
             let contentHeight = max(0, detail.fittingSize.height)
@@ -297,10 +300,11 @@ final class ToolboxWindowController: NSWindowController {
         let shortcuts: [NSView]
         switch tool {
         case .kaomoji: shortcuts = [modules.shortcutPicker(.wheel)]
-        case .capture: shortcuts = [ShortcutAction.capture, .pin, .togglePins, .recording].map { modules.shortcutPicker($0) }
+        case .capture: shortcuts = [ShortcutAction.capture, .pin, .togglePins, .recording].map { modules.shortcutPicker($0, showsTitle: false) }
         case .windowSwitcher:
-            let label = NSTextField(labelWithString: "⌘ Tab\n松开确认 · ⇧ 反向")
-            label.font = SketchPalette.heading(16); label.textColor = SketchPalette.ink
+            let label = NSTextField(labelWithString: "⌘ Tab")
+            label.font = .systemFont(ofSize:16); label.textColor = SketchPalette.ink; label.alignment = .center
+            label.toolTip = "Tab 选择 · Shift 反向 · 松开 Command 确认"
             shortcuts = [label]
         }
         let board = SettingsBoardView(kind: tool.rawValue, settings: modules.settingsView(for: tool), shortcuts: shortcuts)

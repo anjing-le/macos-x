@@ -150,8 +150,8 @@ final class ModuleCoordinator {
         }
     }
 
-    func shortcutPicker(_ action: ShortcutAction) -> NSView {
-        let picker = ShortcutPicker(title: action == .wheel ? "唤起" : action.title,
+    func shortcutPicker(_ action: ShortcutAction, showsTitle: Bool = true) -> NSView {
+        let picker = ShortcutPicker(title: showsTitle ? (action == .wheel ? "唤起" : action.title) : "",
             binding: shortcuts.binding(for: action), allowsDoubleTap: action == .wheel,
             recordingChanged: { [weak self] value in
                 guard let self, !self.terminating else { return }
@@ -250,7 +250,7 @@ final class ModuleSettingsHeader: NSStackView {
     init(tool: Tool, module: ModuleCoordinator) {
         self.tool = tool; self.module = module
         super.init(frame: .zero)
-        orientation = .vertical; alignment = .leading; spacing = 8
+        orientation = .vertical; alignment = tool == .capture ? .trailing : .leading; spacing = 8
         let enabled = NSStackView(); enabled.orientation = .horizontal; enabled.spacing = 12
         let label = NSTextField(labelWithString: "启用"); label.font = SketchPalette.heading(16)
         label.textColor = .secondaryLabelColor

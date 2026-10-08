@@ -40,6 +40,9 @@ import MacOSXCore
         canvas.frame = CGRect(origin: .zero, size: lastPage)
         canvas.configure(Array(windows.prefix(11)), 11, pageLayout, [:])
         try require(canvas.page.map(\.id) == [9, 10, 11], "last two-row page preserves remaining windows")
+        for rect in [CGRect.zero, CGRect(x:0,y:0,width:CGFloat.infinity,height:20), CGRect(x:CGFloat.nan,y:0,width:20,height:20)] {
+            try require(SketchPencil.outline(in:rect,radius:8).isEmpty,"transient invalid drawing bounds are safe")
+        }
         let output = ProcessInfo.processInfo.environment["MACOSX_SETTINGS_PREVIEW"]
         for kind in ["capture", "windowSwitcher", "kaomoji"] {
             let guide = SettingsGuideView(kind: kind)
@@ -53,23 +56,42 @@ import MacOSXCore
         let receiver=BoardReceiver()
         let toggle=MinimalToggle(title:"贴图白光边缘",target:receiver,action:#selector(BoardReceiver.changed(_:)))
         toggle.identifier = .init("capture-pin-outline")
-        let captureSettings=NSStackView(views:[toggle,NSTextField(labelWithString:"说明"),NSTextField(labelWithString:"保存到 ~/Movies/macos-x"),NSTextField(labelWithString:"最近录屏 · 播放 / Finder / 复制路径")])
+        let recordingPath=MinimalButton(title:"Movies/截图录屏",target:nil,action:nil,style:.standard)
+        let recordingChooser=MinimalButton(title:"选择文件夹",target:nil,action:nil,style:.standard)
+        let recordingFolder=NSStackView(views:[NSTextField(labelWithString:"保存位置"),recordingPath,recordingChooser])
+        let recordingClock=NSTextField(labelWithString:""); recordingClock.isHidden=true
+        let recordingCaption=NSTextField(labelWithString:"示例录屏.mp4"); recordingCaption.font = .systemFont(ofSize:12)
+        let recordingActions=NSStackView(views:["播放","Finder","复制路径"].map { text in let button=MinimalButton(title:text,target:nil,action:nil,style:.quiet); button.font = .systemFont(ofSize:12); return button })
+        let recordingResults=NSStackView(views:[recordingCaption,recordingActions]); recordingResults.orientation = .vertical
+        let recordingFooter=RecordingSettingsFooter(folder:recordingFolder,path:recordingPath,choose:recordingChooser,clock:recordingClock,results:recordingResults)
+        let captureStatus=NSTextField(labelWithString:""); captureStatus.isHidden=true
+        let captureSettings=NSStackView(views:[toggle,NSTextField(labelWithString:"说明"),recordingFooter,captureStatus])
+        recordingFooter.widthAnchor.constraint(equalTo:captureSettings.widthAnchor).isActive=true
         captureSettings.arrangedSubviews[1].identifier = .init("capture-pin-help")
         captureSettings.orientation = .vertical; captureSettings.alignment = .leading
         let mode=MinimalPopUpButton(); mode.addItems(withTitles:["两行", "全部"])
         mode.target=receiver; mode.action = #selector(BoardReceiver.changed(_:))
         let modeRow=NSStackView(views:[NSTextField(labelWithString:"展示方式"),mode])
         modeRow.identifier = .init("switcher-presentation-row")
-        let switchSettings=NSStackView(views:[modeRow,MinimalToggle(title:"窗口缩略图",target:nil,action:nil),MinimalButton(title:"预览窗口切换",target:nil,action:nil,style:.quiet)])
+        let thumbnailRow=NSStackView(views:[NSTextField(labelWithString:"窗口缩略图"),MinimalToggle(title:"",target:nil,action:nil)])
+        let switchFooter=SwitcherSettingsFooter(thumbnail:thumbnailRow,preview:MinimalButton(title:"实际预览",target:nil,action:nil,style:.standard),status:NSTextField(labelWithString:"松开 ⌘ 切换"))
+        let switchSettings=NSStackView(views:[modeRow,switchFooter])
+        switchFooter.widthAnchor.constraint(equalTo:switchSettings.widthAnchor).isActive=true
         switchSettings.orientation = .vertical; switchSettings.alignment = .leading
         for (kind,settings) in [("capture",captureSettings),("windowSwitcher",switchSettings)] {
             for pass in 0...1 {
-                let keys = kind == "capture" ? ["截图 · F1","贴图 · F3","显隐 · ⇧F3","录屏 · ⌃⌥R"] : ["⌘ Tab · 松开确认"]
-                let board=SettingsBoardView(kind:kind,settings:settings,shortcuts:keys.map { NSTextField(labelWithString:$0) })
+                let keys: [NSView]
+                if kind == "capture" {
+                    keys = [ShortcutAction.capture,.pin,.togglePins,.recording].map {
+                        ShortcutPicker(title:"",binding:$0.defaultBinding,allowsDoubleTap:false,recordingChanged:{ _ in },accepts:{ _ in nil },didChange:{ _ in })
+                    }
+                } else { let key=NSTextField(labelWithString:"⌘ Tab"); key.alignment = .center; key.font = .systemFont(ofSize:16); keys = [key] }
+                let board=SettingsBoardView(kind:kind,settings:settings,shortcuts:keys)
                 let root=NSStackView(views:[NSTextField(labelWithString:"启用"),board])
                 root.orientation = .vertical; root.alignment = .leading; root.spacing=12
                 root.translatesAutoresizingMaskIntoConstraints=false
                 board.widthAnchor.constraint(equalTo:root.widthAnchor).isActive=true
+                let rootWidth=root.widthAnchor.constraint(equalToConstant:912); rootWidth.isActive=true
                 root.frame=CGRect(x:24,y:24,width:912,height:root.fittingSize.height)
                 root.layoutSubtreeIfNeeded()
                 try require(abs(board.frame.width-912)<1,"board fills default client width with balanced margins")
@@ -77,10 +99,14 @@ import MacOSXCore
                 board.layoutSubtreeIfNeeded()
                 let shortcutRows=board.subviews.compactMap { $0 as? ShortcutSettingsRow }
                 if kind == "capture" {
-                    try require(shortcutRows[1].frame.minX == shortcutRows[2].frame.minX, "pin and show/hide shortcuts belong to the same column")
+                    try require(board.usesBackdrop,"capture backdrop resource loaded")
+                    for (index,row) in shortcutRows.enumerated() {
+                        try require(row.frame == board.slot(SettingsBoardView.captureKeySlots[index]),"native keycap follows the image slot")
+                        try require(row.control.subviews.count > 0,"real shortcut recorder remains installed")
+                    }
                     try require(shortcutRows[1].frame.maxY <= shortcutRows[2].frame.minY, "pin shortcuts do not overlap")
                 }
-                try require(shortcutRows.allSatisfy { $0.control.frame == $0.bounds }, "shortcut controls use the full row without arrow gutters")
+                try require(shortcutRows.filter { $0.control is NSStackView }.allSatisfy { $0.control.frame == $0.bounds }, "shortcut controls use the full row without arrow gutters")
                 let choices=board.subviews.compactMap { $0 as? IllustratedSettingChoice }.filter(\.isEnabled)
                 try require(choices.count == 2,"exactly two live illustration choices")
                 choices[1].performClick(nil)
@@ -88,13 +114,34 @@ import MacOSXCore
                 try require(kind == "capture" ? toggle.state == .on : mode.indexOfSelectedItem == 1,"illustration updates source control")
                 choices[0].performClick(nil)
                 try require(choices[0].state == .on && choices[1].state == .off,"selection can be reversed")
-                try require(board.subviews.filter { !$0.isHidden }.allSatisfy { board.bounds.contains($0.frame) },"board contents stay in viewport")
+                let overflowing=board.subviews.filter { !$0.isHidden && !board.bounds.contains($0.frame) }
+                if !overflowing.isEmpty { print(kind,board.bounds,overflowing.map { String(describing:type(of:$0))+" "+String(describing:$0.frame) }) }
+                try require(overflowing.isEmpty,"board contents stay in viewport")
                 if pass == 0, let output, let bitmap=board.bitmapImageRepForCachingDisplay(in:board.bounds) {
                     board.cacheDisplay(in:board.bounds,to:bitmap)
                     try bitmap.representation(using:.png,properties:[:])?.write(to:URL(fileURLWithPath:output).appendingPathComponent(kind+"-board.png"))
                 }
+                if kind == "capture" {
+                    rootWidth.constant=312; root.frame.size.width=312; root.needsLayout=true; root.layoutSubtreeIfNeeded()
+                    root.frame.size.height=root.fittingSize.height; root.layoutSubtreeIfNeeded()
+                    board.layoutSubtreeIfNeeded()
+                    try require(!board.usesBackdrop,"narrow layout uses native sections")
+                    try require(board.subviews.filter { !$0.isHidden }.allSatisfy { board.bounds.contains($0.frame) },"narrow capture controls stay within board")
+                }
                 settings.removeFromSuperview()
             }
+        }
+        let pathButton=MinimalButton(title:"Movies/截图录屏",target:nil,action:nil,style:.standard)
+        let chooser=MinimalButton(title:"选择文件夹",target:nil,action:nil,style:.standard)
+        let folder=NSStackView(views:[NSTextField(labelWithString:"保存位置"),pathButton,chooser])
+        let clock=NSTextField(labelWithString:"00:12 · 录屏中"); clock.isHidden=true
+        let results=NSStackView(views:[NSTextField(labelWithString:"录屏 2026-10-08.mp4"),MinimalButton(title:"播放 · Finder · 复制路径",target:nil,action:nil,style:.quiet)])
+        results.orientation = .vertical
+        let footer=RecordingSettingsFooter(folder:folder,path:pathButton,choose:chooser,clock:clock,results:results)
+        for width:CGFloat in [912,312] {
+            footer.usesArtwork = width == 912
+            footer.frame.size=NSSize(width:width,height:width < 700 ? 142 : 72); footer.layoutSubtreeIfNeeded()
+            try require(footer.subviews.filter { !$0.isHidden }.allSatisfy { footer.bounds.contains($0.frame) },"footer controls stay in both layouts")
         }
         try require(receiver.calls == 8,"each illustration selection sends exactly one action across reopening")
         print("PASS settings/switcher: offscreen AppKit scrolling, 256 windows, <=16 reusable buttons, final page, three bundled guides, direct illustration actions and reopening; no live windows, capture, TCC or preferences")

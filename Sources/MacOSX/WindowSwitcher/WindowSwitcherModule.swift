@@ -69,7 +69,7 @@ import os
         if let settings { return settings }
         let label = NSTextField(wrappingLabelWithString: displayedStatus)
         label.font = SketchPalette.heading(16); label.textColor = .secondaryLabelColor
-        let preview = MinimalButton(title: "预览窗口切换", target: self, action: #selector(previewPressed), style: .standard)
+        let preview = MinimalButton(title: "实际预览", target: self, action: #selector(previewPressed), style: .standard)
         preview.isEnabled = isReady
         let thumbnailToggle = MinimalToggle(title: "", target: self, action: #selector(changeThumbnails(_:)))
         thumbnailToggle.state = thumbnailsEnabled ? .on : .off
@@ -86,7 +86,9 @@ import os
         modeLabel.font = SketchPalette.heading(16)
         let modeRow = NSStackView(views: [modeLabel, mode]); modeRow.spacing = 14
         modeRow.identifier = .init("switcher-presentation-row")
-        let stack = NSStackView(views: [modeRow, row, preview, label])
+        let footer=SwitcherSettingsFooter(thumbnail:row,preview:preview,status:label)
+        let stack = NSStackView(views: [modeRow, footer])
+        footer.widthAnchor.constraint(equalTo:stack.widthAnchor).isActive=true
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 10
         settings = stack; statusLabel = label; previewButton = preview
         return stack

@@ -45,6 +45,7 @@ enum SketchPencil {
     }
     static func outline(in rect: NSRect, radius: CGFloat) -> NSBezierPath {
         let path = NSBezierPath()
+        guard rect.origin.x.isFinite, rect.origin.y.isFinite, rect.width.isFinite, rect.height.isFinite, rect.width > 0, rect.height > 0 else { return path }
         let r = min(radius, rect.width / 2, rect.height / 2)
         var index = 0
         func point(_ p: CGPoint) {

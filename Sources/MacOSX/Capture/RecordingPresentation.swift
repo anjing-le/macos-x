@@ -18,23 +18,27 @@ import MacOSXCore
     private var latest: URL?
     private let recordingLabel = NSTextField(labelWithString: "")
     private let resultLabel = NSTextField(labelWithString: "")
-    private lazy var folderButton = MinimalButton(title: "", target: self, action: #selector(chooseFolder), style: .quiet)
+    private lazy var folderButton = MinimalButton(title: "", target: self, action: #selector(chooseFolder), style: .standard)
+    private lazy var choose = MinimalButton(title: "选择文件夹", target: self, action: #selector(chooseFolder), style: .standard)
     private lazy var copy = MinimalButton(title: "复制路径", target: self, action: #selector(copyResult), style: .quiet)
     private lazy var play = MinimalButton(title: "播放", target: self, action: #selector(openResult), style: .standard)
-    private lazy var reveal = MinimalButton(title: "在 Finder 中显示", target: self, action: #selector(revealResult), style: .quiet)
+    private lazy var reveal = MinimalButton(title: "Finder", target: self, action: #selector(revealResult), style: .quiet)
     private lazy var results = NSStackView(views: [resultLabel, NSStackView(views: [play, reveal, copy])])
-    private lazy var settings: NSStackView = {
+    private lazy var settings: RecordingSettingsFooter = {
         recordingLabel.font = .monospacedDigitSystemFont(ofSize: 14, weight: .medium)
-        resultLabel.font = .systemFont(ofSize: 14); resultLabel.textColor = .secondaryLabelColor
+        resultLabel.font = .systemFont(ofSize: 12); resultLabel.textColor = .secondaryLabelColor
         resultLabel.lineBreakMode = .byTruncatingMiddle; resultLabel.maximumNumberOfLines = 1
+        resultLabel.widthAnchor.constraint(lessThanOrEqualToConstant:220).isActive=true
+        for button in [play,reveal,copy] { button.font = .systemFont(ofSize:12) }
+        reveal.toolTip = "在 Finder 中显示"
         results.orientation = .vertical; results.alignment = .leading; results.spacing = 10
-        let folderLabel = NSTextField(labelWithString: "保存到")
+        let folderLabel = NSTextField(labelWithString: "保存位置")
         folderLabel.font = SketchPalette.heading(16); folderLabel.textColor = .secondaryLabelColor
         updateFolderButton()
-        let folderRow = NSStackView(views: [folderLabel, folderButton]); folderRow.spacing = 8
-        let stack = NSStackView(views: [folderRow, recordingLabel, results])
-        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 14
-        return stack
+        folderButton.cell?.lineBreakMode = .byTruncatingMiddle
+        let folderRow = NSStackView(views: [folderLabel, folderButton, choose]); folderRow.spacing = 8
+        return RecordingSettingsFooter(folder: folderRow, path: folderButton, choose: choose,
+                                       clock: recordingLabel, results: results)
     }()
     var settingsView: NSView { _ = settings; refreshVisibility(); return settings }
     var recordingDirectory: URL {
@@ -158,7 +162,8 @@ import MacOSXCore
     }
     private func refreshVisibility() {
         recordingLabel.isHidden = !busy; results.isHidden = busy || latest == nil
-        folderButton.isEnabled = !busy
+        folderButton.isEnabled = !busy; choose.isEnabled = !busy
+        settings.invalidateIntrinsicContentSize(); settings.needsLayout = true
     }
     private func clearIndicator() {
         timer?.invalidate(); timer = nil; dismissWork?.cancel(); dismissWork = nil
@@ -187,5 +192,64 @@ import MacOSXCore
             guard response == .OK, let self, let url = panel.url else { return }
             self.defaults.set(url.path, forKey: "recording.directory-path"); self.updateFolderButton()
         }
+    }
+}
+
+/// Native controls positioned over the illustration; no duplicate bitmap values.
+@MainActor final class RecordingSettingsFooter: NSView {
+    private let folderLabel: NSView, path: NSView, choose: NSView, clock: NSView, results: NSView
+    private let recent = NSTextField(labelWithString: "最近录屏")
+    private let empty = NSTextField(labelWithString: "录屏完成后在这里查看")
+    private var wasCompact=false
+    var usesArtwork=false { didSet { if oldValue != usesArtwork { needsLayout=true; invalidateIntrinsicContentSize() } } }
+    override var isFlipped: Bool { true }
+    private var compact: Bool { bounds.width < 700 }
+    override var intrinsicContentSize: NSSize { NSSize(width:840,height:compact ? 142 : (usesArtwork ? 72 : 96)) }
+    init(folder:NSView,path:NSView,choose:NSView,clock:NSView,results:NSView) {
+        self.path=path; self.choose=choose; self.clock=clock; self.results=results
+        folderLabel=(folder as? NSStackView)?.arrangedSubviews.first ?? NSTextField(labelWithString:"保存位置")
+        super.init(frame:CGRect(x:0,y:0,width:840,height:96))
+        recent.font=SketchPalette.heading(14); recent.textColor=SketchPalette.ink
+        empty.font = .systemFont(ofSize:12); empty.textColor=SketchPalette.muted
+        for view in [folderLabel,path,choose,clock,results,recent,empty] {
+            if let parent=view.superview as? NSStackView { parent.removeArrangedSubview(view) }
+            view.removeFromSuperview(); view.translatesAutoresizingMaskIntoConstraints=true; addSubview(view)
+        }
+    }
+    required init?(coder:NSCoder) { nil }
+    override func layout() {
+        super.layout()
+        if compact != wasCompact { wasCompact=compact; invalidateIntrinsicContentSize() }
+        let illustrated=usesArtwork && !compact
+        recent.isHidden=illustrated; folderLabel.isHidden=illustrated; choose.isHidden=compact
+        for button in [path,choose].compactMap({ $0 as? MinimalButton }) {
+            button.style=illustrated ? .quiet : .standard
+            button.font=illustrated ? .systemFont(ofSize:14) : SketchPalette.heading(15)
+        }
+        if illustrated {
+            path.frame=CGRect(x:bounds.width*0.12,y:8,width:bounds.width*0.286,height:36)
+            choose.frame=CGRect(x:bounds.width*0.414,y:8,width:bounds.width*0.104,height:36)
+            let x=bounds.width*0.67, width=bounds.width*0.31
+            results.frame=CGRect(x:x,y:16,width:width,height:56)
+            clock.frame=CGRect(x:x,y:16,width:width,height:26)
+            empty.frame=CGRect(x:x,y:16,width:width,height:24)
+        } else {
+            let width=compact ? bounds.width : bounds.width/2-18
+            folderLabel.frame=CGRect(x:0,y:6,width:72,height:28)
+            path.frame=CGRect(x:80,y:4,width:max(110,width-(compact ? 80 : 170)),height:32)
+            choose.frame=CGRect(x:width-84,y:4,width:84,height:32)
+            let x:CGFloat=compact ? 0 : bounds.width/2+18, y:CGFloat=compact ? 48 : 0
+            recent.frame=CGRect(x:x,y:y,width:width,height:22)
+            results.frame=CGRect(x:x,y:y+26,width:width,height:64)
+            clock.frame=CGRect(x:x,y:y+28,width:width,height:26)
+            empty.frame=CGRect(x:x,y:y+28,width:width,height:24)
+        }
+        empty.isHidden = !results.isHidden || !clock.isHidden
+        results.layoutSubtreeIfNeeded()
+    }
+    override func draw(_ dirtyRect:NSRect) {
+        guard !compact && !usesArtwork else { return }
+        let line=NSBezierPath(); line.move(to:CGPoint(x:bounds.midX,y:4)); line.line(to:CGPoint(x:bounds.midX,y:bounds.height-8))
+        SketchPencil.stroke(line,color:SketchPalette.line.withAlphaComponent(0.4),width:0.8)
     }
 }
