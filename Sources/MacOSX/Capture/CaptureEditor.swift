@@ -189,7 +189,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     }
     func copyCurrentImage() { guard !adjustingRegion else { return }; copyImage(closeAfter: !editingPin) }
     func beginRegionAdjustment() {
-        guard !editingPin, !closed, !exporting else { return }
+        guard !editingPin, !closed, !exporting, !adjustingRegion else { return }
         regionWasVisible = window.isVisible
         adjustingRegion = true
         recognition?.cancel(); recognition = nil; recognitionButton.isEnabled = true

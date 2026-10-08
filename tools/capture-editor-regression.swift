@@ -25,7 +25,7 @@ import AppKit
         precondition(editor.handleSelectionKey(key(53, "\u{1b}")))
         precondition(states.last == false && editor.window.ignoresMouseEvents, "Leaving annotation restores draggable selection rather than closing")
         let before = editor.selectionFrame
-        editor.beginRegionAdjustment()
+        editor.beginRegionAdjustment(); editor.beginRegionAdjustment()
         precondition(!editor.handleSelectionKey(key(18, "1")), "Pending crop cannot start a drawing tool")
         let next = before.offsetBy(dx: 20, dy: 10)
         editor.replaceSelectionImage(image, at: next)
