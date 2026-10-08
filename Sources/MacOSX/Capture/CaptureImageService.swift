@@ -1,5 +1,16 @@
 import AppKit
+import os
 @preconcurrency import ScreenCaptureKit
+
+/// Metadata-only, monotonic stage timings; never records pixels or window titles.
+struct CaptureTiming {
+    private static let logger = Logger(subsystem: "cc.anjing.macos-x", category: "capture-latency")
+    private let start = DispatchTime.now().uptimeNanoseconds
+    func record(_ stage: String) {
+        let milliseconds = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+        Self.logger.info("\(stage, privacy: .public) elapsed_ms=\(milliseconds, privacy: .public)")
+    }
+}
 
 struct CaptureScreen {
     let id: CGDirectDisplayID
@@ -57,6 +68,7 @@ final class CaptureImageService {
         var valid: Bool { lock.lock(); defer { lock.unlock() }; return !cancelled }
     }
     private struct Request {
+        let timing: CaptureTiming
         let screens: [CaptureScreen]
         let window: CaptureWindow?
         let ticket: Ticket
@@ -72,9 +84,10 @@ final class CaptureImageService {
     @discardableResult
     func capture(_ screens: [CaptureScreen], window: CaptureWindow? = nil, completion: @escaping (Result<[CaptureFrame], Error>) -> Void) -> Ticket {
         let ticket = Ticket()
+        let timing = CaptureTiming()
         lock.lock(); latest?.cancel(); latest = ticket; lock.unlock()
         queue.async { [self] in
-            pending = Request(screens: screens, window: window, ticket: ticket, completion: completion)
+            pending = Request(timing: timing, screens: screens, window: window, ticket: ticket, completion: completion)
             beginNext()
         }
         return ticket
@@ -90,9 +103,12 @@ final class CaptureImageService {
         pending = nil
         guard request.ticket.valid else { beginNext(); return }
         busy = true
+        request.timing.record("request-start")
+        let contentTiming = CaptureTiming()
         SCShareableContent.getExcludingDesktopWindows(true, onScreenWindowsOnly: true) { [weak self] content, error in
             self?.queue.async { [weak self] in
                 guard let self else { return }
+                contentTiming.record("shareable-content")
                 guard request.ticket.valid else { self.finish(request, .failure(CaptureFailure.cancelled)); return }
                 guard let content else { self.finish(request, .failure(error ?? CaptureFailure.unavailable)); return }
                 if let window = request.window {
@@ -101,7 +117,9 @@ final class CaptureImageService {
                 }
                 let totalPixels = request.screens.reduce(CGFloat(0)) { $0 + $1.frame.width * $1.frame.height * $1.scale * $1.scale }
                 let reduction = min(1, sqrt(32_000_000 / max(1, totalPixels)))
+                let metadataTiming = CaptureTiming()
                 let windows = Self.windowRegions(primaryTop: request.screens.first?.frame.maxY ?? 0)
+                metadataTiming.record("window-metadata")
                 self.captureDisplay(request, displays: content.displays, windows: windows,
                                     index: 0, reduction: reduction, frames: [])
             }
@@ -121,12 +139,16 @@ final class CaptureImageService {
         configuration.height = max(1, Int((screen.frame.height * screen.scale * reduction).rounded(.down)))
         configuration.showsCursor = false
         let filter = SCContentFilter(display: display, excludingWindows: [])
+        let screenshotTiming = CaptureTiming()
         SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration) { [weak self] image, error in
             self?.queue.async { [weak self] in
                 guard let self else { return }
+                screenshotTiming.record("display-screenshot")
                 guard let image else { self.finish(request, .failure(error ?? CaptureFailure.unavailable)); return }
                 guard request.ticket.valid else { self.finish(request, .failure(CaptureFailure.cancelled)); return }
+                let samplingTiming = CaptureTiming()
                 let sampler = CapturePixelSampler(image: image)
+                samplingTiming.record("pixel-sampler")
                 self.captureDisplay(request, displays: displays, windows: windows, index: index + 1, reduction: reduction,
                                     frames: frames + [CaptureFrame(screen: screen, image: image,
                                                                  windows: windows.map(\.frame), sampler: sampler, windowTargets: windows)])
@@ -191,7 +213,12 @@ final class CaptureImageService {
         busy = false
         let result = result.mapError(CaptureFailure.screenCaptureError)
         if request.ticket.valid {
-            DispatchQueue.main.async { if request.ticket.valid { request.completion(result) } }
+            DispatchQueue.main.async {
+                if request.ticket.valid {
+                    request.timing.record("capture-delivered")
+                    request.completion(result)
+                }
+            }
         }
         beginNext()
     }

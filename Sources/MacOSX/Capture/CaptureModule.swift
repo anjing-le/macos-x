@@ -1,7 +1,7 @@
 import AppKit
 
 @MainActor
-final class CaptureModule {
+final class CaptureModule: NSObject {
     var onPermissionNeeded: (() -> Void)?
     var onStatusChange: ((String) -> Void)?
     private let images = CaptureImageService()
@@ -35,7 +35,9 @@ final class CaptureModule {
     /// Never persisted or inferred from the permission UI/preflight alone.
     private(set) var hasConfirmedScreenCaptureAccess = false
 
-    init() {
+    override init() {
+        super.init()
+        pins.showsOutline = UserDefaults.standard.bool(forKey: "capture.pin-outline")
         pins.onStatus = { [weak self] in self?.setStatus($0) }
         recordingPresentation.onStop = { [weak self] in self?.toggleRecording() }
     }
@@ -77,6 +79,7 @@ final class CaptureModule {
         selection.dismiss(); editor?.close(); editor = nil
         captureInProgress = true
         editorPending = false; pinAfterEditor = false
+        let timing = CaptureTiming()
         let screens = screenDescriptors()
         setStatus("正在截图…")
         captureTicket = images.capture(screens) { [weak self] result in
@@ -85,6 +88,7 @@ final class CaptureModule {
                 switch result {
                 case .failure(let error): self.finishSnapshot(); self.captureInProgress = false; self.handle(error)
                 case .success(let frames):
+                    timing.record("f1-pixels-ready")
                     self.hasConfirmedScreenCaptureAccess = true
                     self.setStatus("⌘C 复制 · ⌥C 取色 · Esc 取消")
                     self.selection.present(frames, previousRegion: self.lastRegion,
@@ -113,6 +117,7 @@ final class CaptureModule {
                             self.finishSelection(result, frames: frames, generation: expected, revision: captureRevision)
                         }
                     }
+                    timing.record("f1-selection-submitted")
                     self.finishSnapshot()
                 }
             }
@@ -386,11 +391,17 @@ final class CaptureModule {
             return CaptureScreen(id: id, frame: screen.frame, scale: screen.backingScaleFactor)
         }
     }
+    @objc private func setPinOutline(_ sender: NSButton) {
+        pins.showsOutline = sender.state == .on
+        UserDefaults.standard.set(pins.showsOutline, forKey: "capture.pin-outline")
+    }
     private func buildSettings() -> NSView {
         status.font = .systemFont(ofSize: 12); status.textColor = .secondaryLabelColor
         status.preferredMaxLayoutWidth = 600
         status.isHidden = ["未启用", "已就绪", "已停用", "录屏中", "已保存录屏"].contains(status.stringValue)
-        let stack = NSStackView(views: [recordingPresentation.settingsView, status])
+        let outline = MinimalToggle(title: "贴图高亮边框", target: self, action: #selector(setPinOutline(_:)))
+        outline.state = pins.showsOutline ? .on : .off
+        let stack = NSStackView(views: [outline, recordingPresentation.settingsView, status])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 14
         return stack
     }

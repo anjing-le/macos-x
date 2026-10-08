@@ -12,6 +12,12 @@ final class CapturePins {
     private var generation: UInt64 = 0
     private var ticket = CaptureImageService.Ticket()
     var onStatus: ((String) -> Void)?
+    var showsOutline = false {
+        didSet {
+            guard showsOutline != oldValue else { return }
+            entries.forEach { $0.setOutline(showsOutline) }
+        }
+    }
     var count: Int { entries.count }
     var canAdd: Bool { entries.count + pending.count + (adding ? 1 : 0) < 8 }
 
@@ -47,6 +53,7 @@ final class CapturePins {
             self.onStatus?("贴图 \(self.entries.count)/8")
         }
         entry.onStatus = { [weak self] in self?.onStatus?($0) }
+        entry.setOutline(showsOutline)
         entries.append(entry); entry.present()
         onStatus?("贴图 \(entries.count)/8 · ⌘C 复制 · ⌘W 关闭")
     }
@@ -155,6 +162,7 @@ private final class PinEntry: NSObject, NSWindowDelegate {
         zoom = snapshot.zoom; thumbnail = snapshot.thumbnail; window.alphaValue = snapshot.opacity
         view.transform = transform; view.needsDisplay = true
     }
+    func setOutline(_ visible: Bool) { view.showsOutline = visible }
     func present(focus: Bool = true) {
         guard !closed else { return }
         if focus { window.makeKeyAndOrderFront(nil); window.makeFirstResponder(view) }
@@ -315,6 +323,7 @@ private final class PinEntry: NSObject, NSWindowDelegate {
 @MainActor
 private final class PinView: NSView {
     var image: CGImage
+    var showsOutline = false { didSet { if showsOutline != oldValue { needsDisplay = true } } }
     var transform = CapturePinTransform()
     var sampler: CapturePixelSampler?
     private(set) var isSampling = false
@@ -404,6 +413,10 @@ private final class PinView: NSView {
     }
     @objc func copy(_ sender: Any?) { onCommand?(.copy) }
     override func keyDown(with event: NSEvent) {
+        if event.keyCode == 49, event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
+            if !event.isARepeat { onCommand?(.edit) }
+            return
+        }
         if event.keyCode == 53 { onCommand?(.close); return }
         if event.keyCode == 36 || event.keyCode == 76 { onCommand?(.copy); return }
         if event.modifierFlags.contains(.command) {
@@ -431,6 +444,10 @@ private final class PinView: NSView {
         context.concatenate(transform.matrix(in: bounds, image: image))
         context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         context.restoreGState()
+        if showsOutline {
+            let edge = NSBezierPath(roundedRect: bounds.insetBy(dx: 1.5, dy: 1.5), xRadius: 3, yRadius: 3)
+            SketchPencil.stroke(edge, color: SketchPalette.blue, width: 1.6)
+        }
         guard isSampling, let point = samplePoint, let sample = currentSample(), let sampler,
               let rawPatch = sampler.magnifier(sample: sample, radius: 5), let patch = transform.render(rawPatch) else { return }
         let width = min(150, bounds.width), height = min(136, bounds.height)

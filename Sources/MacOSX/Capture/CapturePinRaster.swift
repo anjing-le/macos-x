@@ -117,18 +117,18 @@ enum CaptureClipboard {
         guard !value.isEmpty, value.count <= 4096 else { return nil }
         if let color = CaptureClipboardColor(text: value) { return color.card() }
         let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 8
-        paragraph.paragraphSpacing = 6
+        paragraph.lineSpacing = 3
+        paragraph.paragraphSpacing = 2
         paragraph.lineBreakMode = .byWordWrapping
-        let attributed = NSMutableAttributedString(attributedString: attributedText(value, size: 24))
+        let attributed = NSMutableAttributedString(attributedString: attributedText(value, size: 18))
         attributed.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: attributed.length))
         let setter = CTFramesetterCreateWithAttributedString(attributed)
         let size = CTFramesetterSuggestFrameSizeWithConstraints(setter, CFRange(location: 0, length: 0), nil,
-                                                               CGSize(width: 680, height: CGFloat.greatestFiniteMagnitude), nil)
-        guard size.height <= 1800, let context = CaptureRaster.context(width: 760, height: max(144, Int(size.height.rounded(.up)) + 80)) else { return nil }
+                                                               CGSize(width: 928, height: CGFloat.greatestFiniteMagnitude), nil)
+        guard size.height <= 1800, let context = CaptureRaster.context(width: 1000, height: max(120, Int(size.height.rounded(.up)) + 64)) else { return nil }
         context.setFillColor(CGColor(gray: 1, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: context.width, height: context.height))
-        let path = CGPath(rect: CGRect(x: 40, y: 40, width: 680, height: context.height - 80), transform: nil)
+        let path = CGPath(rect: CGRect(x: 36, y: 32, width: 928, height: context.height - 64), transform: nil)
         CTFrameDraw(CTFramesetterCreateFrame(setter, CFRange(location: 0, length: 0), path, nil), context)
         return context.makeImage()
     }

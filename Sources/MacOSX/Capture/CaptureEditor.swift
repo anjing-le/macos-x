@@ -138,9 +138,14 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
                     case 15 where command && !self.editingPin: self.reselect()
                     case 36, 76: self.confirm()
                     case 53: self.cancelCurrentOperation()
-                    case 49 where !command:
-                        self.toolbarVisible.toggle()
-                        if self.toolbarVisible { self.positionToolbar() } else { self.toolbar.orderOut(nil) }
+                    case 49 where event.modifierFlags.intersection([.command, .control, .option]).isEmpty:
+                        guard !event.isARepeat else { return true }
+                        if self.editingPin {
+                            self.confirm()
+                        } else {
+                            self.toolbarVisible.toggle()
+                            if self.toolbarVisible { self.positionToolbar() } else { self.toolbar.orderOut(nil) }
+                        }
                     default:
                         guard !command, !event.modifierFlags.contains(.control), let key = event.charactersIgnoringModifiers else { return false }
                         if event.modifierFlags.contains(.option) {

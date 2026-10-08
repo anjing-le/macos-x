@@ -320,6 +320,8 @@ import AppKit
     var hint = ""
     private let snapshot: CaptureFrame
     private let displayImage: NSImage
+    private let creationTiming = CaptureTiming()
+    private var firstDraw = true
     private var tracking: NSTrackingArea?
     var region: (() -> CGRect)?
     var pointer: (() -> CGPoint)?
@@ -360,6 +362,14 @@ import AppKit
             .map { CGRect(x: $0.0 - 3, y: $0.1 - 3, width: 6, height: 6) }
     }
     override func draw(_ dirtyRect: NSRect) {
+        let drawingTiming = firstDraw ? CaptureTiming() : nil
+        defer {
+            if let drawingTiming {
+                drawingTiming.record("selection-first-draw")
+                creationTiming.record("selection-created-to-drawn")
+                firstDraw = false
+            }
+        }
         displayImage.draw(in: bounds)
         let globalRegion = region?() ?? .null, overlap = globalRegion.intersection(snapshot.screen.frame)
         let local = overlap.offsetBy(dx: -snapshot.screen.frame.minX, dy: -snapshot.screen.frame.minY)

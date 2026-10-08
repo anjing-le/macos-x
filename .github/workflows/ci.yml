@@ -25,5 +25,7 @@ jobs:
         run: zsh tools/run-local-window-regression.sh
       - name: Check quiet update reminders and manual installation choices
         run: zsh tools/run-update-presentation-regression.sh
+      - name: Check shared prompt layouts, preferences and keyboard selection
+        run: zsh tools/run-prompt-wheel-regression.sh
       - name: Build a development app with OTA explicitly disabled
         run: scripts/build.sh --disable-updates

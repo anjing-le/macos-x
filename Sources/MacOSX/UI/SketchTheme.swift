@@ -149,9 +149,22 @@ final class SketchTextField: NSTextField {
 }
 
 @MainActor
+private final class SketchSearchCell: NSSearchFieldCell {
+    override func searchTextRect(forBounds rect: NSRect) -> NSRect {
+        var text = super.searchTextRect(forBounds: rect)
+        let font = self.font ?? NSFont.systemFont(ofSize: 12)
+        let height = ceil(font.ascender - font.descender + 2)
+        text.origin.y = rect.midY - height/2; text.size.height = height
+        return text
+    }
+}
+
+@MainActor
 final class SketchSearchField: NSSearchField {
     override init(frame: NSRect) {
         super.init(frame: frame)
+        cell = SketchSearchCell(textCell: "")
+        isEditable = true; isSelectable = true
         isBezeled = false; isBordered = false; drawsBackground = false
         focusRingType = .none; textColor = SketchPalette.ink
     }

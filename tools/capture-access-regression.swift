@@ -129,6 +129,7 @@ final class NSSavePanel {
     func resume() {}
 }
 @MainActor final class CapturePins {
+    var showsOutline = false
     func applyActiveEdit() -> Bool { false }
     var onStatus: ((String) -> Void)?
     var canAdd = true
@@ -175,6 +176,11 @@ enum NSPasteboard {
     static let general = Board()
 }
 
+@MainActor final class MinimalToggle: NSButton {
+    convenience init(title: String, target: AnyObject?, action: Selector?) {
+        self.init(frame: .zero); self.title = title; self.target = target; self.action = action
+    }
+}
 private struct CheckFailure: Error { let message: String }
 @main @MainActor private struct AccessRegression {
     static var checks = 0

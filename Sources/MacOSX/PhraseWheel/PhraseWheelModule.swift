@@ -5,6 +5,7 @@ import MacOSXCore
 @MainActor final class PhraseWheelModule {
     private let defaults: UserDefaults
     private var collection: PromptCollection
+    private var presentation: PromptPresentation
     private var enabled = false
     private var settings: PromptSettingsView?
     private var panel: PhraseWheelPanel?
@@ -13,6 +14,10 @@ import MacOSXCore
     private static let key = "promptLibrary.collection.v1"
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        presentation = PromptPresentation(
+            style: PromptPresentation.Style(rawValue: defaults.string(forKey: "promptLibrary.presentation") ?? "ring") ?? .ring,
+            wheelCount: min(10,max(0,(defaults.object(forKey: "promptLibrary.ringCount") as? Int) ?? 10)),
+            listCount: min(10,max(0,(defaults.object(forKey: "promptLibrary.listCount") as? Int) ?? 10)))
         if let data = defaults.data(forKey: Self.key), data.count <= PromptCollection.byteLimit,
            let value = try? JSONDecoder().decode(PromptCollection.self, from: data), (try? value.validate()) != nil {
             collection = value
@@ -25,12 +30,19 @@ import MacOSXCore
     }
     var settingsView: NSView {
         if let settings { return settings }
-        let view = PromptSettingsView(collection: collection)
+        let view = PromptSettingsView(collection: collection, presentation: presentation)
         view.onChange = { [weak self] value in
             guard let self else { return }; self.collection = value; self.revision += 1
             self.saveWork?.cancel()
             let work = DispatchWorkItem { [weak self] in self?.saveAsync() }
             self.saveWork = work; DispatchQueue.main.asyncAfter(deadline: .now()+0.35, execute: work)
+        }
+        view.onPresentationChange = { [weak self] value in
+            guard let self else { return }; self.presentation = value
+            self.defaults.set(value.style.rawValue, forKey: "promptLibrary.presentation")
+            self.defaults.set(value.wheelCount, forKey: "promptLibrary.ringCount")
+            self.defaults.set(value.listCount, forKey: "promptLibrary.listCount")
+            self.dismissWheel()
         }
         view.onPreview = { [weak self] in self?.presentWheel() }
         settings = view; return view
@@ -56,7 +68,7 @@ import MacOSXCore
         let mouse = NSEvent.mouseLocation
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) ?? NSScreen.main else { return }
         let snapshot = collection
-        let panel = PhraseWheelPanel(anchor: mouse, screen: screen.visibleFrame, collection: snapshot)
+        let panel = PhraseWheelPanel(anchor: mouse, screen: screen.visibleFrame, collection: snapshot, presentation: presentation)
         panel.onChoose = { [weak self] index in
             guard snapshot.prompts.indices.contains(index), !snapshot.prompts[index].content.isEmpty else { return }
             self?.dismissWheel(); NSPasteboard.general.clearContents()
@@ -71,6 +83,8 @@ import MacOSXCore
 @MainActor private final class PromptSettingsView: NSView, NSSearchFieldDelegate, NSTextViewDelegate, NSTableViewDataSource, NSTableViewDelegate {
     var onChange: ((PromptCollection) -> Void)?
     var onPreview: (() -> Void)?
+    var onPresentationChange: ((PromptPresentation) -> Void)?
+    private var presentation: PromptPresentation
     private var collection: PromptCollection
     private var encodedSize: Int
     private var selectedSlot = 0
@@ -80,30 +94,47 @@ import MacOSXCore
     private var pending: PromptImport?
     private var loading = false
     private var wasCompact = false
-    private let ring = PromptRingView(size: CGSize(width: 300, height: 300))
-    private let wheelTab = MinimalButton(title: "转盘", target: nil, action: nil, style: .quiet)
+    private let presentationHost = NSView()
+    private var presentationPreview: PromptWheelView?
+    private let wheelTab = MinimalButton(title: "常用", target: nil, action: nil, style: .quiet)
     private let libraryTab = MinimalButton(title: "全部", target: nil, action: nil, style: .quiet)
     private let add = MinimalButton(title: "+", target: nil, action: nil, style: .quiet)
     private let importer = MinimalButton(title: "导入 JSON", target: nil, action: nil, style: .quiet)
     private let cancelImport = MinimalButton(title: "取消", target: nil, action: nil, style: .quiet)
     private let format = MinimalButton(title: "格式", target: nil, action: nil, style: .quiet)
     private let preview = MinimalButton(title: "预览", target: nil, action: nil, style: .quiet)
+    private let displayStyle = MinimalPopUpButton()
+    private let ringCount = MinimalPopUpButton(), listCount = MinimalPopUpButton()
+    private let ringCountLabel = NSTextField(labelWithString: "轮盘")
+    private let listCountLabel = NSTextField(labelWithString: "清单")
     private let picker = MinimalPopUpButton()
     private let placement = MinimalPopUpButton()
     private let titleField = SketchTextField()
     private let body = NSTextView(), table = NSTableView(), search = SketchSearchField()
     private let scroll = SketchScrollView(), listScroll = SketchScrollView()
     private let status = NSTextField(wrappingLabelWithString: "")
-    private var compact: Bool { bounds.width < 620 }
-    override var intrinsicContentSize: NSSize { NSSize(width: 700, height: compact ? 690 : 400) }
-    init(collection: PromptCollection) {
+    private var compact: Bool { bounds.width < 740 }
+    override var intrinsicContentSize: NSSize { NSSize(width: 760, height: compact ? 798 : 508) }
+    init(collection: PromptCollection, presentation: PromptPresentation) {
+        self.presentation = presentation
         self.collection = collection; encodedSize = (try? JSONEncoder().encode(collection).count) ?? 0
-        super.init(frame: NSRect(x:0,y:0,width:700,height:400))
+        super.init(frame: NSRect(x:0,y:0,width:760,height:508))
         for (button, action) in [(wheelTab,#selector(showWheel)),(libraryTab,#selector(showLibrary)),(add,#selector(addPrompt)),(importer,#selector(importPressed)),(format,#selector(copyFormat)),(cancelImport,#selector(cancelPendingImport)),(preview,#selector(previewPressed))] { button.target = self; button.action = action; addSubview(button) }
+        displayStyle.identifier = .init("prompt-presentation")
+        ringCount.identifier = .init("prompt-ring-count"); listCount.identifier = .init("prompt-list-count")
+        displayStyle.addItems(withTitles: ["轮盘", "清单"])
+        displayStyle.selectItem(at: presentation.style == .ring ? 0 : 1)
+        displayStyle.setAccessibilityLabel("提示词展示样式")
+        for (control,label,count) in [(ringCount,"轮盘常用数量",presentation.wheelCount),(listCount,"清单常用数量",presentation.listCount)] {
+            control.addItems(withTitles: (0...10).map(String.init)); control.selectItem(at: count)
+            control.setAccessibilityLabel(label); control.toolTip = "0：仅搜索；减少数量不会删除提示词"
+        }
+        for control in [displayStyle,ringCount,listCount] { control.target = self; control.action = #selector(presentationChanged); addSubview(control) }
+        for label in [ringCountLabel,listCountLabel] { label.font = .systemFont(ofSize:12); label.textColor = SketchPalette.muted; addSubview(label) }
         cancelImport.isHidden = true
         format.toolTip = "复制给 AI 使用的 JSON 协议"; format.setAccessibilityLabel("复制 AI 导入格式")
         add.setAccessibilityLabel("新增提示词")
-        ring.onChoose = { [weak self] slot in self?.selectSlot(slot) }; addSubview(ring)
+        presentationHost.identifier = .init("prompt-presentation-preview"); addSubview(presentationHost)
         picker.target = self; picker.action = #selector(pickExisting); picker.setAccessibilityLabel("此位置的提示词")
         placement.target = self; placement.action = #selector(changePlacement); placement.setAccessibilityLabel("转盘位置")
         titleField.placeholderString = "标题"; titleField.delegate = self; titleField.isBezeled = false; titleField.drawsBackground = false
@@ -125,14 +156,20 @@ import MacOSXCore
     required init?(coder: NSCoder) { nil }
     override func layout() {
         super.layout()
-        let top = bounds.height-32, left = compact ? bounds.width : 300
+        displayStyle.frame = CGRect(x:0,y:bounds.height-32,width:100,height:28)
+        ringCountLabel.frame = CGRect(x:114,y:bounds.height-26,width:32,height:18)
+        ringCount.frame = CGRect(x:148,y:bounds.height-32,width:58,height:28)
+        listCountLabel.frame = CGRect(x:220,y:bounds.height-26,width:32,height:18)
+        listCount.frame = CGRect(x:254,y:bounds.height-32,width:58,height:28)
+        let top = bounds.height-80, left = compact ? bounds.width : 360
         wheelTab.frame = NSRect(x:0,y:top,width:54,height:28); libraryTab.frame = NSRect(x:58,y:top,width:54,height:28)
         add.frame = NSRect(x:left-32,y:top,width:28,height:28)
-        let ringSize = min(300,left)
-        ring.frame = NSRect(x:0,y:top-ringSize-12,width:ringSize,height:ringSize)
+        let ringSize = min(360,left)
+        presentationHost.frame = NSRect(x:0,y:top-ringSize-12,width:ringSize,height:ringSize)
+        layoutPreview()
         search.frame = NSRect(x:0,y:top-44,width:left,height:28)
         listScroll.frame = NSRect(x:0,y:top-ringSize-12,width:left,height:ringSize-42)
-        let x:CGFloat = compact ? 0 : 324, width = max(150,bounds.width-x)
+        let x:CGFloat = compact ? 0 : 384, width = max(150,bounds.width-x)
         let editTop = compact ? top-ringSize-54 : top
         picker.frame = NSRect(x:x,y:editTop,width:width,height:28); placement.frame = picker.frame
         titleField.frame = NSRect(x:x+10,y:editTop-42,width:width-20,height:28)
@@ -146,8 +183,8 @@ import MacOSXCore
         if wasCompact != compact { wasCompact = compact; invalidateIntrinsicContentSize() }
     }
     private func refresh() {
-        ring.update(collection.wheelEntries, selected:selectedSlot, editing:true)
-        ring.isHidden = libraryMode; listScroll.isHidden = !libraryMode; search.isHidden = !libraryMode
+        rebuildPreview()
+        presentationHost.isHidden = libraryMode; listScroll.isHidden = !libraryMode; search.isHidden = !libraryMode
         wheelTab.state = libraryMode ? .off : .on; libraryTab.state = libraryMode ? .on : .off
         picker.isHidden = libraryMode; placement.isHidden = !libraryMode
         picker.removeAllItems(); picker.addItem(withTitle:"空位")
@@ -158,6 +195,29 @@ import MacOSXCore
         let slot = selected.flatMap { collection.slots.firstIndex(of:collection.prompts[$0].id) }
         placement.selectItem(at:slot.map { $0+1 } ?? 0)
         filterRows(); needsLayout = true
+    }
+    private func rebuildPreview() {
+        presentationPreview?.finish(); presentationPreview?.removeFromSuperview()
+        let view = PromptWheelView(size:CGSize(width:360,height:360),collection:collection,
+                                   presentation:presentation,editing:true,selectedPrompt:selected)
+        view.onEditSlot = { [weak self] slot in self?.selectSlot(slot) }
+        view.onEditPrompt = { [weak self] index in
+            guard let self else { return }
+            self.window?.makeFirstResponder(nil)
+            self.selected = index
+            let slot = self.collection.slots.firstIndex(of:self.collection.prompts[index].id)
+            if let slot { self.selectedSlot = slot }
+            self.libraryMode = slot == nil; self.loadEntry(); self.refresh()
+        }
+        view.onResize = { [weak self] _ in self?.layoutPreview() }
+        presentationPreview = view; presentationHost.addSubview(view); layoutPreview()
+    }
+    private func layoutPreview() {
+        guard let view = presentationPreview else { return }
+        let size = view.preferredSize
+        view.frame = CGRect(x:max(0,(presentationHost.bounds.width-size.width)/2),
+                            y:max(0,(presentationHost.bounds.height-size.height)/2),width:size.width,height:size.height)
+        view.needsLayout = true
     }
     private func loadEntry() {
         loading = true; titleField.stringValue = selected.map { collection.prompts[$0].title } ?? ""
@@ -245,6 +305,13 @@ import MacOSXCore
         let row = table.selectedRow; guard !loading, rows.indices.contains(row) else { return }
         let index = rows[row]; guard selected != index else { return }
         window?.makeFirstResponder(nil); selected = index; loadEntry(); refresh()
+    }
+    @objc private func presentationChanged() {
+        window?.makeFirstResponder(nil)
+        presentation = PromptPresentation(style: displayStyle.indexOfSelectedItem == 0 ? .ring : .list,
+                                          wheelCount: ringCount.indexOfSelectedItem, listCount: listCount.indexOfSelectedItem)
+        rebuildPreview(); needsLayout = true
+        onPresentationChange?(presentation)
     }
     @objc private func previewPressed() { window?.makeFirstResponder(nil); onPreview?() }
     @objc private func copyFormat() { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(PromptImport.aiInstructions,forType:.string); status.stringValue = "AI 导入格式已复制" }
