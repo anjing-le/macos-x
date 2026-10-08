@@ -9,6 +9,8 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Check menu bar interaction
+        run: zsh tools/run-menu-bar-regression.sh
       - name: Test core
         run: swift test --disable-keychain
       - name: Check screenshot pixel sampling and selection geometry

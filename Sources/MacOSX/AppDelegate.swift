@@ -5,12 +5,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private let updates = UpdateController()
     private let modules = ModuleCoordinator()
     private var client: ToolboxWindowController?
+    private lazy var menuBar = MenuBarController(
+        onOpen: { [weak self] in self?.showClient() },
+        onCheckUpdates: { [weak self] in self?.checkUpdates() },
+        canCheckUpdates: { [weak self] in self?.updates.canCheckForUpdates ?? false },
+        onQuit: { NSApp.terminate(nil) }
+    )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
+        menuBar.start()
         updates.onAvailabilityChanged = { [weak self] available in self?.client?.setUpdateAvailable(available) }
         updates.start()
-        showClient()
+        prepareClient()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -20,14 +27,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
-    func applicationWillTerminate(_ notification: Notification) { modules.stop() }
+    func applicationWillTerminate(_ notification: Notification) { menuBar.stop(); modules.stop() }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         modules.prepareToTerminate { sender.reply(toApplicationShouldTerminate: true) }
         return .terminateLater
     }
 
-    private func showClient() {
+    private func prepareClient() {
         if client == nil {
             client = ToolboxWindowController(
                 modules: modules,
@@ -35,6 +42,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 canCheckUpdates: { [weak self] in self?.updates.canCheckForUpdates ?? false }
             )
         }
+    }
+
+    private func showClient() {
+        prepareClient()
         client?.setUpdateAvailable(updates.hasAvailableUpdate)
         client?.present()
     }
