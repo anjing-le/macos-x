@@ -242,10 +242,11 @@ final class ToolboxWindowController: NSWindowController {
     required init?(coder: NSCoder) { nil }
 
     func present() {
+        NSApp.unhide(nil)
+        NSApp.activate(ignoringOtherApps: true)
         window?.deminiaturize(nil)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     private func navigate(_ page: Page, title: String) {

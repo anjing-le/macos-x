@@ -1,8 +1,11 @@
 import AppKit
+import os
 
 /// One permanent entry point, with no timer or background polling.
 @MainActor final class MenuBarController: NSObject, NSMenuItemValidation {
     private var item: NSStatusItem?
+    private var lastLeftClick: TimeInterval?
+    private let logger = Logger(subsystem: "cc.anjing.macos-x", category: "menu-bar")
     private let onOpen: () -> Void
     private let onCheckUpdates: () -> Void
     private let canCheckUpdates: () -> Bool
@@ -27,17 +30,24 @@ import AppKit
     }
     func start() {
         guard item == nil else { return }
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        let item = NSStatusBar.system.statusItem(withLength: 30)
         self.item = item
         guard let button = item.button else { return }
-        let image = NSImage(systemSymbolName: "apple.logo", accessibilityDescription: "macos-x")
-        image?.isTemplate = true; button.image = image
+        button.imageScaling = .scaleProportionallyDown
+        button.image = Self.icon()
         button.toolTip = "macos-x · 双击打开，右键菜单"
         button.setAccessibilityLabel("macos-x，双击打开主界面，右键打开菜单")
         button.target = self; button.action = #selector(clicked)
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
     }
+    static func icon() -> NSImage? {
+        let symbol = NSImage(systemSymbolName: "apple.logo", accessibilityDescription: "macos-x")
+        let image = symbol?.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 20, weight: .medium))
+        image?.size = NSSize(width: 20, height: 22); image?.isTemplate = true
+        return image
+    }
     func stop() {
+        lastLeftClick = nil
         guard let item else { return }
         NSStatusBar.system.removeStatusItem(item); self.item = nil
     }
@@ -45,13 +55,19 @@ import AppKit
         guard let event = NSApp.currentEvent else { onOpen(); return }
         handleClick(event)
     }
-    func handleClick(_ event: NSEvent) {
-        if event.type == .rightMouseUp {
+    func handleClick(_ event: NSEvent, now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        logger.info("button event=\(event.type.rawValue)")
+        if event.type == .rightMouseUp || event.type == .rightMouseDown {
+            lastLeftClick = nil
             guard let button = item?.button else { return }
             menu.popUp(positioning: nil, at: CGPoint(x: 0, y: button.bounds.minY), in: button)
-        } else if event.type == .leftMouseUp, event.clickCount >= 2 {
-            onOpen()
-        } else if event.type == .keyDown { onOpen() }
+        } else if event.type == .leftMouseUp || event.type == .leftMouseDown {
+            // Status-item actions may not carry the usual window double-click
+            // count. Recognize consecutive actions using the user's OS interval.
+            if let previous = lastLeftClick, now >= previous, now - previous <= NSEvent.doubleClickInterval {
+                lastLeftClick = nil; logger.info("double click opens client"); onOpen()
+            } else { lastLeftClick = now }
+        } else if event.type == .keyDown { lastLeftClick = nil; onOpen() }
     }
     @objc private func openClient() { onOpen() }
     @objc private func checkUpdates() { onCheckUpdates() }
