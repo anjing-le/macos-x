@@ -422,7 +422,7 @@ final class CaptureModule: NSObject {
         status.font = .systemFont(ofSize: 12); status.textColor = .secondaryLabelColor
         status.preferredMaxLayoutWidth = 600
         status.isHidden = ["未启用", "已就绪", "已停用", "录屏中", "已保存录屏"].contains(status.stringValue)
-        let outline = MinimalToggle(title: "贴图高亮边框", target: self, action: #selector(setPinOutline(_:)))
+        let outline = MinimalToggle(title: "贴图白光边缘", target: self, action: #selector(setPinOutline(_:)))
         outline.state = pins.showsOutline ? .on : .off
         let stack = NSStackView(views: [outline, recordingPresentation.settingsView, status])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 14

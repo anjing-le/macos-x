@@ -444,10 +444,7 @@ private final class PinView: NSView {
         context.concatenate(transform.matrix(in: bounds, image: image))
         context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         context.restoreGState()
-        if showsOutline {
-            let edge = NSBezierPath(roundedRect: bounds.insetBy(dx: 1.5, dy: 1.5), xRadius: 3, yRadius: 3)
-            SketchPencil.stroke(edge, color: SketchPalette.blue, width: 1.6)
-        }
+        if showsOutline { CapturePinHighlight.draw(in: context, bounds: bounds) }
         guard isSampling, let point = samplePoint, let sample = currentSample(), let sampler,
               let rawPatch = sampler.magnifier(sample: sample, radius: 5), let patch = transform.render(rawPatch) else { return }
         let width = min(150, bounds.width), height = min(136, bounds.height)
