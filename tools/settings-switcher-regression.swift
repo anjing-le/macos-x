@@ -66,7 +66,15 @@ import MacOSXCore
             for pass in 0...1 {
                 let keys = kind == "capture" ? ["截图 · F1","贴图 · F3","显隐 · ⇧F3","录屏 · ⌃⌥R"] : ["⌘ Tab · 松开确认"]
                 let board=SettingsBoardView(kind:kind,settings:settings,shortcuts:keys.map { NSTextField(labelWithString:$0) })
-                board.frame.size=board.intrinsicContentSize; board.layoutSubtreeIfNeeded()
+                let root=NSStackView(views:[NSTextField(labelWithString:"启用"),board])
+                root.orientation = .vertical; root.alignment = .leading; root.spacing=12
+                root.translatesAutoresizingMaskIntoConstraints=false
+                board.widthAnchor.constraint(equalTo:root.widthAnchor).isActive=true
+                root.frame=CGRect(x:24,y:24,width:912,height:root.fittingSize.height)
+                root.layoutSubtreeIfNeeded()
+                try require(abs(board.frame.width-912)<1,"board fills default client width with balanced margins")
+                try require(root.fittingSize.height+48 <= 584,"common settings fit default client without outer scrolling")
+                board.layoutSubtreeIfNeeded()
                 let choices=board.subviews.compactMap { $0 as? IllustratedSettingChoice }.filter(\.isEnabled)
                 try require(choices.count == 2,"exactly two live illustration choices")
                 choices[1].performClick(nil)

@@ -146,7 +146,12 @@ private final class ToolboxContent: NSView {
         grid.setCards([])
         clearDetail()
         scroll.documentView = detailDocument
-        views.forEach(detail.addArrangedSubview)
+        views.forEach { view in
+            detail.addArrangedSubview(view)
+            if view is SettingsBoardView {
+                view.widthAnchor.constraint(equalTo: detail.widthAnchor).isActive = true
+            }
+        }
         scroll.contentView.scroll(to: .zero)
         needsLayout = true
         layoutSubtreeIfNeeded()
@@ -169,7 +174,8 @@ private final class ToolboxContent: NSView {
         } else {
             let inset: CGFloat = 24
             let preferredWidth = max(480, detail.arrangedSubviews.map { $0.intrinsicContentSize.width }.max() ?? 480)
-            let contentWidth = max(220, min(preferredWidth, width - inset * 2))
+            let fillsPage = detail.arrangedSubviews.contains { $0 is SettingsBoardView }
+            let contentWidth = max(220, fillsPage ? width - inset * 2 : min(preferredWidth, width - inset * 2))
             detail.frame = NSRect(x: inset, y: inset, width: contentWidth, height: max(0, detail.fittingSize.height))
             detail.layoutSubtreeIfNeeded()
             let contentHeight = max(0, detail.fittingSize.height)
