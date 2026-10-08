@@ -282,6 +282,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         updateToolButtons(); updateSelectionInput()
         if editingPin { window.makeFirstResponder(canvas) }
     }
+    private static let colorNames = ["黑", "红", "橙", "黄", "绿", "蓝", "紫", "白"]
     private static let colors: [NSColor] = [SketchPalette.ink, SketchPalette.coral, SketchPalette.orange, SketchPalette.yellow, SketchPalette.green, SketchPalette.blue, SketchPalette.purple, .white]
     @objc private func showColors() {
         if colorPopover?.isShown == true { colorPopover?.close(); return }
@@ -295,6 +296,8 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     @objc private func chooseColor(_ sender: NSButton) {
         guard Self.colors.indices.contains(sender.tag) else { return }
         let ink = Self.colors[sender.tag]; canvas.ink = CaptureInk(ink); colorButton.ink = ink
+        let description = "调色盘 · 当前：\(Self.colorNames[sender.tag]) · 7"
+        colorButton.toolTip = description; colorButton.setAccessibilityLabel(description)
         toolButtons.forEach { $0.ink = ink }
         colorPopover?.close(); window.makeFirstResponder(canvas)
     }

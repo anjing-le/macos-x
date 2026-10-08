@@ -50,6 +50,7 @@ final class CaptureToolButton: NSButton {
     override func draw(_ dirtyRect: NSRect) {
         let selected = state == .on
         let glyphColor: NSColor = !isEnabled ? NSColor(calibratedWhite: 0.65, alpha: 1)
+            : glyph == .swatch ? SketchPalette.ink
             : selected ? ink
             : glyph == .arrow ? SketchPalette.coral : glyph == .rectangle ? SketchPalette.blue : NSColor(calibratedWhite: hovered || cell?.isHighlighted == true ? 0.23 : 0.32, alpha: 1)
         glyphColor.setStroke()
@@ -103,6 +104,13 @@ final class CaptureToolButton: NSButton {
 
         }
         SketchPencil.stroke(path, color: glyphColor, width: selected ? 2.7 : 1.65)
+        if glyph == .swatch, selected {
+            let rgb = ink.usingColorSpace(.deviceRGB) ?? ink
+            let lightness = rgb.redComponent * 0.2126 + rgb.greenComponent * 0.7152 + rgb.blueComponent * 0.0722
+            let check = NSBezierPath()
+            check.move(to: CGPoint(x: 11, y: 17)); check.line(to: CGPoint(x: 15, y: 13)); check.line(to: CGPoint(x: 23, y: 22))
+            SketchPencil.stroke(check, color: lightness > 0.6 ? SketchPalette.ink : .white, width: 1.8)
+        }
         if window?.firstResponder === self {
             glyphColor.setStroke()
             let focus = NSBezierPath(); focus.move(to: CGPoint(x: 13, y: 4)); focus.line(to: CGPoint(x: 21, y: 4))
@@ -131,17 +139,28 @@ final class CaptureToolButton: NSButton {
 }
 
 @MainActor final class CaptureColorPalette: NSView {
+    private weak var colorTarget: AnyObject?
+    private let colorAction: Selector
     init(colors: [NSColor], selected: NSColor, target: AnyObject, action: Selector) {
+        colorTarget = target; colorAction = action
         super.init(frame: NSRect(x: 0, y: 0, width: 220, height: 154))
         let points: [CGPoint] = [CGPoint(x: 35, y: 67), CGPoint(x: 45, y: 105), CGPoint(x: 83, y: 126),
             CGPoint(x: 129, y: 128), CGPoint(x: 177, y: 110), CGPoint(x: 157, y: 38), CGPoint(x: 121, y: 29), CGPoint(x: 70, y: 33)]
         for (index, color) in colors.enumerated() {
-            let button = CaptureToolButton(.swatch, title: ["黑", "红", "橙", "黄", "绿", "蓝", "紫", "白"][index], target: target, action: action)
+            let button = CaptureToolButton(.swatch, title: ["黑", "红", "橙", "黄", "绿", "蓝", "紫", "白"][index], target: self, action: #selector(choosePaint(_:)))
             button.ink = color; button.tag = index; button.setButtonType(.momentaryPushIn)
             button.frame = CGRect(x: points[index].x - 17, y: points[index].y - 17, width: 34, height: 34)
+            button.state = color.isEqual(selected) ? .on : .off
             button.setAccessibilityValue(color.isEqual(selected) ? "当前颜色" : "")
             addSubview(button)
         }
+    }
+    @objc private func choosePaint(_ sender: NSButton) {
+        for button in subviews.compactMap({ $0 as? NSButton }) {
+            button.state = button === sender ? .on : .off
+            button.setAccessibilityValue(button === sender ? "当前颜色" : "")
+        }
+        if let colorTarget { NSApp.sendAction(colorAction, to: colorTarget, from: sender) }
     }
     required init?(coder: NSCoder) { nil }
     override func draw(_ dirtyRect: NSRect) {

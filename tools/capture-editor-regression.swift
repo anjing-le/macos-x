@@ -54,8 +54,17 @@ import AppKit
         precondition(editor.handleSelectionKey(key(21, "4")))
         precondition(!editor.handleThicknessScroll(wheel(1)), "Text tool must not accidentally change font size")
         precondition(editor.handleSelectionKey(key(53, "\u{1b}")))
-        let palette = CaptureColorPalette(colors: [SketchPalette.ink, SketchPalette.coral, SketchPalette.orange, SketchPalette.yellow, SketchPalette.green, SketchPalette.blue, SketchPalette.purple, .white], selected: SketchPalette.coral, target: editor, action: NSSelectorFromString("copy:"))
+        let palette = CaptureColorPalette(colors: [SketchPalette.ink, SketchPalette.coral, SketchPalette.orange, SketchPalette.yellow, SketchPalette.green, SketchPalette.blue, SketchPalette.purple, .white], selected: SketchPalette.coral, target: editor, action: NSSelectorFromString("chooseColor:"))
         precondition(palette.subviews.count == 8, "All eight preset colours remain directly selectable")
+        let colourButtons = palette.subviews.compactMap { $0 as? CaptureToolButton }
+        precondition(colourButtons.filter { $0.state == .on }.map(\.tag) == [1], "Current colour is visibly selected in the palette")
+        for button in colourButtons {
+            button.performClick(nil)
+            precondition(colourButtons.filter { $0.state == .on }.map(\.tag) == [button.tag], "Palette selection is exclusive after every click")
+            let expected = CaptureInk(button.ink)
+            precondition(canvas.ink.red == expected.red && canvas.ink.green == expected.green && canvas.ink.blue == expected.blue,
+                         "Each graphical paint spot directly selects its corresponding colour")
+        }
         if let output = ProcessInfo.processInfo.environment["MACOSX_PALETTE_PREVIEW"] {
             NSApp.appearance = NSAppearance(named: .aqua)
             let host = CaptureToolbarSurface(frame: CGRect(x: 0, y: 0, width: 290, height: 170))
