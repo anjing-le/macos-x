@@ -69,23 +69,23 @@ import AppKit
     }
 }
 
-@MainActor final class ShortcutArrowView: NSView {
+/// Keep shortcut names and their editable keycaps inside the corresponding
+/// feature column. Spatial grouping is the association; no decorative arrows.
+@MainActor final class ShortcutSettingsRow: NSView {
     let control: NSView
-    var pointsDown=false
     override var isFlipped: Bool { true }
-    init(_ control: NSView) { self.control = control; super.init(frame: .zero); addSubview(control) }
-    required init?(coder: NSCoder) { nil }
-    override var intrinsicContentSize: NSSize { NSSize(width: max(220, control.fittingSize.width+50), height: max(42,control.fittingSize.height)) }
-    override func layout() {
-        super.layout(); control.frame = CGRect(x:0,y:0,width:max(0,bounds.width-44),height:bounds.height)
+    init(_ control: NSView) {
+        self.control = control
+        super.init(frame: .zero)
+        addSubview(control)
     }
-    override func draw(_ dirtyRect: NSRect) {
-        let x=bounds.width-40, y=bounds.height/2, end=pointsDown ? bounds.height-4 : CGFloat(4)
-        let path=NSBezierPath(); path.move(to:NSPoint(x:x,y:y))
-        path.curve(to:NSPoint(x:x+26,y:end),controlPoint1:NSPoint(x:x+20,y:y+4),controlPoint2:NSPoint(x:x+26,y:y))
-        let offset:CGFloat=pointsDown ? -6 : 6
-        path.move(to:NSPoint(x:x+21,y:end+offset)); path.line(to:NSPoint(x:x+26,y:end)); path.line(to:NSPoint(x:x+31,y:end+offset))
-        SketchPencil.stroke(path,color:SketchPalette.muted,width:1.2)
+    required init?(coder: NSCoder) { nil }
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: max(220, control.fittingSize.width), height: max(42, control.fittingSize.height))
+    }
+    override func layout() {
+        super.layout()
+        control.frame = bounds
     }
 }
 
@@ -100,11 +100,10 @@ import AppKit
     private var wasCompact=false
     private var compact: Bool { bounds.width < 740 }
     override var isFlipped: Bool { true }
-    override var intrinsicContentSize: NSSize { NSSize(width:840,height:kind == "kaomoji" ? (compact ? 848 : 470) : (kind == "capture" ? max(compact ? 750 : 410,(compact ? 648 : 308)+settings.fittingSize.height) : (compact ? 520 : 410))) }
+    override var intrinsicContentSize: NSSize { NSSize(width:840,height:kind == "kaomoji" ? (compact ? 848 : 470) : (kind == "capture" ? max(compact ? 760 : 440,(compact ? 664 : 352)+settings.fittingSize.height) : (compact ? 520 : 410))) }
     init(kind: String, settings: NSView, shortcuts: [NSView]) {
-        self.kind=kind; self.settings=settings; self.shortcuts=shortcuts.map(ShortcutArrowView.init)
+        self.kind=kind; self.settings=settings; self.shortcuts=shortcuts.map(ShortcutSettingsRow.init)
         super.init(frame: CGRect(x:0,y:0,width:840,height:410))
-        if kind == "kaomoji", let arrow=self.shortcuts.first as? ShortcutArrowView { arrow.pointsDown=true }
         addSubview(settings); for shortcut in self.shortcuts { addSubview(shortcut) }
         if kind == "capture", let stack=settings as? NSStackView, stack.arrangedSubviews.count >= 4 {
             let toggle=stack.arrangedSubviews.first { $0.identifier?.rawValue == "capture-pin-outline" } as? NSButton
@@ -157,13 +156,18 @@ import AppKit
         let w=bounds.width
         if wasCompact != compact { wasCompact=compact; invalidateIntrinsicContentSize() }
         if compact && kind == "capture" {
-            for (i,view) in art.enumerated() { view.frame=CGRect(x:0,y:CGFloat(i)*168,width:w,height:118) }
-            for (i,view) in shortcuts.enumerated() {
-                let row = i == 3 ? 2 : i
-                view.frame=CGRect(x:0,y:i == 2 ? 598 : CGFloat(row)*168+120,width:w,height:46)
+            let artY: [CGFloat] = [0, 168, 484]
+            for (i, view) in art.enumerated() {
+                view.frame = CGRect(x: 0, y: artY[i], width: w, height: 118)
             }
-            for (i,view) in selectors.enumerated() { view.frame=CGRect(x:CGFloat(i)*w/2,y:504,width:w/2-4,height:88) }
-            settings.frame=CGRect(x:0,y:648,width:w,height:settings.fittingSize.height)
+            let shortcutY: [CGFloat] = [120, 288, 334, 604]
+            for (i, view) in shortcuts.enumerated() {
+                view.frame = CGRect(x: 0, y: shortcutY[i], width: w, height: 46)
+            }
+            for (i, view) in selectors.enumerated() {
+                view.frame = CGRect(x: CGFloat(i)*w/2, y: 382, width: w/2-4, height: 88)
+            }
+            settings.frame = CGRect(x: 0, y: 664, width: w, height: settings.fittingSize.height)
         } else if compact && kind == "windowSwitcher" {
             for (i,view) in selectors.enumerated() { view.frame=CGRect(x:0,y:CGFloat(i)*164,width:w,height:156) }
             shortcuts.first?.frame=CGRect(x:0,y:332,width:w,height:50)
@@ -171,11 +175,11 @@ import AppKit
         } else if kind == "capture" {
             let col=(w-24)/3
             for (i,view) in art.enumerated() { view.frame=CGRect(x:CGFloat(i)*(col+12),y:0,width:col,height:150) }
-            let xs=[CGFloat(0),col+12,CGFloat(0),2*(col+12)]
-            let ys=[CGFloat(154),154,206,154]
+            let xs=[CGFloat(0),col+12,col+12,2*(col+12)]
+            let ys=[CGFloat(154),154,202,154]
             for (i,view) in shortcuts.enumerated() { view.frame=CGRect(x:xs[i],y:ys[i],width:col,height:48) }
-            for (i,view) in selectors.enumerated() { view.frame=CGRect(x:col+12+CGFloat(i)*col/2,y:208,width:col/2-4,height:88) }
-            settings.frame=CGRect(x:0,y:308,width:w,height:max(80,settings.fittingSize.height))
+            for (i,view) in selectors.enumerated() { view.frame=CGRect(x:col+12+CGFloat(i)*col/2,y:252,width:col/2-4,height:88) }
+            settings.frame=CGRect(x:0,y:352,width:w,height:max(80,settings.fittingSize.height))
         } else if kind == "windowSwitcher" {
             for (i,view) in selectors.enumerated() { view.frame=CGRect(x:CGFloat(i)*(w*0.34+12),y:0,width:w*0.34,height:204) }
             shortcuts.first?.frame=CGRect(x:w*0.72,y:42,width:w*0.28,height:60)

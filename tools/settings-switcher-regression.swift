@@ -75,6 +75,12 @@ import MacOSXCore
                 try require(abs(board.frame.width-912)<1,"board fills default client width with balanced margins")
                 try require(root.fittingSize.height+48 <= 584,"common settings fit default client without outer scrolling")
                 board.layoutSubtreeIfNeeded()
+                let shortcutRows=board.subviews.compactMap { $0 as? ShortcutSettingsRow }
+                if kind == "capture" {
+                    try require(shortcutRows[1].frame.minX == shortcutRows[2].frame.minX, "pin and show/hide shortcuts belong to the same column")
+                    try require(shortcutRows[1].frame.maxY <= shortcutRows[2].frame.minY, "pin shortcuts do not overlap")
+                }
+                try require(shortcutRows.allSatisfy { $0.control.frame == $0.bounds }, "shortcut controls use the full row without arrow gutters")
                 let choices=board.subviews.compactMap { $0 as? IllustratedSettingChoice }.filter(\.isEnabled)
                 try require(choices.count == 2,"exactly two live illustration choices")
                 choices[1].performClick(nil)
