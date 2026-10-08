@@ -114,7 +114,12 @@ import AppKit
         return CGSize(width: frame.screen.frame.width / CGFloat(frame.image.width), height: frame.screen.frame.height / CGFloat(frame.image.height))
     }
     private func redraw() { views.forEach { $0.needsDisplay = true } }
-    private func pointerMoved(_ point: CGPoint) { guard acceptsInput else { return }; pointer = point; redraw() }
+    private func pointerMoved(_ point: CGPoint) {
+        guard acceptsInput else { return }
+        pointer = point
+        // A fixed idle selection changes no displayed pixels as the pointer moves.
+        if selection.isNull || magnifierVisible { redraw() }
+    }
     private func finish(_ result: Result) {
         guard acceptsInput else { return }
         let callback = completion
