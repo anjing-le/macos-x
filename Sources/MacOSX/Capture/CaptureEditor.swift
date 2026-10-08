@@ -48,6 +48,10 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
 
     var onExport: (() -> Void)?
     var onCopied: (() -> Void)?
+    var onEditingChanged: ((Bool) -> Void)?
+    private var adjustingRegion = false
+    private var regionWasVisible = false
+    var selectionFrame: CGRect { window.frame }
     var onReselect: (() -> Void)?
     var colorAtPointer: ((Bool) -> String?)?
 
@@ -116,66 +120,101 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         window.displayIfNeeded()
         window.makeKeyAndOrderFront(nil); window.makeFirstResponder(canvas); positionToolbar()
         NSApp.activate(ignoringOtherApps: true)
+        updateSelectionInput()
         if localMonitor == nil {
             localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 let handled = MainActor.assumeIsolated {
                     guard let self, !self.closed, self.window.attachedSheet == nil,
                           event.window === self.window || event.window === self.toolbar else { return false }
-                    if self.textInput != nil { return false }
-                    let command = event.modifierFlags.contains(.command)
-                    switch event.keyCode {
-                    case 8 where command && event.modifierFlags.contains(.shift): self.copyRecognizedText()
-                    case 8 where command: self.copyImage(closeAfter: !self.editingPin)
-                    case 8 where event.modifierFlags.contains(.option):
-                        if let value = self.colorAtPointer?(event.modifierFlags.contains(.shift)) {
-                            NSPasteboard.general.clearContents(); NSPasteboard.general.setString(value, forType: .string)
-                            self.close()
-                        }
-                    case 1 where command: self.saveImage()
-                    case 17 where command: self.editingPin ? self.confirm() : self.pinImage()
-                    case 6 where command: event.modifierFlags.contains(.shift) ? self.redoAction() : self.undoAction()
-                    case 13 where command: self.close()
-                    case 15 where command && !self.editingPin: self.reselect()
-                    case 36, 76: self.confirm()
-                    case 53: self.cancelCurrentOperation()
-                    case 49 where event.modifierFlags.intersection([.command, .control, .option]).isEmpty:
-                        guard !event.isARepeat else { return true }
-                        if self.editingPin {
-                            self.confirm()
-                        } else {
-                            self.toolbarVisible.toggle()
-                            if self.toolbarVisible { self.positionToolbar() } else { self.toolbar.orderOut(nil) }
-                        }
-                    default:
-                        guard !command, !event.modifierFlags.contains(.control), let key = event.charactersIgnoringModifiers else { return false }
-                        if event.modifierFlags.contains(.option) {
-                            switch key {
-                            case "1": self.selectTool(.ellipse)
-                            case "3": self.selectTool(.highlighter)
-                            case "5": self.selectTool(.blur)
-                            default: return false
-                            }
-                        } else {
-                            switch key {
-                            case "1": self.selectTool(.rectangle)
-                            case "2": self.selectTool(.arrow)
-                            case "3": self.selectTool(.pen)
-                            case "4": self.selectTool(.text)
-                            case "5": self.selectTool(.mosaic)
-                            case "6": self.copyRecognizedText()
-                            case "7": self.showColors()
-                            case "e": self.selectTool(.eraser)
-                            case "[": self.canvas.lineWidth = max(1, self.canvas.lineWidth - 1)
-                            case "]": self.canvas.lineWidth = min(12, self.canvas.lineWidth + 1)
-                            default: return false
-                            }
-                        }
-                    }
-                    return true
+                    return self.handleSelectionKey(event)
                 }
                 return handled ? nil : event
             }
         }
+    }
+    // Selection backdrop owns pointer input while no annotation tool is active.
+    @discardableResult func handleSelectionKey(_ event: NSEvent) -> Bool {
+        guard !closed, !adjustingRegion, window.attachedSheet == nil else { return false }
+        if textInput != nil { return false }
+        let command = event.modifierFlags.contains(.command)
+        switch event.keyCode {
+        case 8 where command && event.modifierFlags.contains(.shift): copyRecognizedText()
+        case 8 where command: copyImage(closeAfter: !editingPin)
+        case 8 where event.modifierFlags.contains(.option):
+            if let value = colorAtPointer?(event.modifierFlags.contains(.shift)) {
+                NSPasteboard.general.clearContents(); NSPasteboard.general.setString(value, forType: .string)
+                close()
+            }
+        case 1 where command: saveImage()
+        case 17 where command: editingPin ? confirm() : pinImage()
+        case 6 where command: event.modifierFlags.contains(.shift) ? redoAction() : undoAction()
+        case 13 where command: close()
+        case 15 where command && !editingPin: reselect()
+        case 36, 76: confirm()
+        case 53: cancelCurrentOperation()
+        case 49 where event.modifierFlags.intersection([.command, .control, .option]).isEmpty:
+            guard !event.isARepeat else { return true }
+            if editingPin {
+                confirm()
+            } else {
+                toolbarVisible.toggle()
+                if toolbarVisible { positionToolbar() } else { toolbar.orderOut(nil) }
+            }
+        default:
+            guard !command, !event.modifierFlags.contains(.control), let key = event.charactersIgnoringModifiers else { return false }
+            if event.modifierFlags.contains(.option) {
+                switch key {
+                case "1": selectTool(.ellipse)
+                case "3": selectTool(.highlighter)
+                case "5": selectTool(.blur)
+                default: return false
+                }
+            } else {
+                switch key {
+                case "1": selectTool(.rectangle)
+                case "2": selectTool(.arrow)
+                case "3": selectTool(.pen)
+                case "4": selectTool(.text)
+                case "5": selectTool(.mosaic)
+                case "6": copyRecognizedText()
+                case "7": showColors()
+                case "e": selectTool(.eraser)
+                case "[": canvas.lineWidth = max(1, canvas.lineWidth - 1)
+                case "]": canvas.lineWidth = min(12, canvas.lineWidth + 1)
+                default: return false
+                }
+            }
+        }
+        return true
+    }
+    func copyCurrentImage() { guard !adjustingRegion else { return }; copyImage(closeAfter: !editingPin) }
+    func beginRegionAdjustment() {
+        guard !editingPin, !closed, !exporting else { return }
+        regionWasVisible = window.isVisible
+        adjustingRegion = true
+        recognition?.cancel(); recognition = nil; recognitionButton.isEnabled = true
+        revision &+= 1; preview?.cancel()
+        window.orderOut(nil); toolbar.orderOut(nil)
+    }
+    func replaceSelectionImage(_ image: CGImage, at region: CGRect) {
+        guard !closed, !editingPin, !exporting else { return }
+        let old = window.frame, oldPixels = CGSize(width: canvas.base.width, height: canvas.base.height)
+        let newPixels = CGSize(width: image.width, height: image.height)
+        func remap(_ marks: [CaptureAnnotation]) -> [CaptureAnnotation] {
+            marks.map { $0.reframed(from: old, pixels: oldPixels, to: region, pixels: newPixels) }
+        }
+        annotations = remap(annotations); undo = undo.map(remap); redo = redo.map(remap)
+        canvas.base = image; canvas.image = image
+        window.setFrame(region, display: false); adjustingRegion = false
+        if regionWasVisible || window.isVisible { window.orderFrontRegardless(); positionToolbar() }
+        regionWasVisible = false; refresh(); updateSelectionInput()
+    }
+    private func updateSelectionInput() {
+        guard !editingPin else { return }
+        let editing = canvas.tool != nil
+        window.ignoresMouseEvents = !editing
+        onEditingChanged?(editing)
+        if editing, window.isVisible { window.makeKeyAndOrderFront(nil); window.makeFirstResponder(canvas) }
     }
     private func positionToolbar() {
         guard toolbarVisible, !closed else { return }
@@ -202,7 +241,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         toolbar.orderOut(nil); toolbar.close()
         textInput?.delegate = nil; textInput?.removeFromSuperview(); textInput = nil; textAnnotation = nil
         let callback = onClose; onClose = nil; onExport = nil; onCopied = nil; onPin = nil
-        onReselect = nil; colorAtPointer = nil; onApply = nil; callback?()
+        onEditingChanged = nil; onReselect = nil; colorAtPointer = nil; onApply = nil; callback?()
     }
     private func updateToolButtons() { for button in toolButtons { button.state = button.tag == canvas.tool?.rawValue ? .on : .off } }
     @objc private func changeTool(_ sender: NSButton) {
@@ -213,7 +252,8 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     private func selectTool(_ tool: CaptureTool) {
         finishText(commit: true); canvas.cancelDraft()
         canvas.tool = canvas.tool == tool ? nil : tool
-        updateToolButtons(); window.makeFirstResponder(canvas)
+        updateToolButtons(); updateSelectionInput()
+        if editingPin { window.makeFirstResponder(canvas) }
     }
     private static let colors: [NSColor] = [SketchPalette.ink, SketchPalette.coral, SketchPalette.orange, SketchPalette.yellow, SketchPalette.green, SketchPalette.blue, SketchPalette.purple, .white]
     @objc private func showColors() {
@@ -236,12 +276,15 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     }
     private func cancelCurrentOperation() {
         if canvas.cancelDraft() { return }
+        if !editingPin, canvas.tool != nil {
+            finishText(commit: true); canvas.tool = nil; updateToolButtons(); updateSelectionInput(); return
+        }
         close()
     }
     private func confirm() {
         if editingPin {
             guard beginExport() else { return }
-            render(onFailure: { [weak self] in self?.exporting = false }) { [weak self] image in
+            render(onFailure: { [weak self] in self?.exporting = false; self?.updateSelectionInput() }) { [weak self] image in
                 guard let self else { return }; self.onApply?(image); self.close()
             }
         } else { copyImage(closeAfter: true) }
@@ -348,7 +391,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     }
     private func copyImage(closeAfter: Bool = false) {
         guard beginExport() else { return }
-        render(onFailure: { [weak self] in self?.exporting = false }) { [weak self] image in
+        render(onFailure: { [weak self] in self?.exporting = false; self?.updateSelectionInput() }) { [weak self] image in
             guard let self else { return }
             let lifetime = self.lifetime
             self.queue.async { [weak self] in
@@ -356,7 +399,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
                 let data = Self.pngData(image)
                 DispatchQueue.main.async { [weak self] in
                     guard let self, !self.closed else { return }
-                    self.exporting = false
+                    self.exporting = false; self.updateSelectionInput()
                     guard let data else { self.showStatus("图像编码失败，未修改剪贴板。"); return }
                     NSPasteboard.general.clearContents()
                     guard NSPasteboard.general.setData(data, forType: .png) else { self.showStatus("复制失败。"); return }
@@ -372,27 +415,27 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     }
     @objc private func pinImage() {
         guard beginExport() else { return }
-        render(onFailure: { [weak self] in self?.exporting = false }) { [weak self] image in
+        render(onFailure: { [weak self] in self?.exporting = false; self?.updateSelectionInput() }) { [weak self] image in
             guard let self else { return }
-            guard let pin = self.onPin else { self.exporting = false; self.showStatus("贴图不可用。"); return }
+            guard let pin = self.onPin else { self.exporting = false; self.updateSelectionInput(); self.showStatus("贴图不可用。"); return }
             // The owner closes us after the new pin is on screen, keeping the
             // frozen desktop in place through render/downsample/presentation.
             pin(image); self.onExport?()
         }
     }
     private func beginExport() -> Bool {
-        guard !closed, !exporting else { return false }
+        guard !closed, !exporting, !adjustingRegion else { return false }
         recognition?.cancel(); recognition = nil; recognitionButton.isEnabled = true
         finishText(commit: true)
-        exporting = true; return true
+        exporting = true; onEditingChanged?(true); return true
     }
     @objc private func saveImage() {
         guard beginExport() else { return }
         let panel = NSSavePanel(); panel.allowedContentTypes = [.png]; panel.nameFieldStringValue = "截图.png"
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self, !self.closed else { return }
-            guard response == .OK, let url = panel.url else { self.exporting = false; self.showStatus("已取消。"); return }
-            self.render(onFailure: { [weak self] in self?.exporting = false }) { [weak self] image in
+            guard response == .OK, let url = panel.url else { self.exporting = false; self.updateSelectionInput(); self.showStatus("已取消。"); return }
+            self.render(onFailure: { [weak self] in self?.exporting = false; self?.updateSelectionInput() }) { [weak self] image in
                 guard let self else { return }
                 let lifetime = self.lifetime
                 self.queue.async { [weak self] in
@@ -400,7 +443,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
                     let saved = Self.writePNG(image, to: url)
                     DispatchQueue.main.async { [weak self] in
                         guard let self, !self.closed else { return }
-                        self.exporting = false
+                        self.exporting = false; self.updateSelectionInput()
                         self.showStatus(saved ? "已保存。" : "保存失败，请检查目标文件夹。")
                         if saved { self.onExport?() }
                     }

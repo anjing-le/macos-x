@@ -25,6 +25,14 @@ struct CaptureAnnotation {
     let ink: CaptureInk
     let width: CGFloat
     var text = ""
+    func reframed(from old: CGRect, pixels oldPixels: CGSize, to new: CGRect, pixels newPixels: CGSize) -> CaptureAnnotation {
+        let sx = newPixels.width / new.width, sy = newPixels.height / new.height
+        var result = CaptureAnnotation(tool: tool, points: points.map { point in
+            CGPoint(x: (old.minX + point.x * old.width / oldPixels.width - new.minX) * sx,
+                    y: (old.minY + point.y * old.height / oldPixels.height - new.minY) * sy)
+        }, ink: ink, width: width * old.width / oldPixels.width * sx)
+        result.text = text; return result
+    }
     var bounds: CGRect {
         guard let first = points.first else { return .null }
         if tool == .text {
@@ -152,7 +160,7 @@ enum CaptureCrayonStroke {
 
 @MainActor
 final class CaptureCanvas: NSView {
-    let base: CGImage
+    var base: CGImage
     var image: CGImage { didSet { needsDisplay = true } }
     var tool: CaptureTool?
     var ink = CaptureInk.red

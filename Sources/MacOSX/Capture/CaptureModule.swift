@@ -136,8 +136,9 @@ final class CaptureModule: NSObject {
                                  generation expected: UInt64, revision: UInt64) {
         let region: CGRect
         switch result {
-        case .cancel: captureInProgress = false; setStatus("已取消截图。"); return
+        case .cancel: editor?.close(); editor = nil; captureInProgress = false; setStatus("已取消截图。"); return
         case .color(let value):
+            editor?.close(); editor = nil
             captureInProgress = false
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(value, forType: .string)
@@ -192,8 +193,8 @@ final class CaptureModule: NSObject {
         logger.info("F3 editor=\(self.editor != nil) capture_active=\(self.captureInProgress) pending=\(self.editorPending) capacity_available=\(self.pins.canAdd)")
         if pins.applyActiveEdit() { return }
         guard pins.canAdd else { logger.info("pin rejected: capacity"); setStatus("最多 8 张贴图，请先关闭一张。"); return }
-        if let editor { editor.pinCurrentImage() }
-        else if editorPending { pinAfterEditor = true }
+        if editorPending { pinAfterEditor = true }
+        else if let editor { editor.pinCurrentImage() }
         else if captureInProgress { selection.pinCurrentSelection() }
         else { pinClipboard() }
     }
@@ -351,23 +352,27 @@ final class CaptureModule: NSObject {
     }
 
     private func openEditor(_ image: CGImage, at region: CGRect) {
+        if let editor {
+            editor.replaceSelectionImage(image, at: region)
+            return
+        }
         let editor = CaptureEditor(image: image, selectionFrame: region)
         let expected = generation, revision = captureRevision
         editor.onCopied = { [weak self, weak editor] in
             guard let self, self.running, self.generation == expected,
                   self.captureRevision == revision, self.editor === editor else { return }
-            self.copiedRegion = (NSPasteboard.general.changeCount, region)
+            self.copiedRegion = (NSPasteboard.general.changeCount, editor?.selectionFrame ?? region)
         }
         editor.onExport = { [weak self, weak editor] in
             guard let self, self.running, self.generation == expected,
                   self.captureRevision == revision, self.editor === editor else { return }
-            self.lastRegion = region
+            self.lastRegion = editor?.selectionFrame ?? region
         }
         editor.onPin = { [weak self, weak editor] image in
             guard let self, self.running, self.generation == expected,
                   self.captureRevision == revision, self.editor === editor else { return }
-            self.lastRegion = region
-            self.pins.add(image, at: region) { [weak self, weak editor] shown in
+            self.lastRegion = editor?.selectionFrame ?? region
+            self.pins.add(image, at: editor?.selectionFrame ?? region) { [weak self, weak editor] shown in
                 guard let self, self.running, self.generation == expected, self.captureRevision == revision,
                       let editor, self.editor === editor else { return }
                 editor.close()
@@ -378,12 +383,17 @@ final class CaptureModule: NSObject {
         editor.onReselect = { [weak self, weak editor] in
             guard let self, let editor, self.editor === editor else { return }
             editor.onClose = nil; editor.close(); self.editor = nil
-            self.selection.resume()
+            self.selection.clearEditorCallbacks(); self.selection.resume()
         }
         editor.onClose = { [weak self, weak editor] in
             guard let self, self.editor === editor else { return }
             self.editor = nil; self.captureInProgress = false; self.selection.dismiss()
         }
+        editor.onEditingChanged = { [weak self] editing in self?.selection.setEditing(editing) }
+        selection.onEditorKey = { [weak editor] in editor?.handleSelectionKey($0) ?? false }
+        selection.onEditorCopy = { [weak editor] in editor?.copyCurrentImage() }
+        selection.onEditorCancel = { [weak editor] in editor?.close() }
+        selection.onAdjustmentStarted = { [weak editor] in editor?.beginRegionAdjustment() }
         self.editor = editor; editor.present()
         setStatus("Enter / ⌘C 复制")
     }

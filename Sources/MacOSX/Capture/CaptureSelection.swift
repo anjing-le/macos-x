@@ -36,6 +36,10 @@ import AppKit
     private var option = false, shiftDown = false, rgbFormat = false
     private var candidateIndex = 0
     private var completion: ((Result) -> Void)?
+    var onEditorKey: ((NSEvent) -> Bool)?
+    var onEditorCopy: (() -> Void)?
+    var onEditorCancel: (() -> Void)?
+    var onAdjustmentStarted: (() -> Void)?
     private var acceptsInput = false
     private var mode: Mode = .screenshot
     private var recordingControls: NSPanel?
@@ -86,6 +90,7 @@ import AppKit
 
     func dismiss() {
         completion = nil; acceptsInput = false
+        clearEditorCallbacks()
         recordingControls?.orderOut(nil); recordingControls?.close(); recordingControls = nil
         panels.forEach { $0.orderOut(nil); $0.close() }
         panels.removeAll(); views.removeAll(); frames.removeAll(); candidates.removeAll()
@@ -130,6 +135,12 @@ import AppKit
         for panel in panels { (panel as? Panel)?.acceptsSelectionInput = false; panel.acceptsMouseMovedEvents = false }
         redraw()
     }
+    func clearEditorCallbacks() {
+        onEditorKey = nil; onEditorCopy = nil; onEditorCancel = nil; onAdjustmentStarted = nil
+    }
+    func setEditing(_ editing: Bool) {
+        if editing { retainBackdrop() } else { resume() }
+    }
     func resume() {
         guard !panels.isEmpty, completion != nil else { return }
         acceptsInput = true
@@ -151,7 +162,8 @@ import AppKit
         guard acceptsInput else { return }
         pointer = point
         recordingControls?.orderOut(nil)
-        if mode == .screenshot, twice, let region = validRegion() { finish(.copy(region)); return }
+        if mode == .screenshot, twice { copyPressed(); return }
+        onAdjustmentStarted?()
         if !selection.isNull, let handle = SelectionView.handles(selection).firstIndex(where: { $0.insetBy(dx: -4, dy: -4).contains(point) }) {
             drag = .resize(handle, point, selection)
         } else if !selection.isNull, selection.contains(point) { drag = .move(point, selection) }
@@ -199,6 +211,7 @@ import AppKit
     }
     private func resetOrCancel() {
         guard acceptsInput else { return }
+        if let onEditorCancel { onEditorCancel(); return }
         if !selection.isNull || drag != nil { selection = .null; snappedWindow = nil; drag = nil; recordingControls?.orderOut(nil); redraw() }
         else { finish(.cancel) }
     }
@@ -231,6 +244,7 @@ import AppKit
     }
     private func keyDown(_ event: NSEvent) -> Bool {
         guard acceptsInput else { return false }
+        if mode == .screenshot, drag == nil, onEditorKey?(event) == true { return true }
         let command = event.modifierFlags.contains(.command), shift = event.modifierFlags.contains(.shift)
         if mode == .recording {
             if [36, 76].contains(event.keyCode) { startRecordingPressed(nil); return true }
@@ -238,8 +252,8 @@ import AppKit
         }
         switch event.keyCode {
         case 53: finish(.cancel)
-        case 36, 76: if let region = validRegion() { finish(.copy(region)) }
-        case 8 where command: if let region = validRegion() { finish(.copy(region)) }
+        case 36, 76: copyPressed()
+        case 8 where command: copyPressed()
         case 8 where event.modifierFlags.contains(.option):
             if let frame = frames.first(where: { $0.screen.frame.contains(pointer) }),
                let sample = frame.sampler?.sample(globalPoint: pointer, in: frame.screen.frame) {
@@ -280,7 +294,8 @@ import AppKit
     private func beginInlineEditing() {
         guard drag == nil, !selection.isNull, let region = validRegion() else { return }
         if mode == .recording { showRecordingControls(at: region); return }
-        // Release the selection directly into the complete in-place tool strip.
+        onAdjustmentStarted?()
+        // Keep the complete tool strip while replacing the crop from frozen pixels.
         finish(.edit(region))
     }
     @objc private func startRecordingPressed(_ sender: Any?) {
@@ -315,7 +330,7 @@ import AppKit
     }
     private func copyPressed() {
         guard mode == .screenshot, let region = validRegion() else { return }
-        finish(.copy(region))
+        if let onEditorCopy { onEditorCopy() } else { finish(.copy(region)) }
     }
 }
 

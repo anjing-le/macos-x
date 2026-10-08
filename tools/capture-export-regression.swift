@@ -63,6 +63,35 @@ import AppKit
             check(!colors.contains("#FFFFFF"), "grain does not paint white over dark screenshots")
             check(CaptureAnnotationRenderer.render(base: darkBase, annotations: [mark], isCurrent: { false }) == nil, "crayon export respects cancellation")
         }
+        // Reframing moves the crop, not the screen content or committed marks.
+        let oldRegion = CGRect(x: 100, y: 200, width: 32, height: 32)
+        let largerRegion = CGRect(x: 96, y: 196, width: 40, height: 40)
+        var textMark = CaptureAnnotation(tool: .text, points: [CGPoint(x: 12, y: 16)], ink: .red, width: 4)
+        textMark.text = "保留文字"
+        let moved = textMark.reframed(from: oldRegion, pixels: CGSize(width: 64, height: 64),
+                                     to: largerRegion, pixels: CGSize(width: 80, height: 80))
+        check(moved.points == [CGPoint(x: 20, y: 24)] && moved.width == 4 && moved.text == textMark.text,
+              "expanding crop preserves mark screen position, stroke width and text")
+        let roundtrip = moved.reframed(from: largerRegion, pixels: CGSize(width: 80, height: 80),
+                                       to: oldRegion, pixels: CGSize(width: 64, height: 64))
+        check(roundtrip.points == textMark.points && roundtrip.width == textMark.width,
+              "resize round trip keeps annotation coordinates")
+        let lowerScale = textMark.reframed(from: oldRegion, pixels: CGSize(width: 64, height: 64),
+                                          to: oldRegion, pixels: CGSize(width: 32, height: 32))
+        check(lowerScale.points == [CGPoint(x: 6, y: 8)] && lowerScale.width == 2,
+              "cross-display scale changes preserve physical mark geometry")
+        let redaction = CaptureAnnotation(tool: .mosaic, points: [CGPoint(x: 16, y: 16), CGPoint(x: 48, y: 48)], ink: .red, width: 3)
+        let expanded = CaptureRaster.context(width: 80, height: 80)!
+        expanded.setFillColor(CGColor(gray: 1, alpha: 1)); expanded.fill(CGRect(x: 0, y: 0, width: 80, height: 80))
+        expanded.draw(image, in: CGRect(x: 8, y: 8, width: 64, height: 64))
+        let adjustedRedaction = redaction.reframed(from: oldRegion, pixels: CGSize(width: 64, height: 64),
+                                                  to: largerRegion, pixels: CGSize(width: 80, height: 80))
+        let output = CaptureAnnotationRenderer.render(base: expanded.makeImage()!, annotations: [adjustedRedaction])!
+        let adjustedSample = CapturePixelSampler(image: output)!
+        let originalOutput = CaptureAnnotationRenderer.render(base: image, annotations: [redaction])!
+        let originalSample = CapturePixelSampler(image: originalOutput)!
+        check(adjustedSample.sample(x: 28, y: 28)?.hex == originalSample.sample(x: 20, y: 20)?.hex,
+              "redaction stays applied to the same frozen desktop content after expanding crop")
         print("PASS capture export: \(count) assertions; rename, failure recovery, no overwrite, unchanged pixels, redaction and cancellation")
     }
 }

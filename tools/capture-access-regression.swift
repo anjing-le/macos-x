@@ -115,13 +115,17 @@ final class NSSavePanel {
 }
 @MainActor final class CaptureSelection {
     enum Mode { case screenshot, recording }
+    var onEditorKey: ((AppKit.NSEvent) -> Bool)?, onEditorCopy: (() -> Void)?, onEditorCancel: (() -> Void)?, onAdjustmentStarted: (() -> Void)?
+    func clearEditorCallbacks() {}
+    func setEditing(_ editing: Bool) {}
     var completedWindow: CaptureWindow? { nil }
     enum Result { case copy(CGRect), pin(CGRect), edit(CGRect), color(String), cancel }
+    static weak var current: CaptureSelection?
     static var presentations = 0
     static var dismissals = 0
     static var lastCompletion: ((Result) -> Void)?
     func present(_ frames: [CaptureFrame], mode: Mode = .screenshot, previousRegion: CGRect? = nil, windows: [CGRect] = [], completion: @escaping (Result) -> Void) {
-        Self.presentations += 1; Self.lastCompletion = completion
+        Self.current = self; Self.presentations += 1; Self.lastCompletion = completion
     }
     func dismiss() { Self.dismissals += 1; Self.lastCompletion = nil }
     func pinCurrentSelection() {}
@@ -145,10 +149,17 @@ final class NSSavePanel {
 }
 @MainActor final class CaptureEditor {
     var onExport: (() -> Void)?, onCopied: (() -> Void)?, onClose: (() -> Void)?, onPin: ((CGImage) -> Void)?
+    var onEditingChanged: ((Bool) -> Void)?
+    var selectionFrame: CGRect
+    static var replacements = 0
+    func replaceSelectionImage(_ image: CGImage, at region: CGRect) { selectionFrame = region; Self.replacements += 1 }
+    func handleSelectionKey(_ event: AppKit.NSEvent) -> Bool { false }
+    func copyCurrentImage() {}
+    func beginRegionAdjustment() {}
     var onReselect: (() -> Void)?, colorAtPointer: ((Bool) -> String?)?
     static weak var current: CaptureEditor?
     let image: CGImage
-    init(image: CGImage, selectionFrame: CGRect) { self.image = image }
+    init(image: CGImage, selectionFrame: CGRect) { self.image = image; self.selectionFrame = selectionFrame }
     func present() { Self.current = self }
     func close() {
         if Self.current === self { Self.current = nil }
@@ -412,8 +423,20 @@ private struct CheckFailure: Error { let message: String }
             try await wait({ CaptureSelection.lastCompletion != nil }, "editor selection")
             let beforeEditor = CaptureSelection.dismissals
             CaptureSelection.lastCompletion?(.edit(region))
+            try await wait({ CaptureEditor.current != nil }, "first editable selection")
+            let originalEditor = CaptureEditor.current
+            let adjustedRegion = region.insetBy(dx: 20, dy: 20)
+            let oldReplacements = CaptureEditor.replacements
+            CaptureSelection.current?.onAdjustmentStarted?()
+            CaptureSelection.lastCompletion?(.edit(adjustedRegion))
+            try await wait({ CaptureEditor.replacements == oldReplacements + 1 }, "adjusted crop reaches existing editor")
+            try require(CaptureEditor.current === originalEditor && CaptureEditor.current?.selectionFrame == adjustedRegion,
+                        "adjusting the selection reuses editor and updates its region without recapturing desktop")
+            try require(MockCapture.pendingContent == 0 && MockCapture.pendingImage == 0,
+                        "freeform adjustment crops frozen pixels without a new screen capture")
             pinModule.pin()
             try await wait({ CapturePins.pending.count == 1 }, "queued F3 reaches editor")
+            try require(CapturePins.frames.last! == adjustedRegion, "F3 uses latest adjusted region rather than initial selection")
             try require(CaptureEditor.current != nil && CaptureSelection.dismissals == beforeEditor,
                         "editor and backdrop survive until pin presentation")
             CapturePins.pending.removeFirst()(true)
