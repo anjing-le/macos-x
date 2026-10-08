@@ -287,6 +287,29 @@ private struct CaptureRegression {
         let huge = CaptureFrame(screen: CaptureScreen(id: 0,
             frame: CGRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude), scale: 2), image: source)
         try checks.require(CaptureImageService.composite([huge], selection: huge.screen.frame) == nil, "overflowing region area fails safely")
+        // An independent one-pixel checkerboard makes any blur/resampling visible as gray.
+        let stripes = (0..<64*64).flatMap { i -> [UInt8] in
+            let value:UInt8 = ((i%64+i/64)%2 == 0) ? 0 : 255
+            return [value,value,value,255]
+        }
+        let sharp = image(width:64,height:64,rgba:stripes,space:CGColorSpace(name:CGColorSpace.sRGB)!)
+        let sharpFrame = CaptureFrame(screen:CaptureScreen(id:10,frame:CGRect(x:0,y:0,width:32,height:32),scale:2),image:sharp)
+        let fractionalRegion = CGRect(x:0.25,y:0.25,width:20.25,height:20.25)
+        let cropped = CaptureImageService.composite([sharpFrame],selection:fractionalRegion)!
+        let sampled = NSBitmapImageRep(cgImage:cropped)
+        var hasGray = false
+        for y in 0..<cropped.height { for x in 0..<cropped.width {
+            let pixel = bitmapPixel(sampled,x:x,y:y)
+            if pixel != [0,0,0,255] && pixel != [255,255,255,255] { hasGray = true }
+        } }
+        try checks.require(!hasGray,"Fractional selection must preserve sharp black/white pixels without interpolation gray")
+        let aligned = CaptureSelectionGeometry.pixelAligned(fractionalRegion,in:sharpFrame.screen.frame,width:64,height:64)
+        try checks.rect(aligned,CGRect(x:0.5,y:0.5,width:20,height:20),"Selection edges align to frozen Retina pixel grid")
+        let alignedCrop = CaptureImageService.composite([sharpFrame],selection:aligned)!
+        try checks.require(alignedCrop.width == 40 && alignedCrop.height == 40,"Aligned selection retains native pixel dimensions")
+        let standardFrame = CaptureFrame(screen:CaptureScreen(id:11,frame:CGRect(x:100,y:0,width:64,height:64),scale:1),image:sharp)
+        let standardCrop = CaptureImageService.composite([sharpFrame,standardFrame],selection:CGRect(x:100,y:0,width:20,height:20))!
+        try checks.require(standardCrop.width == 20 && standardCrop.height == 20,"Unselected Retina display cannot upscale standard-display crop")
         print("PASS composition: exact red/blue 1×1 pixels at 2×/negative origins; reduced scale and finite bounds")
     }
 }

@@ -158,17 +158,26 @@ final class NSSavePanel {
     nonisolated static func pngData(_ image: CGImage) -> Data? { nil }
 }
 enum CaptureClipboard {
+    struct Decoded { let image:CGImage; let isText:Bool }
+    static func decode(images:[Data],text:String?,rtf:Data?) -> Decoded? {
+        guard let image = fixtureImage else { return nil }; return Decoded(image:image,isText:false)
+    }
     static var fixtureImage: CGImage?
     static func image(from data: Data) -> CGImage? { fixtureImage }
     static func text(_ value: String) -> CGImage? { nil }
 }
 enum NSPasteboard {
-    enum Kind { case png, tiff, string }
+    struct Kind:Equatable {
+        let rawValue:String
+        init(_ value:String) { rawValue = value }
+        static let png=Kind("public.png"), tiff=Kind("public.tiff"), string=Kind("public.utf8-plain-text"), rtf=Kind("public.rtf")
+    }
+    typealias PasteboardType = Kind
     final class Board {
         var changeCount = 0
         var fixturePNG: Data?
-        func data(forType: Kind) -> Data? { fixturePNG }
-        func string(forType: Kind) -> String? { fatalError("Test must not read clipboard") }
+        func data(forType: Kind) -> Data? { forType == .png ? fixturePNG : nil }
+        func string(forType: Kind) -> String? { nil }
         func clearContents() { fatalError("Test must not write clipboard") }
         @discardableResult func setString(_ value: String, forType: Kind) -> Bool { fatalError("Test must not write clipboard") }
         @discardableResult func setData(_ value: Data, forType: Kind) -> Bool { fatalError("Test must not write clipboard") }

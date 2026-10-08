@@ -233,12 +233,16 @@ final class CaptureImageService {
               }) else { return nil }
         let available = frames.map(\.screen.frame).reduce(CGRect.null) { $0.union($1) }
         let region = selection.standardized.intersection(available)
-        let nativeScale = frames.map { CGFloat($0.image.width) / $0.screen.frame.width }.max() ?? 0
-        let verticalScale = frames.map { CGFloat($0.image.height) / $0.screen.frame.height }.max() ?? 0
+        let participating = frames.filter { frame in
+            let overlap = region.intersection(frame.screen.frame)
+            return !overlap.isNull && overlap.width > 0 && overlap.height > 0
+        }
+        let nativeScale = participating.map { CGFloat($0.image.width) / $0.screen.frame.width }.max() ?? 0
+        let verticalScale = participating.map { CGFloat($0.image.height) / $0.screen.frame.height }.max() ?? 0
         // Match Selection.step's direct division: the reciprocal of the image
         // scale can round one ULP above an otherwise valid one-pixel region.
-        let minimumWidth = frames.map { $0.screen.frame.width / CGFloat($0.image.width) }.min() ?? 0
-        let minimumHeight = frames.map { $0.screen.frame.height / CGFloat($0.image.height) }.min() ?? 0
+        let minimumWidth = participating.map { $0.screen.frame.width / CGFloat($0.image.width) }.min() ?? 0
+        let minimumHeight = participating.map { $0.screen.frame.height / CGFloat($0.image.height) }.min() ?? 0
         guard !region.isNull,
               [region.minX, region.minY, region.maxX, region.maxY, region.width, region.height,
                nativeScale, verticalScale, minimumWidth, minimumHeight].allSatisfy(\.isFinite),
@@ -246,6 +250,21 @@ final class CaptureImageService {
               region.width >= minimumWidth, region.height >= minimumHeight else { return nil }
         let area = region.width * region.height
         guard area.isFinite, area > 0 else { return nil }
+        // A single-display selection is a pixel crop, not a resize. Previously
+        // an integral crop was drawn back into a fractional/floored destination,
+        // blending neighbouring pixels even without annotations.
+        if participating.count == 1, let frame = participating.first {
+            let sx = CGFloat(frame.image.width)/frame.screen.frame.width
+            let sy = CGFloat(frame.image.height)/frame.screen.frame.height
+            let pixels = CGRect(x:(region.minX-frame.screen.frame.minX)*sx,
+                                y:(frame.screen.frame.maxY-region.maxY)*sy,
+                                width:region.width*sx,height:region.height*sy).integral
+                .intersection(CGRect(x:0,y:0,width:frame.image.width,height:frame.image.height))
+            if pixels.width > 0, pixels.height > 0, pixels.width <= 16_000, pixels.height <= 16_000,
+               pixels.width*pixels.height <= CGFloat(CaptureRaster.maximumPixels) {
+                return frame.image.cropping(to:pixels)
+            }
+        }
         let scale = min(nativeScale, sqrt(CGFloat(CaptureRaster.maximumPixels) / area))
         let scaledWidth = region.width * scale, scaledHeight = region.height * scale
         guard scale.isFinite, scale > 0, scaledWidth.isFinite, scaledHeight.isFinite,

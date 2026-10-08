@@ -102,6 +102,25 @@ struct CaptureClipboardColor: Equatable {
 }
 
 enum CaptureClipboard {
+    struct Decoded {
+        let image: CGImage
+        let isText: Bool
+    }
+    /// Try each bounded image representation before falling back to plain/RTF text.
+    /// Decoding stays on the worker; HTML is not loaded or allowed to fetch resources.
+    static func decode(images: [Data], text: String?, rtf: Data?) -> Decoded? {
+        for data in images.prefix(4) {
+            if let image = image(from:data) { return Decoded(image:image,isText:false) }
+        }
+        let plain = text.flatMap { $0.isEmpty ? nil : $0 }
+        let rich = plain == nil ? rtf.flatMap { data -> String? in
+            guard data.count <= 4_000_000 else { return nil }
+            return NSAttributedString(rtf:data,documentAttributes:nil)?.string
+        } : nil
+        guard let value = plain ?? rich, let image = self.text(value) else { return nil }
+        return Decoded(image:image,isText:true)
+    }
+
     static func image(from data: Data) -> CGImage? {
         guard data.count <= 64_000_000,
               let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),

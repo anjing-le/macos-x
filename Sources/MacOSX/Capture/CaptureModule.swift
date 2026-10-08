@@ -1,9 +1,11 @@
 import AppKit
+import os
 
 @MainActor
 final class CaptureModule: NSObject {
     var onPermissionNeeded: (() -> Void)?
     var onStatusChange: ((String) -> Void)?
+    private let logger = Logger(subsystem:"cc.anjing.macos-x",category:"capture-pin")
     private let images = CaptureImageService()
     private let selection = CaptureSelection()
     private let pins = CapturePins()
@@ -187,9 +189,10 @@ final class CaptureModule: NSObject {
     /// Clipboard pinning remains available once that session has ended.
     func pin() {
         guard running, !terminating, recordingState != .choosing else { return }
-        guard pins.canAdd else { setStatus("最多 8 张贴图，请先关闭一张。"); return }
+        logger.info("F3 editor=\(self.editor != nil) capture_active=\(self.captureInProgress) pending=\(self.editorPending) capacity_available=\(self.pins.canAdd)")
+        if pins.applyActiveEdit() { return }
+        guard pins.canAdd else { logger.info("pin rejected: capacity"); setStatus("最多 8 张贴图，请先关闭一张。"); return }
         if let editor { editor.pinCurrentImage() }
-        else if pins.applyActiveEdit() { return }
         else if editorPending { pinAfterEditor = true }
         else if captureInProgress { selection.pinCurrentSelection() }
         else { pinClipboard() }
@@ -201,20 +204,30 @@ final class CaptureModule: NSObject {
         let expected = generation, revision = captureRevision
         let board = NSPasteboard.general
         let placement = copiedRegion.flatMap { $0.changeCount == board.changeCount ? $0.frame : nil }
-        let data = board.data(forType: .png) ?? board.data(forType: .tiff)
-        let text = data == nil ? board.string(forType: .string) : nil
-        guard data != nil || text != nil else { handle(CaptureFailure.emptyClipboard); return }
+        let formats: [NSPasteboard.PasteboardType] = [.png,.tiff,.init("public.jpeg"),.init("public.heic")]
+        var candidates = [Data](), bytes = 0
+        for format in formats {
+            guard let data = board.data(forType:format), !data.isEmpty,
+                  data.count <= 64_000_000 - bytes else { continue }
+            candidates.append(data); bytes += data.count
+        }
+        let text = board.string(forType:.string)
+        let rich = board.data(forType:.rtf).flatMap { $0.count <= 4_000_000 ? $0 : nil }
+        logger.info("clipboard candidates=\(candidates.count) image_bytes=\(bytes) text_characters=\(text?.count ?? 0) rtf_bytes=\(rich?.count ?? 0)")
+        guard !candidates.isEmpty || text?.isEmpty == false || rich != nil else { handle(CaptureFailure.emptyClipboard); return }
         clipboardInFlight = true
         work.async { [weak self] in
-            let image = autoreleasepool { data.flatMap(CaptureClipboard.image(from:)) ?? text.flatMap(CaptureClipboard.text) }
+            let decoded = autoreleasepool { CaptureClipboard.decode(images:candidates,text:text,rtf:rich) }
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.clipboardInFlight = false
                 guard self.running, self.generation == expected, self.captureRevision == revision else { return }
-                if let image {
+                if let decoded {
+                    let image = decoded.image
+                    self.logger.info("clipboard decoded width=\(image.width) height=\(image.height) text=\(decoded.isText)")
                     var frame = placement
                     // Text cards need readable point sizes, rather than the 480-point image thumbnail cap.
-                    if text != nil {
+                    if decoded.isText {
                         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
                         let available = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1000, height: 700)
                         let scale = min(1, min((available.width - 64) / CGFloat(image.width),
@@ -226,7 +239,7 @@ final class CaptureModule: NSObject {
                     }
                     self.pins.add(image, at: frame)
                 }
-                else { self.setStatus("剪贴板过大或无法读取。") }
+                else { self.logger.info("clipboard decode rejected: unsupported or bounded content"); self.setStatus("剪贴板内容无法解析或超过大小限制，未创建贴图。") }
             }
         }
     }

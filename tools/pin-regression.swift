@@ -95,6 +95,15 @@ struct RasterFixture {
         let decoded = CaptureClipboard.image(from: encoded as Data)!
         check(decoded.width == 3 && decoded.height == 2 && pixels(decoded) == colors, "PNG fixture decodes without orientation/color loss")
         check(CaptureRaster.downsample(image, maximumPixels: 4)!.width * CaptureRaster.downsample(image, maximumPixels: 4)!.height <= 4, "Pin pixel budget")
+        let invalid = Data([0,1,2])
+        let recoveredImage = CaptureClipboard.decode(images:[invalid,encoded as Data],text:"fallback",rtf:nil)
+        check(recoveredImage?.isText == false && recoveredImage?.image.width == image.width,"Invalid first representation falls back to valid second image")
+        check(CaptureClipboard.decode(images:[invalid],text:"可用文字",rtf:nil)?.isText == true,"Invalid image falls back to plain text")
+        let rich = NSAttributedString(string:"富文本测试")
+        let rtf = try! rich.data(from:NSRange(location:0,length:rich.length),documentAttributes:[.documentType:NSAttributedString.DocumentType.rtf])
+        check(CaptureClipboard.decode(images:[],text:nil,rtf:rtf)?.isText == true,"RTF-only clipboard renders plain readable text")
+        check(CaptureClipboard.decode(images:[invalid],text:nil,rtf:invalid) == nil,"Unsupported content does not fabricate a pin")
+        check(CaptureClipboard.decode(images:[],text:nil,rtf:Data(repeating:0,count:4_000_001)) == nil,"RTF decoding has a byte bound")
         print("PASS: \(checks) raster/color/transform checks; no windows, clipboard writes or permissions")
     }
 }

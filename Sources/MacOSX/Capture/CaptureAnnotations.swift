@@ -192,7 +192,14 @@ final class CaptureCanvas: NSView {
     }
     override func draw(_ dirtyRect: NSRect) {
         NSColor.underPageBackgroundColor.setFill(); bounds.fill()
-        NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height)).draw(in: imageRect)
+        if let context = NSGraphicsContext.current?.cgContext {
+            context.saveGState()
+            let device = context.convertToDeviceSpace(imageRect)
+            let nativePixels = abs(device.width-CGFloat(image.width)) < 0.01 && abs(device.height-CGFloat(image.height)) < 0.01
+            context.interpolationQuality = nativePixels ? .none : .high
+            context.draw(image,in:imageRect)
+            context.restoreGState()
+        }
         if let draft, let context = NSGraphicsContext.current?.cgContext {
             context.saveGState()
             context.translateBy(x: imageRect.minX, y: imageRect.minY); context.scaleBy(x: scale, y: scale)

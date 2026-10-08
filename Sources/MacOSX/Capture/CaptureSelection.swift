@@ -192,6 +192,9 @@ import AppKit
         spaceDown = false; spaceRegion = .null
         let unit = step(at: point)
         if !selection.isNull && (selection.width < unit.width || selection.height < unit.height) { selection = .null }
+        if snappedWindow == nil, let frame = frames.first(where: { $0.screen.frame.contains(selection) }) {
+            selection = CaptureSelectionGeometry.pixelAligned(selection,in:frame.screen.frame,width:frame.image.width,height:frame.image.height)
+        }
         redraw(); beginInlineEditing()
     }
     private func resetOrCancel() {

@@ -73,6 +73,15 @@ final class CapturePixelSampler: @unchecked Sendable {
 
 /// Selection adjustments are in screenshot pixels, converted to global AppKit points.
 enum CaptureSelectionGeometry {
+    /// Snap both edges to the frozen raster, so editor points map exactly to pixels.
+    static func pixelAligned(_ rect:CGRect, in frame:CGRect, width:Int, height:Int) -> CGRect {
+        guard width > 0, height > 0, frame.width > 0, frame.height > 0 else { return rect }
+        let sx = CGFloat(width)/frame.width, sy = CGFloat(height)/frame.height
+        let x0 = ((rect.minX-frame.minX)*sx).rounded(), x1 = ((rect.maxX-frame.minX)*sx).rounded()
+        let y0 = ((rect.minY-frame.minY)*sy).rounded(), y1 = ((rect.maxY-frame.minY)*sy).rounded()
+        guard x1>x0, y1>y0 else { return rect }
+        return clamped(CGRect(x:frame.minX+x0/sx,y:frame.minY+y0/sy,width:(x1-x0)/sx,height:(y1-y0)/sy),to:frame)
+    }
     static func clamped(_ rect: CGRect, to bounds: CGRect) -> CGRect {
         guard !rect.isNull, !rect.isInfinite, rect.minX.isFinite, rect.minY.isFinite, rect.width.isFinite, rect.height.isFinite,
               !bounds.isNull, !bounds.isInfinite, bounds.minX.isFinite, bounds.minY.isFinite, bounds.width.isFinite, bounds.height.isFinite else { return .null }
