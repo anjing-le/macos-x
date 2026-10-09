@@ -109,6 +109,13 @@ import MacOSXCore
                 try require(shortcutRows.filter { $0.control is NSStackView }.allSatisfy { $0.control.frame == $0.bounds }, "shortcut controls use the full row without arrow gutters")
                 let choices=board.subviews.compactMap { $0 as? IllustratedSettingChoice }.filter(\.isEnabled)
                 try require(choices.count == 2,"exactly two live illustration choices")
+                for choice in choices {
+                    for unit in [CGPoint(x:0.1,y:0.1),CGPoint(x:0.5,y:0.5),CGPoint(x:0.9,y:0.9)] {
+                        let point=board.convert(CGPoint(x:choice.bounds.width*unit.x,y:choice.bounds.height*unit.y),from:choice)
+                        try require(board.hitTest(board.convert(point,to:board.superview)) === choice,"image and caption must hit their real choice button")
+                    }
+                    if kind == "capture" { try require(choice.frame == board.slot(SettingsBoardView.captureOutlineSlots[choice.tag]),"glow choice matches source-image coordinates") }
+                }
                 choices[1].performClick(nil)
                 try require(choices[1].state == .on && choices[0].state == .off,"one selected illustration")
                 try require(kind == "capture" ? toggle.state == .on : mode.indexOfSelectedItem == 1,"illustration updates source control")

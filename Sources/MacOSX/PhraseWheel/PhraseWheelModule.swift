@@ -114,6 +114,7 @@ import MacOSXCore
     private let body = NSTextView(), table = NSTableView(), search = SketchSearchField()
     private let scroll = SketchScrollView(), listScroll = SketchScrollView()
     private let status = NSTextField(wrappingLabelWithString: "")
+    private let artwork = IllustratedSettingChoice.artwork("SettingsPromptsBoard")
     private var compact: Bool { bounds.width < 740 }
     override var intrinsicContentSize: NSSize { NSSize(width: 760, height: compact ? 798 : 420) }
     init(collection: PromptCollection, presentation: PromptPresentation) {
@@ -162,8 +163,51 @@ import MacOSXCore
         selectSlot(0)
     }
     required init?(coder: NSCoder) { nil }
+    override func draw(_ dirtyRect: NSRect) {
+        guard !compact, let artwork else { return }
+        artwork.draw(in:bounds,from:.zero,operation:.sourceOver,fraction:1,respectFlipped:false,hints:[.interpolation:NSImageInterpolation.high])
+    }
+    private func illustratedSlot(_ rect:CGRect) -> CGRect {
+        CGRect(x:rect.minX*bounds.width,y:(1-rect.maxY)*bounds.height,width:rect.width*bounds.width,height:rect.height*bounds.height)
+    }
+    private func layoutArtwork() {
+        for (index,button) in styleButtons.enumerated() {
+            button.backdropOnly=true
+            button.frame=illustratedSlot(CGRect(x:index == 0 ? 0.028 : 0.175,y:0.038,width:0.135,height:0.245))
+        }
+        let countX=bounds.width*0.34
+        ringCountLabel.frame=CGRect(x:countX,y:bounds.height-30,width:52,height:20)
+        ringCount.frame=CGRect(x:countX+54,y:bounds.height-34,width:58,height:28)
+        listCountLabel.frame=CGRect(x:countX,y:bounds.height-66,width:52,height:20)
+        listCount.frame=CGRect(x:countX+54,y:bounds.height-70,width:58,height:28)
+        wheelTab.frame=illustratedSlot(CGRect(x:0.02,y:0.30,width:0.065,height:0.065))
+        libraryTab.frame=illustratedSlot(CGRect(x:0.09,y:0.30,width:0.065,height:0.065))
+        add.frame=illustratedSlot(CGRect(x:0.40,y:0.30,width:0.035,height:0.065))
+        presentationHost.frame=illustratedSlot(CGRect(x:0.02,y:0.38,width:0.42,height:0.46)); layoutPreview()
+        search.frame=illustratedSlot(CGRect(x:0.02,y:0.38,width:0.42,height:0.065))
+        listScroll.frame=illustratedSlot(CGRect(x:0.02,y:0.46,width:0.42,height:0.38))
+        picker.frame=illustratedSlot(CGRect(x:0.49,y:0.27,width:0.48,height:0.065)); placement.frame=picker.frame
+        titleField.frame=illustratedSlot(CGRect(x:0.49,y:0.362,width:0.47,height:0.065))
+        scroll.frame=illustratedSlot(CGRect(x:0.49,y:0.49,width:0.47,height:0.34))
+        scroll.layer?.backgroundColor=NSColor.clear.cgColor
+        body.frame.size.width=scroll.contentSize.width
+        importer.frame=CGRect(x:16,y:28,width:110,height:28)
+        format.frame=CGRect(x:132,y:28,width:48,height:28); cancelImport.frame=format.frame
+        preview.frame=CGRect(x:bounds.width-76,y:28,width:60,height:28)
+        status.frame=CGRect(x:16,y:0,width:bounds.width-32,height:26)
+        table.tableColumns.first?.width=max(80,listScroll.contentSize.width)
+    }
     override func layout() {
         super.layout()
+        titleField.usesArtwork = !compact && artwork != nil
+        scroll.usesArtwork = !compact && artwork != nil
+        if !compact && artwork != nil {
+            layoutArtwork()
+            if wasCompact { wasCompact=false; invalidateIntrinsicContentSize() }
+            needsDisplay=true
+            return
+        }
+        for button in styleButtons { button.backdropOnly=false }
         displayStyle.frame = CGRect(x:0,y:bounds.height-32,width:100,height:28)
         for (i,button) in styleButtons.enumerated() { button.frame=CGRect(x:CGFloat(i)*90,y:bounds.height-60,width:84,height:58) }
         ringCountLabel.frame = CGRect(x:192,y:bounds.height-26,width:32,height:18)
@@ -230,8 +274,10 @@ import MacOSXCore
     private func layoutPreview() {
         guard let view = presentationPreview else { return }
         let size = view.preferredSize
-        view.frame = CGRect(x:max(0,(presentationHost.bounds.width-size.width)/2),
-                            y:max(0,(presentationHost.bounds.height-size.height)/2),width:size.width,height:size.height)
+        let scale=min(1,min(presentationHost.bounds.width/size.width,presentationHost.bounds.height/size.height))
+        let fitted=CGSize(width:size.width*scale,height:size.height*scale)
+        view.frame=CGRect(x:(presentationHost.bounds.width-fitted.width)/2,y:(presentationHost.bounds.height-fitted.height)/2,width:fitted.width,height:fitted.height)
+        view.bounds=CGRect(origin:.zero,size:size)
         view.needsLayout = true
     }
     private func loadEntry() {

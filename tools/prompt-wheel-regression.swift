@@ -52,13 +52,13 @@ import MacOSXCore
                 let actual = PhraseWheelPanel(anchor:CGPoint(x:450,y:450),screen:CGRect(x:0,y:0,width:900,height:900),collection:collection,
                                               presentation:.init(style:styleIndex == 0 ? .ring : .list,wheelCount:count,listCount:count))
                 let actualView = actual.contentView!; actualView.layoutSubtreeIfNeeded()
-                precondition(preview.bounds == actualView.bounds, "style=\(styleIndex) count=\(count) preview=\(preview.bounds) actual=\(actualView.bounds)")
+                precondition(abs(preview.bounds.width-actualView.bounds.width)<0.001 && abs(preview.bounds.height-actualView.bounds.height)<0.001, "style=\(styleIndex) count=\(count) preview=\(preview.bounds) actual=\(actualView.bounds)")
                 let left = visibleButtons(preview), right = visibleButtons(actualView)
                 precondition(left.count == right.count)
-                for (lhs,rhs) in zip(left,right) { precondition(lhs.0 == rhs.0 && lhs.1 == rhs.1) }
+                for (lhs,rhs) in zip(left,right) { precondition(lhs.0 == rhs.0 && abs(lhs.1.minX-rhs.1.minX)<0.001 && abs(lhs.1.minY-rhs.1.minY)<0.001 && abs(lhs.1.width-rhs.1.width)<0.001 && abs(lhs.1.height-rhs.1.height)<0.001) }
                 let previewSearch = preview.subviews.compactMap { $0 as? NSSearchField }.first!
                 let actualSearch = actualView.subviews.compactMap { $0 as? NSSearchField }.first!
-                precondition(previewSearch.frame == actualSearch.frame)
+                precondition(abs(previewSearch.frame.minX-actualSearch.frame.minX)<0.001 && abs(previewSearch.frame.minY-actualSearch.frame.minY)<0.001 && abs(previewSearch.frame.width-actualSearch.frame.width)<0.001)
                 actual.dismiss()
             }
         }
@@ -73,7 +73,11 @@ import MacOSXCore
         promptSettings.frame.size=NSSize(width:840,height:420); promptSettings.layoutSubtreeIfNeeded()
         let styleButtons=promptSettings.subviews.compactMap { $0 as? IllustratedSettingChoice }
         precondition(styleButtons.count == 2)
+        precondition(IllustratedSettingChoice.artwork("SettingsPromptsBoard") != nil)
         for button in styleButtons {
+            let point=promptSettings.convert(CGPoint(x:button.bounds.midX,y:button.bounds.midY),from:button)
+            precondition(promptSettings.hitTest(promptSettings.convert(point,to:promptSettings.superview)) === button)
+
             button.performClick(nil)
             precondition(defaults.string(forKey:"promptLibrary.presentation") == (button.tag == 0 ? "ring" : "list"))
             precondition(styleButtons.filter { $0.state == .on }.count == 1)

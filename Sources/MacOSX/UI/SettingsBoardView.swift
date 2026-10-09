@@ -146,7 +146,7 @@ import AppKit
             }
             for (index,title) in ["无边缘", "白光边缘"].enumerated() {
                 let button=IllustratedSettingChoice(title:title,asset:"GuideCapture",slice:CGRect(x:1/3,y:0,width:1/3,height:1),target:self,action:#selector(selectOutline(_:)))
-                button.pinGlow=index == 1; button.tag=index; button.setAccessibilityLabel("贴图：\(title)"); selectors.append(button); addSubview(button)
+                button.pinGlow=index == 1; button.tag=index; button.toolTip=index == 1 ? "贴图显示白光边缘" : "贴图不显示边缘"; button.setAccessibilityLabel("贴图：\(title)"); selectors.append(button); addSubview(button)
             }
             refreshChoices()
         } else if kind == "windowSwitcher", let stack=settings as? NSStackView,
@@ -190,13 +190,15 @@ import AppKit
         if let footer=view as? SwitcherSettingsFooter { footer.usesArtwork=usesBackdrop }
         for child in view.subviews { configureFooter(child) }
     }
+    // Entire illustration and caption are one target, in the source image coordinate space.
+    static let captureOutlineSlots=[CGRect(x:670.0/1774.0,y:455.0/887.0,width:175.0/1774.0,height:170.0/887.0),
+                                    CGRect(x:925.0/1774.0,y:455.0/887.0,width:175.0/1774.0,height:170.0/887.0)]
     private func layoutBackdrop() {
         for view in art { view.isHidden=true }
         for choice in selectors { choice.backdropOnly=true; choice.checkOnly=kind == "capture" }
         if kind == "capture" {
             for (i,view) in shortcuts.enumerated() { view.frame=slot(Self.captureKeySlots[i]) }
-            let choices=[CGRect(x:0.377,y:0.52,width:0.095,height:0.18),CGRect(x:0.523,y:0.52,width:0.095,height:0.18)]
-            for (i,view) in selectors.enumerated() { view.frame=slot(choices[i]) }
+            for (i,view) in selectors.enumerated() { view.frame=slot(Self.captureOutlineSlots[i]) }
             for (i,hint) in captureHints.enumerated() { hint.isHidden=false; hint.frame=slot(CGRect(x:i == 0 ? 0.03 : 0.68,y:0.68,width:0.29,height:0.07)) }
             settings.frame=slot(CGRect(x:0,y:0.838,width:1,height:0.162))
             settings.frame.size.height=max(settings.frame.height,settings.fittingSize.height)

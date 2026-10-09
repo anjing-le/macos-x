@@ -132,6 +132,7 @@ private final class SketchInputCell: NSTextFieldCell {
 
 @MainActor
 final class SketchTextField: NSTextField {
+    var usesArtwork = false
     override init(frame: NSRect) {
         super.init(frame: frame)
         cell = SketchInputCell(textCell: "")
@@ -142,6 +143,7 @@ final class SketchTextField: NSTextField {
     convenience init() { self.init(frame: .zero) }
     required init?(coder: NSCoder) { nil }
     override func draw(_ dirtyRect: NSRect) {
+        if usesArtwork && currentEditor() == nil { super.draw(dirtyRect); return }
         let path = SketchPencil.outline(in: bounds.insetBy(dx: 1.5, dy: 1.5), radius: 6)
         SketchPalette.paper.setFill(); path.fill()
         SketchPencil.stroke(path, color: currentEditor() == nil ? SketchPalette.line : SketchPalette.yellow, width: 1)
@@ -181,9 +183,10 @@ final class SketchSearchField: NSSearchField {
 
 @MainActor
 final class SketchScrollView: NSScrollView {
+    var usesArtwork = false
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard bounds.width > 4, bounds.height > 4 else { return }
+        guard !usesArtwork, bounds.width > 4, bounds.height > 4 else { return }
         SketchPencil.stroke(SketchPencil.outline(in: bounds.insetBy(dx: 1.5, dy: 1.5), radius: 8), color: SketchPalette.line, width: 0.9)
     }
 }
