@@ -206,7 +206,9 @@ private final class PinEntry: NSObject, NSWindowDelegate {
         case .edit: editImage()
         case .close: window.close()
         case .hide: window.close()
-        case let .zoom(factor): thumbnail = false; zoom = min(4, max(0.15, zoom * factor)); resize()
+        case let .zoom(factor):
+            thumbnail = false; zoom = min(4, max(0.15, zoom * factor)); resize()
+            view.showZoom(zoom)
         case let .opacity(delta): window.alphaValue = min(1, max(0.1, window.alphaValue + delta))
         case let .rotate(clockwise): transform.rotate(clockwise: clockwise); resize()
         case .horizontal: transform.horizontalFlip.toggle(); resize()
@@ -331,6 +333,8 @@ private final class PinView: NSView {
     private var shiftDown = false
     private var samplePoint: CGPoint?
     private var tracking: NSTrackingArea?
+    private var zoomLabel: String?
+    private var zoomDismissal: Task<Void, Never>?
     var onCommand: ((PinCommand) -> Void)?
     var onMenu: (() -> NSMenu)?
     var onSampling: ((Bool) -> Void)?
@@ -340,6 +344,16 @@ private final class PinView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     init(image: CGImage) { self.image = image; super.init(frame: .zero); setAccessibilityLabel("贴图"); setAccessibilityRole(.image) }
     required init?(coder: NSCoder) { nil }
+    func showZoom(_ scale: CGFloat) {
+        zoomLabel = "\(Int((scale * 100).rounded()))%"
+        zoomDismissal?.cancel()
+        needsDisplay = true
+        zoomDismissal = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            guard let self else { return }
+            self.zoomLabel = nil; self.zoomDismissal = nil; self.needsDisplay = true
+        }
+    }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
@@ -347,6 +361,7 @@ private final class PinView: NSView {
         addTrackingArea(area); tracking = area
     }
     func stopTracking() {
+        zoomDismissal?.cancel(); zoomDismissal = nil; zoomLabel = nil
         if let tracking { removeTrackingArea(tracking); self.tracking = nil }
         sampler = nil; samplePoint = nil; isSampling = false; drag = nil
     }
@@ -445,6 +460,19 @@ private final class PinView: NSView {
         context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         context.restoreGState()
         if showsOutline { CapturePinHighlight.draw(in: context, bounds: bounds) }
+        if let zoomLabel, bounds.width >= 48, bounds.height >= 28 {
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium),
+                .foregroundColor: NSColor(white: 0.22, alpha: 1)
+            ]
+            let text = zoomLabel as NSString, size = text.size(withAttributes: attributes)
+            let width = min(bounds.width - 8, size.width + 20)
+            let rect = CGRect(x: bounds.midX - width / 2, y: bounds.minY + 4, width: width, height: 24)
+            let path = NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7)
+            NSColor(white: 1, alpha: 0.94).setFill(); path.fill()
+            NSColor(white: 0.45, alpha: 0.35).setStroke(); path.lineWidth = 0.75; path.stroke()
+            text.draw(at: CGPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2), withAttributes: attributes)
+        }
         guard isSampling, let point = samplePoint, let sample = currentSample(), let sampler,
               let rawPatch = sampler.magnifier(sample: sample, radius: 5), let patch = transform.render(rawPatch) else { return }
         let width = min(150, bounds.width), height = min(136, bounds.height)
