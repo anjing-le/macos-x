@@ -132,6 +132,11 @@ final class MinimalToggle: MinimalButton {
 final class MinimalPopUpButton: NSPopUpButton {
     private var dropdown: SketchDropdown?
     override func mouseDown(with event:NSEvent) { showChoices() }
+    override func performClick(_ sender:Any?) { showChoices() }
+    override func accessibilityPerformPress()->Bool {
+        guard isEnabled,!isHiddenOrHasHiddenAncestor,window != nil else { return false }
+        showChoices(); return true
+    }
     override func acceptsFirstMouse(for event:NSEvent?) -> Bool { isEnabled }
     override func keyDown(with event:NSEvent) {
         if [36,49,125,126].contains(event.keyCode) { showChoices() } else if event.keyCode == 53 { dropdown?.dismiss() } else if event.keyCode == 48 { window?.selectNextKeyView(self) } else if event.characters?.isEmpty == false { showChoices() }
