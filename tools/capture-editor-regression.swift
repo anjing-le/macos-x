@@ -106,6 +106,11 @@ import AppKit
         precondition(brushCanvas.cancelDraft(), "Active brush stroke can be cancelled")
         brushCanvas.mouseUp(with: mouse(.leftMouseUp, CGPoint(x: 50, y: 50)))
         precondition(strokes.count == 2, "Cancelled stroke does not commit")
+        brushCanvas.mouseDown(with: mouse(.leftMouseDown, CGPoint(x: 50, y: 50)))
+        brushCanvas.mouseDragged(with: mouse(.leftMouseDragged, CGPoint(x: 80, y: 50)))
+        precondition(brushCanvas.commitDraft() && strokes.count == 3, "Export can commit an in-progress redaction")
+        brushCanvas.mouseUp(with: mouse(.leftMouseUp, CGPoint(x: 80, y: 50)))
+        precondition(strokes.count == 3, "Release cannot double-commit an exported stroke")
         brushCanvas.stopBrushPreview(); brushWindow.close()
         precondition(editor.handleSelectionKey(key(53, "\u{1b}")))
         let palette = CaptureColorPalette(colors: [SketchPalette.ink, SketchPalette.coral, SketchPalette.orange, SketchPalette.yellow, SketchPalette.green, SketchPalette.blue, SketchPalette.purple, .white], selected: SketchPalette.coral, target: editor, action: NSSelectorFromString("chooseColor:"))
@@ -142,6 +147,24 @@ import AppKit
         pin.beginRegionAdjustment(); pin.replaceSelectionImage(image, at: next)
         precondition(pin.selectionFrame == region, "Pinned-image editing cannot recrop the desktop")
         pin.close()
+        let activeExport = CaptureEditor(image: image, selectionFrame: CGRect(x: 0, y: 0, width: 200, height: 160))
+        let activeCanvas = activeExport.window.contentView as! CaptureCanvas
+        activeCanvas.tool = .pen
+        func activeMouse(_ type: NSEvent.EventType, _ point: CGPoint) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                windowNumber: activeExport.window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
+        }
+        activeCanvas.mouseDown(with: activeMouse(.leftMouseDown, CGPoint(x: 20, y: 40)))
+        activeCanvas.mouseDragged(with: activeMouse(.leftMouseDragged, CGPoint(x: 100, y: 40)))
+        var exported: CGImage?
+        activeExport.onPin = { exported = $0 }
+        activeExport.pinCurrentImage()
+        precondition(!activeCanvas.inputEnabled, "Export locks canvas edits until completion")
+        let deadline = Date().addingTimeInterval(4)
+        while exported == nil && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+        precondition(exported != nil, "F3 resolves without displaying windows")
+        precondition(CapturePixelSampler(image: exported!)!.sample(x: 40, y: 119)?.hex != "#FFFFFF", "F3 while dragging exports the current visible stroke")
+        activeExport.close()
         print("PASS editor interaction: default adjustment, tool lock/toggle, Esc, pending crop, region replacement and pin isolation; no displayed windows, capture or clipboard writes")
     }
 }

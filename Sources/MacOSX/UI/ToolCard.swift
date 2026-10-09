@@ -17,7 +17,6 @@ final class ToolCard: NSControl {
     private var removeButton: CardActionButton?
     private var removed: (() -> Void)?
     private let stateLabel = NSTextField(labelWithString: "")
-    private var catalogAdded = false
     func configureRemoval(_ action: @escaping () -> Void) {
         removed = action
         if removeButton == nil {
@@ -29,11 +28,6 @@ final class ToolCard: NSControl {
         updateAccessibilityChildren(); updateAppearance(animated: false); needsLayout = true
     }
     @objc private func removeModule() { removed?() }
-    func configureCatalogState(added: Bool) {
-        catalogAdded = added; stateLabel.stringValue = added ? "✓ 已添加" : "＋ 添加"
-        setAccessibilityValue(added ? "已添加" : "未添加")
-        updateAppearance(animated: false)
-    }
     private func updateAccessibilityChildren() {
         guard let accessibleEntry else { return }
         var children: [Any] = [accessibleEntry]
@@ -54,6 +48,8 @@ final class ToolCard: NSControl {
         updateEnabled(enabled); needsLayout=true
     }
     func updateEnabled(_ enabled:Bool) {
+        let expected: NSControl.StateValue = enabled ? .on : .off
+        if moduleEnabled == enabled, enableButton?.state == expected { return }
         moduleEnabled = enabled
         enableButton?.state=enabled ? .on : .off; enableButton?.needsDisplay=true
         if !enabled, monochromeImage == nil, let source = colorImage,

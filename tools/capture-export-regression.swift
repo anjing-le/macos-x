@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 
 @main struct ExportRegression {
     static var count = 0
@@ -101,6 +102,25 @@ import AppKit
         let adjustedSample = CapturePixelSampler(image: output)!
         let originalOutput = CaptureAnnotationRenderer.render(base: image, annotations: [redaction])!
         let originalSample = CapturePixelSampler(image: originalOutput)!
+        let sharedEffects = CIContext(options: [.cacheIntermediates: false, .useSoftwareRenderer: true])
+        let reused = CaptureAnnotationRenderer.render(base: image, annotations: [redaction], effectsContext: sharedEffects)!
+        check((reused.dataProvider!.data! as Data) == (originalOutput.dataProvider!.data! as Data), "Reusing the effects engine preserves exported pixels")
+        if ProcessInfo.processInfo.environment["MACOSX_RENDER_BENCHMARK"] == "1" {
+            let large = CaptureRaster.context(width: 1920, height: 1080)!
+            large.setFillColor(CGColor(gray: 0.6, alpha: 1)); large.fill(CGRect(x: 0, y: 0, width: 1920, height: 1080))
+            let base = large.makeImage()!
+            let stroke = CaptureAnnotation(tool: .mosaic, points: [CGPoint(x: 400, y: 400), CGPoint(x: 900, y: 650)], ink: .red, width: 64)
+            var fresh = [Double](), shared = [Double]()
+            for _ in 0..<9 {
+                for reuse in [false, true] {
+                    let start = ProcessInfo.processInfo.systemUptime
+                    autoreleasepool { _ = CaptureAnnotationRenderer.render(base: base, annotations: [stroke], effectsContext: reuse ? sharedEffects : nil) }
+                    let elapsed = (ProcessInfo.processInfo.systemUptime-start)*1000
+                    if reuse { shared.append(elapsed) } else { fresh.append(elapsed) }
+                }
+            }
+            print(String(format: "1920×1080 mosaic render median (9 samples): fresh context %.2f ms; reused context %.2f ms", fresh.sorted()[4], shared.sorted()[4]))
+        }
         check(adjustedSample.sample(x: 28, y: 28)?.hex == originalSample.sample(x: 20, y: 20)?.hex,
               "redaction stays applied to the same frozen desktop content after expanding crop")
         print("PASS capture export: \(count) assertions; rename, failure recovery, no overwrite, unchanged pixels, redaction and cancellation")

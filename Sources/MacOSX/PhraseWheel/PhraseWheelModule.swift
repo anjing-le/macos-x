@@ -11,6 +11,7 @@ import MacOSXCore
     private var panel: PhraseWheelPanel?
     private var saveWork: DispatchWorkItem?
     private var revision = 0
+    private var needsSave = true
     private static let key = "promptLibrary.collection.v1"
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -21,6 +22,7 @@ import MacOSXCore
         if let data = defaults.data(forKey: Self.key), data.count <= PromptCollection.byteLimit,
            let value = try? JSONDecoder().decode(PromptCollection.self, from: data), (try? value.validate()) != nil {
             collection = value
+            needsSave = false
         } else if let data = defaults.data(forKey: "promptLibrary.entries"), data.count <= 4_000_000,
                   let entries = try? JSONDecoder().decode([PromptEntry].self, from: data) {
             collection = .init(legacy: entries)
@@ -32,7 +34,7 @@ import MacOSXCore
         if let settings { return settings }
         let view = PromptSettingsView(collection: collection, presentation: presentation)
         view.onChange = { [weak self] value in
-            guard let self else { return }; self.collection = value; self.revision += 1
+            guard let self else { return }; self.collection = value; self.revision += 1; self.needsSave = true
             self.saveWork?.cancel()
             let work = DispatchWorkItem { [weak self] in self?.saveAsync() }
             self.saveWork = work; DispatchQueue.main.asyncAfter(deadline: .now()+0.35, execute: work)
@@ -49,17 +51,21 @@ import MacOSXCore
     }
     private func saveAsync() {
         saveWork = nil
+        guard needsSave else { return }
         let value = collection, expected = revision
         Task { [weak self] in
             let data = await Task.detached(priority: .utility) { try? JSONEncoder().encode(value) }.value
             guard let self, self.revision == expected, let data, data.count <= PromptCollection.byteLimit else { return }
             self.defaults.set(data, forKey: Self.key)
+            self.needsSave = false
         }
     }
     func start() { enabled = true }
     func stop() {
         enabled = false; revision += 1; saveWork?.cancel(); saveWork = nil
-        if let data = try? JSONEncoder().encode(collection), data.count <= PromptCollection.byteLimit { defaults.set(data, forKey: Self.key) }
+        if needsSave, let data = try? JSONEncoder().encode(collection), data.count <= PromptCollection.byteLimit {
+            defaults.set(data, forKey: Self.key); needsSave = false
+        }
         dismissWheel()
     }
     func summon() { guard enabled else { return }; presentWheel() }

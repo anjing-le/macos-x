@@ -34,7 +34,7 @@ final class WindowThumbnailService {
     func request(_ ids: [WindowThumbnailID], updated: @escaping (WindowThumbnailID, CGImage) -> Void,
                  failed: @escaping (Error) -> Void) -> Ticket {
         let ticket = Ticket()
-        let job = Job(ticket: ticket, ids: Array(ids.prefix(8)), updated: updated, failed: failed)
+        let job = Job(ticket: ticket, ids: Array(ids.prefix(16)), updated: updated, failed: failed)
         queue.async { [self] in
             activeTicket?.cancel(); pending?.ticket.cancel(); pending = job
             drain()

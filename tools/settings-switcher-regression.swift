@@ -144,9 +144,6 @@ import MacOSXCore
         try require(cardWindow.makeFirstResponder(enableButton) && !enableButton.isHidden,"Moving keyboard focus to the switch keeps it visible")
         _ = cardWindow.makeFirstResponder(nil)
         try require(enableButton.isHidden && removal.isHidden,"Leaving keyboard focus hides actions again")
-        let poolCard=ToolCard(title:"截图录屏",symbol:"crop") {}
-        poolCard.configureCatalogState(added:true)
-        try require(poolCard.accessibilityValue() as? String == "已添加","Catalog retains an explicit added state")
         let bodyPoint=toolCard.convert(CGPoint(x:100,y:70),to:nil)
         let bodyEvent=NSEvent.mouseEvent(with:.leftMouseDown,location:bodyPoint,modifierFlags:[],timestamp:0,windowNumber:cardWindow.windowNumber,context:nil,eventNumber:0,clickCount:1,pressure:1)!
         toolCard.mouseDown(with:bodyEvent); toolCard.mouseUp(with:bodyEvent)

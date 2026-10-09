@@ -103,6 +103,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         toolbar.contentView = background
         updateToolButtons()
         canvas.onAnnotation = { [weak self] in self?.append($0) }
+        canvas.onDraftBegan = { [weak self] in self?.cancelRecognition() }
         canvas.onErase = { [weak self] point, radius in self?.erase(point, radius) }
         canvas.onText = { [weak self] point, width, ink in self?.addText(point, width, ink) }
         canvas.onCopy = { [weak self] in self?.copyImage(closeAfter: self?.editingPin != true) }
@@ -244,6 +245,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         regionWasVisible = false; refresh(); updateSelectionInput()
     }
     private func updateSelectionInput() {
+        canvas.inputEnabled = !closed && !exporting && !adjustingRegion
         guard !editingPin else { return }
         let editing = canvas.tool != nil
         window.ignoresMouseEvents = !editing
@@ -269,7 +271,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     func windowWillClose(_ notification: Notification) {
         guard !closed else { return }
         closed = true; revision &+= 1; lifetime.cancel(); preview?.cancel()
-        canvas.cancelDraft(); canvas.stopBrushPreview(); window.acceptsMouseMovedEvents = false
+        canvas.cancelDraft(); canvas.closeBrushPreview(); window.acceptsMouseMovedEvents = false
         if let localMonitor { NSEvent.removeMonitor(localMonitor); self.localMonitor = nil }
         recognition?.cancel(); recognition = nil
         colorPopover?.close(); colorPopover = nil
@@ -285,6 +287,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     }
     @objc private func reselect() { guard !exporting else { return }; onReselect?() }
     private func selectTool(_ tool: CaptureTool) {
+        guard !closed, !exporting, !adjustingRegion else { return }
         finishText(commit: true); canvas.cancelDraft(); wheelRemainder = 0
         canvas.tool = canvas.tool == tool ? nil : tool
         if status.stringValue.hasPrefix("笔刷 ") || (status.stringValue.hasPrefix("粗细 ") && (canvas.tool == nil || canvas.tool == .text || canvas.tool == .mosaic || canvas.tool == .blur || canvas.tool == .eraser)) {
@@ -313,6 +316,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         colorPopover?.close(); window.makeFirstResponder(canvas)
     }
     private func cancelCurrentOperation() {
+        if exporting { close(); return }
         if canvas.cancelDraft() { return }
         if !editingPin, canvas.tool != nil {
             finishText(commit: true); canvas.tool = nil; updateToolButtons(); updateSelectionInput(); return
@@ -330,6 +334,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     @objc private func copyRecognizedText() {
         guard !closed, !exporting, recognition == nil else { return }
         finishText(commit: true)
+        canvas.commitDraft()
         let request = CaptureTextRecognition.request(), base = canvas.base, marks = annotations, lifetime = lifetime
         recognition = request; recognitionButton.isEnabled = false
         showStatus("正在提取文字…")
@@ -395,14 +400,19 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         return false
     }
     @objc private func undoAction() {
+        guard !closed, !exporting else { return }
+        if canvas.cancelDraft() { return }
         guard let previous = undo.popLast() else { return }
         redo.append(annotations); annotations = previous; refresh()
     }
     @objc private func redoAction() {
+        guard !closed, !exporting else { return }
+        if canvas.cancelDraft() { return }
         guard let next = redo.popLast() else { return }
         undo.append(annotations); annotations = next; refresh()
     }
     private func refresh() {
+        cancelRecognition()
         revision &+= 1; let expected = revision
         preview?.cancel()
         let ticket = CaptureImageService.Ticket(); preview = ticket
@@ -410,6 +420,9 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
             guard let self, self.revision == expected else { return }
             self.canvas.image = image
         }
+    }
+    private func cancelRecognition() {
+        recognition?.cancel(); recognition = nil; recognitionButton.isEnabled = true
     }
     private func render(ticket: CaptureImageService.Ticket? = nil, onFailure: (() -> Void)? = nil,
                         _ completion: @escaping (CGImage) -> Void) {
@@ -465,7 +478,8 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         guard !closed, !exporting, !adjustingRegion else { return false }
         recognition?.cancel(); recognition = nil; recognitionButton.isEnabled = true
         finishText(commit: true)
-        exporting = true; onEditingChanged?(true); return true
+        canvas.commitDraft()
+        exporting = true; canvas.inputEnabled = false; onEditingChanged?(true); return true
     }
     @objc private func saveImage() {
         guard beginExport() else { return }

@@ -60,14 +60,14 @@ struct CaptureAnnotation {
 /// lower-left origin, the same geometry the editor uses. Every export operation
 /// uses this renderer, so copy/save/pin cannot disagree about redaction.
 enum CaptureAnnotationRenderer {
-    static func render(base: CGImage, annotations: [CaptureAnnotation], isCurrent: () -> Bool = { true }) -> CGImage? {
+    static func render(base: CGImage, annotations: [CaptureAnnotation], effectsContext: CIContext? = nil, isCurrent: () -> Bool = { true }) -> CGImage? {
         guard isCurrent() else { return nil }
         if annotations.isEmpty { return base }
         guard let context = CaptureRaster.context(width: base.width, height: base.height) else { return nil }
         context.draw(base, in: CGRect(x: 0, y: 0, width: base.width, height: base.height))
         // Most exports contain only vector marks. Allocate the effects engine
         // only when an actual redaction patch needs it, once per export.
-        var effects: CIContext?
+        var effects = effectsContext
         for annotation in annotations {
             guard isCurrent() else { return nil }
             if annotation.tool == .mosaic || annotation.tool == .blur {
@@ -142,6 +142,17 @@ enum CaptureAnnotationRenderer {
     }
 }
 
+/// Used exclusively on one canvas's serial brush queue. Lazily reused until close.
+private final class CaptureBrushRenderer: @unchecked Sendable {
+    private var effects: CIContext?
+    func render(base: CGImage, annotation: CaptureAnnotation, ticket: CaptureImageService.Ticket) -> CGImage? {
+        guard ticket.valid else { return nil }
+        if effects == nil { effects = CIContext(options: [.cacheIntermediates: false, .useSoftwareRenderer: true]) }
+        return CaptureAnnotationRenderer.render(base: base, annotations: [annotation], effectsContext: effects, isCurrent: { ticket.valid })
+    }
+    func clear() { effects = nil }
+}
+
 /// Fixed wax-pencil passes: native geometry, no white paint over screenshot pixels,
 /// no random state, texture images, background allocation or main-thread-only APIs.
 enum CaptureCrayonStroke {
@@ -184,6 +195,8 @@ final class CaptureCanvas: NSView {
     var mosaicDiameter: CGFloat = 32 { didSet { updateBrushPosition(); needsDisplay = true } }
     var imageInset: CGFloat = 12
     var onAnnotation: ((CaptureAnnotation) -> Void)?
+    var onDraftBegan: (() -> Void)?
+    var inputEnabled = true
     var onErase: ((CGPoint, CGFloat) -> Void)?
     var onText: ((CGPoint, CGFloat, CaptureInk) -> Void)?
     var onCopy: (() -> Void)?
@@ -196,6 +209,7 @@ final class CaptureCanvas: NSView {
     private var brushTracking: NSTrackingArea?
     private var mosaicPreview: CGImage?
     private let brushQueue = DispatchQueue(label: "cc.anjing.macos-x.mosaic-preview", qos: .userInitiated)
+    private let brushRenderer = CaptureBrushRenderer()
     private var brushBusy = false
     private var brushPending: (CGImage, CaptureAnnotation, UInt64)?
     private var brushGeneration: UInt64 = 0
@@ -203,6 +217,11 @@ final class CaptureCanvas: NSView {
     func stopBrushPreview() {
         brushGeneration &+= 1; brushPending = nil; brushTicket?.cancel(); brushTicket = nil
         mosaicPreview = nil; brushPosition = nil
+    }
+    func closeBrushPreview() {
+        stopBrushPreview()
+        let renderer = brushRenderer
+        brushQueue.async { renderer.clear() }
     }
     private func requestBrushPreview() {
         guard let draft, draft.tool == .mosaic else { return }
@@ -213,9 +232,10 @@ final class CaptureCanvas: NSView {
         guard !brushBusy, let (base, mark, generation) = brushPending else { return }
         brushPending = nil; brushBusy = true
         let ticket = CaptureImageService.Ticket(); brushTicket = ticket
+        let renderer = brushRenderer
         brushQueue.async { [weak self] in
             let result = autoreleasepool {
-                CaptureAnnotationRenderer.render(base: base, annotations: [mark], isCurrent: { ticket.valid })
+                renderer.render(base: base, annotation: mark, ticket: ticket)
             }
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -230,6 +250,12 @@ final class CaptureCanvas: NSView {
     @discardableResult func cancelDraft() -> Bool {
         guard draft != nil else { return false }
         draft = nil; stopBrushPreview(); needsDisplay = true; return true
+    }
+    @discardableResult func commitDraft() -> Bool {
+        guard let mark = draft else { return false }
+        draft = nil; stopBrushPreview(); needsDisplay = true
+        if mark.tool == .pen || mark.tool == .highlighter || mark.tool == .mosaic || mark.bounds.width > 1 || mark.bounds.height > 1 { onAnnotation?(mark) }
+        return true
     }
     override var acceptsFirstResponder: Bool { true }
     init(image: CGImage) { base = image; self.image = image; super.init(frame: .zero) }
@@ -294,15 +320,18 @@ final class CaptureCanvas: NSView {
         }
     }
     override func mouseDown(with event: NSEvent) {
+        guard inputEnabled else { return }
         window?.makeFirstResponder(self)
         guard let tool, imageRect.contains(convert(event.locationInWindow, from: nil)) else { return }
         let point = imagePoint(event), width = (tool == .mosaic ? mosaicDiameter : lineWidth) / max(scale, 0.01)
+        onDraftBegan?()
         if tool == .eraser { onErase?(point, 12 / scale); return }
         if tool == .text { onText?(point, width, ink); return }
         draft = CaptureAnnotation(tool: tool, points: [point, point], ink: ink, width: width)
         mouseMoved(with: event); requestBrushPreview(); needsDisplay = true
     }
     override func mouseDragged(with event: NSEvent) {
+        guard inputEnabled else { return }
         if tool == .eraser { onErase?(imagePoint(event), 12 / scale); return }
         guard var draft else { return }
         if draft.tool == .pen || draft.tool == .highlighter || draft.tool == .mosaic {
@@ -311,12 +340,9 @@ final class CaptureCanvas: NSView {
         self.draft = draft; mouseMoved(with: event); requestBrushPreview(); needsDisplay = true
     }
     override func mouseUp(with event: NSEvent) {
+        guard inputEnabled else { return }
         if var mark = draft, mark.tool == .mosaic, mark.points.count < 4096 { mark.points.append(imagePoint(event)); draft = mark }
-        guard let annotation = draft else { return }
-        draft = nil; stopBrushPreview(); mouseMoved(with: event); needsDisplay = true
-        if annotation.tool == .pen || annotation.tool == .highlighter || annotation.tool == .mosaic || annotation.bounds.width > 1 || annotation.bounds.height > 1 {
-            onAnnotation?(annotation)
-        }
+        commitDraft(); mouseMoved(with: event)
     }
     override func keyDown(with event: NSEvent) {
         if event.modifierFlags.contains(.command), event.keyCode == 8 { onCopy?() }

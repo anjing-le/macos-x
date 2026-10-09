@@ -1,5 +1,12 @@
 import AppKit
 import MacOSXCore
+final class CountingPromptDefaults: UserDefaults {
+    var collectionWrites = 0
+    override func set(_ value: Any?, forKey key: String) {
+        if key == "promptLibrary.collection.v1" { collectionWrites += 1 }
+        super.set(value, forKey: key)
+    }
+}
 @main struct Check {
     @MainActor static func main() throws {
         _ = NSApplication.shared
@@ -35,11 +42,14 @@ import MacOSXCore
             }
         }
         let domain = "cc.anjing.macos-x.prompt-ui-check.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName:domain)!
+        let defaults = CountingPromptDefaults(suiteName:domain)!
         defer { defaults.removePersistentDomain(forName:domain) }
         let data = try JSONEncoder().encode(collection)
         defaults.set(data,forKey:"promptLibrary.collection.v1")
         let module = PhraseWheelModule(defaults:defaults)
+        let savedWrites = defaults.collectionWrites
+        module.stop(); module.stop()
+        precondition(defaults.collectionWrites == savedWrites, "Stopping an unchanged library does not re-encode and rewrite it")
         let controls = module.settingsView.subviews.compactMap { $0 as? NSPopUpButton }
         func control(_ id:String) -> NSPopUpButton { controls.first { $0.identifier?.rawValue == id }! }
         let styleControl = control("prompt-presentation")
@@ -149,6 +159,14 @@ import MacOSXCore
         command(#selector(NSResponder.insertNewline(_:)))
         precondition(chosen == [22])
         panel.dismiss()
+        let titleEditor = module.settingsView.subviews.compactMap { $0 as? NSTextField }.first { $0.placeholderString == "标题" }!
+        titleEditor.stringValue = "修改后保留"
+        titleEditor.delegate?.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: titleEditor))
+        module.stop()
+        let flushed = try JSONDecoder().decode(PromptCollection.self, from: defaults.data(forKey: "promptLibrary.collection.v1")!)
+        precondition(flushed.prompts.contains { $0.title == "修改后保留" } && defaults.collectionWrites == savedWrites + 1, "Stop flushes a real edit before its debounce completes")
+        module.stop()
+        precondition(defaults.collectionWrites == savedWrites + 1, "Repeated stop after flush does not rewrite")
         print("PASS: settings/runtime shared layout equality for 0–10 both styles; text centring, bounded rows/cards, isolated preference persistence and preservation; centre placement, blank placeholder, search list, cross-page arrows, empty-result Enter, clear search, wrap, one-shot choice; isolated UI, no clipboard/preferences")
     }
 }

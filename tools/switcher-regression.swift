@@ -171,9 +171,9 @@ private struct Failure: Error { let message: String }
             service.clear(); try await settle()
             let beforePage = received.count
             _ = service.request((40...60).map { id(UInt32($0)) }, updated: updated, failed: failed)
-            try await complete(8, pixels)
-            try await wait({ received.count == beforePage + 8 }, "bounded page")
-            try require(MockThumbnail.capturedIDs.suffix(8) == Array(UInt32(40)...47), "requests are capped to the visible eight windows")
+            try await complete(16, pixels)
+            try await wait({ received.count == beforePage + 16 }, "bounded page")
+            try require(MockThumbnail.capturedIDs.suffix(16) == Array(UInt32(40)...55), "All visible cards get thumbnails, still capped to sixteen")
             try require(MockThumbnail.validBounds, "small pixel bounds, no cursor/audio and shadow-free windows")
             try require(MockThumbnail.includesOtherDesktops, "metadata includes off-screen windows")
             print("PASS switcher: \(checks) assertions; latest-page cancellation, one SCK request, cache/pruning bounds, PID identity, protected-window fallback; mocked OS only")

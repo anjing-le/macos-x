@@ -81,7 +81,6 @@ final class WindowLayoutWorker:@unchecked Sendable {
         var pid:pid_t=0; AXUIElementGetPid(window,&pid)
         AXUIElementSetMessagingTimeout(window,0.12)
         guard pid != getpid(),attribute(window,kAXRoleAttribute) as? String == kAXWindowRole else { return nil }
-        AXUIElementSetMessagingTimeout(window,0.12)
         guard attribute(window,kAXMinimizedAttribute) as? Bool != true,attribute(window,"AXFullScreen") as? Bool != true else { return nil }
         var sizeSettable:DarwinBoolean=false,positionSettable:DarwinBoolean=false
         guard AXUIElementIsAttributeSettable(window,kAXSizeAttribute as CFString,&sizeSettable) == .success,sizeSettable.boolValue,
