@@ -210,6 +210,7 @@ final class ToolboxWindowController: NSWindowController {
     private let canCheckUpdates: () -> Bool
     private let modules: ModuleCoordinator
     private var settingsHeader: ModuleSettingsHeader?
+    private var homeCards:[Tool:ToolCard]=[:]
 
     init(modules: ModuleCoordinator, onCheckUpdates: @escaping () -> Void, canCheckUpdates: @escaping () -> Bool) {
         self.modules = modules
@@ -235,9 +236,11 @@ final class ToolboxWindowController: NSWindowController {
         content.header.onBack = { [weak self] in self?.goBack() }
         content.header.onUpdate = { [weak self] in self?.checkUpdates() }
         modules.onStateChanged = { [weak self] tool in
-            guard let self, case let .settings(current) = self.page, current == tool else { return }
-            self.settingsHeader?.refresh()
-            self.content.needsLayout = true
+            guard let self else { return }
+            self.homeCards[tool]?.updateEnabled(self.modules.isEnabled(tool))
+            if case let .settings(current)=self.page,current == tool {
+                self.settingsHeader?.refresh(); self.content.needsLayout=true
+            }
         }
         modules.onScreenCapturePermissionNeeded = { [weak self] in
             guard let self, self.added.tools.contains(.capture) else { return }
@@ -259,6 +262,7 @@ final class ToolboxWindowController: NSWindowController {
     }
 
     private func navigate(_ page: Page, title: String) {
+        if case .home=page {} else { homeCards.removeAll() }
         self.page = page
         window?.title = title
         content.header.title = title
@@ -270,10 +274,12 @@ final class ToolboxWindowController: NSWindowController {
     private func showHome() {
         settingsHeader = nil
         navigate(.home, title: "macos-x")
+        homeCards.removeAll()
         var cards = added.tools.map { tool in
-            ToolCard(title: tool.title, symbol: tool.symbol) { [weak self] in
-                self?.showSettings(tool)
-            }
+            let card=ToolCard(title:tool.title,symbol:tool.symbol) { [weak self] in self?.showSettings(tool) }
+            card.configureEnabled(modules.isEnabled(tool)) { [weak self] enabled in self?.modules.setEnabled(enabled,tool:tool) }
+            homeCards[tool]=card
+            return card
         }
         if added.tools.count < Tool.allCases.count {
             cards.append(ToolCard(title: "添加", symbol: "plus") { [weak self] in self?.showCatalog() })

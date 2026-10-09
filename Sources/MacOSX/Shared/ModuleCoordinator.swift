@@ -242,7 +242,7 @@ final class ModuleCoordinator {
 final class ModuleSettingsHeader: NSStackView {
     private let module: ModuleCoordinator
     private let tool: Tool
-    private let toggle = MinimalToggle(title: "", target: nil, action: nil)
+    private let toggle = ModuleEnableButton(title:"功能",target:nil,action:nil)
     private let accessibility = MinimalButton(title: "允许辅助功能", target: nil, action: nil, style: .standard)
     private let screenCapture = MinimalButton(title: "屏幕权限", target: nil, action: nil, style: .standard)
     private let issue = NSTextField(labelWithString: "")
@@ -256,6 +256,8 @@ final class ModuleSettingsHeader: NSStackView {
         label.textColor = .secondaryLabelColor
         label.widthAnchor.constraint(equalToConstant: 88).isActive = true
         enabled.addArrangedSubview(label); enabled.addArrangedSubview(toggle)
+        toggle.widthAnchor.constraint(equalToConstant:68).isActive=true
+        toggle.heightAnchor.constraint(equalToConstant:30).isActive=true
         toggle.target = self; toggle.action = #selector(changeEnabled); toggle.setAccessibilityLabel("启用\(tool.title)")
         addArrangedSubview(enabled)
         for button in [accessibility, screenCapture] { button.target = self; addArrangedSubview(button) }

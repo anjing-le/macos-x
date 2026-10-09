@@ -6,6 +6,7 @@ class MinimalButton: NSButton {
     enum Style { case standard, primary, quiet, icon }
     var style: Style = .standard { didSet { updateTint() } }
     fileprivate var hovered = false
+    var isPointerInside:Bool { hovered }
     private var hoverArea: NSTrackingArea?
     private var focusObserver: MinimalFocusObserver?
 

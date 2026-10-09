@@ -54,6 +54,36 @@ import MacOSXCore
             }
         }
         // Real mouseDown events (not performClick) cover padding, picture and caption.
+        var opened=0, toggled=0, enabled=true
+        let toolCard=ToolCard(title:"提示词库",symbol:"text.bubble") { opened += 1 }
+        toolCard.configureEnabled(enabled) { [weak toolCard] value in enabled=value; toggled += 1; toolCard?.updateEnabled(value) }
+        let cardWindow=NSWindow(contentRect:CGRect(x:0,y:0,width:200,height:156),styleMask:.borderless,backing:.buffered,defer:false)
+        cardWindow.contentView=toolCard; toolCard.frame=CGRect(x:0,y:0,width:200,height:156); toolCard.layoutSubtreeIfNeeded()
+        let enableButton=toolCard.subviews.compactMap { $0 as? ModuleEnableButton }.first!
+        try require(toolCard.bounds.contains(enableButton.frame),"permanent toggle stays inside card")
+        for unit in [CGPoint(x:0.05,y:0.05),CGPoint(x:0.5,y:0.5),CGPoint(x:0.95,y:0.95)] {
+            let point=enableButton.convert(CGPoint(x:enableButton.bounds.width*unit.x,y:enableButton.bounds.height*unit.y),to:nil)
+            let hitPoint=toolCard.convert(CGPoint(x:enableButton.bounds.width*unit.x,y:enableButton.bounds.height*unit.y),from:enableButton)
+            try require(toolCard.hitTest(toolCard.convert(hitPoint,to:toolCard.superview)) === enableButton,"toggle consumes its entire independent target")
+            let event=NSEvent.mouseEvent(with:.leftMouseDown,location:point,modifierFlags:[],timestamp:0,windowNumber:cardWindow.windowNumber,context:nil,eventNumber:0,clickCount:1,pressure:1)!
+            enableButton.mouseDown(with:event)
+        }
+        try require(toggled == 3 && opened == 0 && !enabled,"toggle flips state without navigating")
+        toolCard.updateEnabled(true)
+        try require(enableButton.state == .on && toggled == 3,"external state sync does not dispatch again")
+        try require(toolCard.accessibilityChildren()?.count == 2,"navigation and toggle both remain accessible")
+        let bodyPoint=toolCard.convert(CGPoint(x:100,y:70),to:nil)
+        let bodyEvent=NSEvent.mouseEvent(with:.leftMouseDown,location:bodyPoint,modifierFlags:[],timestamp:0,windowNumber:cardWindow.windowNumber,context:nil,eventNumber:0,clickCount:1,pressure:1)!
+        toolCard.mouseDown(with:bodyEvent); toolCard.mouseUp(with:bodyEvent)
+        try require(opened == 1 && toggled == 3,"body click opens settings without toggling")
+        try require(toolCard.accessibilityPerformPress() && opened == 2,"accessible card navigation remains available")
+        if let output,let bitmap=toolCard.bitmapImageRepForCachingDisplay(in:toolCard.bounds) {
+            toolCard.cacheDisplay(in:toolCard.bounds,to:bitmap)
+            try bitmap.representation(using:.png,properties:[:])?.write(to:URL(fileURLWithPath:output).appendingPathComponent("module-card.png"))
+        }
+        toolCard.isEnabled=false
+        try require(!enableButton.isEnabled,"disabled control cannot toggle")
+        cardWindow.contentView=nil
         let mouseReceiver=BoardReceiver()
         let mouseChoice=IllustratedSettingChoice(title:"白光边缘",asset:"",slice:.zero,target:mouseReceiver,action:#selector(BoardReceiver.changed(_:)))
         let mouseWindow=NSWindow(contentRect:CGRect(x:0,y:0,width:120,height:100),styleMask:.borderless,backing:.buffered,defer:false)
