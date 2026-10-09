@@ -6,6 +6,33 @@ import AppKit
         let context = CaptureRaster.context(width: 200, height: 160)!
         context.setFillColor(CGColor(gray: 1, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 200, height: 160))
         let image = context.makeImage()!
+        let pinEntry = PinEntry(image: image, frame: CGRect(x: -200, y: 40, width: 200, height: 160), queue: DispatchQueue(label: "pin-drag-fixture"))
+        let pinView = pinEntry.window.contentView as! PinView
+        let initialFrame = pinEntry.window.frame
+        let anchor = CGPoint(x: initialFrame.minX + 40, y: initialFrame.minY + 40)
+        func pinMouse(_ type: NSEvent.EventType, _ point: CGPoint) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: pinEntry.window.convertPoint(fromScreen: point), modifierFlags: [], timestamp: 0,
+                windowNumber: pinEntry.window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
+        }
+        pinView.mouseDown(with: pinMouse(.leftMouseDown, anchor))
+        let across = CGPoint(x: anchor.x + 500, y: anchor.y + 30)
+        pinView.mouseDragged(with: pinMouse(.leftMouseDragged, across))
+        precondition(pinEntry.window.frame.origin == initialFrame.offsetBy(dx: 500, dy: 30).origin)
+        let exitEvent = NSEvent.enterExitEvent(with: .mouseExited, location: pinEntry.window.convertPoint(fromScreen: across), modifierFlags: [], timestamp: 0,
+            windowNumber: pinEntry.window.windowNumber, context: nil, eventNumber: 1, trackingNumber: 0, userData: nil)!
+        pinView.mouseExited(with: exitEvent)
+        pinView.updateTrackingAreas()
+        let returned = CGPoint(x: anchor.x - 600, y: anchor.y - 80)
+        pinView.mouseDragged(with: pinMouse(.leftMouseDragged, returned))
+        precondition(pinEntry.window.frame == initialFrame.offsetBy(dx: -600, dy: -80), "Tracking exit/rebuild must not cancel an active drag across positive and negative desktop coordinates")
+        pinView.mouseUp(with: pinMouse(.leftMouseUp, returned))
+        let released = pinEntry.window.frame
+        pinView.mouseDragged(with: pinMouse(.leftMouseDragged, across))
+        precondition(pinEntry.window.frame == released, "Mouse release ends the drag")
+        pinView.mouseDown(with: pinMouse(.leftMouseDown, returned))
+        pinView.mouseUp(with: pinMouse(.leftMouseUp, returned))
+        precondition(pinEntry.window.frame == released, "Focus click still leaves the pin in place")
+        pinEntry.dispose()
         let region = CGRect(x: 20, y: 40, width: 100, height: 80)
         let editor = CaptureEditor(image: image, selectionFrame: region)
         var states = [Bool]()

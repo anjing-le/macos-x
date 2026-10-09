@@ -365,7 +365,10 @@ private final class PinView: NSView {
         if let tracking { removeTrackingArea(tracking); self.tracking = nil }
         sampler = nil; samplePoint = nil; isSampling = false; drag = nil
     }
-    func pauseSampling() { updateModifiers([]); samplePoint = nil; drag = nil }
+    func pauseSampling(cancelDrag: Bool = true) {
+        updateModifiers([]); samplePoint = nil
+        if cancelDrag { drag = nil }
+    }
     override func mouseDown(with event: NSEvent) {
         window?.makeKey(); window?.makeFirstResponder(self)
         updateModifiers(event.modifierFlags)
@@ -390,7 +393,9 @@ private final class PinView: NSView {
         if isSampling { needsDisplay = true }
     }
     override func mouseEntered(with event: NSEvent) { updateModifiers(event.modifierFlags); samplePoint = convert(event.locationInWindow, from: nil) }
-    override func mouseExited(with event: NSEvent) { pauseSampling(); needsDisplay = true }
+    // Tracking-area exits can occur while the dragged window crosses a screen
+    // boundary or changes backing scale. They end hover sampling, not the drag.
+    override func mouseExited(with event: NSEvent) { pauseSampling(cancelDrag: false); needsDisplay = true }
     override func flagsChanged(with event: NSEvent) { updateModifiers(event.modifierFlags) }
     override func resignFirstResponder() -> Bool { updateModifiers([]); return super.resignFirstResponder() }
     private func updateModifiers(_ flags: NSEvent.ModifierFlags) {
