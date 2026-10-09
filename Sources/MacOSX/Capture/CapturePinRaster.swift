@@ -144,10 +144,10 @@ enum CaptureClipboard {
         let setter = CTFramesetterCreateWithAttributedString(attributed)
         let size = CTFramesetterSuggestFrameSizeWithConstraints(setter, CFRange(location: 0, length: 0), nil,
                                                                CGSize(width: 928, height: CGFloat.greatestFiniteMagnitude), nil)
-        guard size.height <= 1800, let context = CaptureRaster.context(width: 1000, height: max(120, Int(size.height.rounded(.up)) + 64)) else { return nil }
+        guard size.height <= 1800, let context = CaptureRaster.context(width: 952, height: max(48, Int(size.height.rounded(.up)) + 24)) else { return nil }
         context.setFillColor(CGColor(gray: 1, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: context.width, height: context.height))
-        let path = CGPath(rect: CGRect(x: 36, y: 32, width: 928, height: context.height - 64), transform: nil)
+        let path = CGPath(rect: CGRect(x: 12, y: 12, width: 928, height: context.height - 24), transform: nil)
         CTFrameDraw(CTFramesetterCreateFrame(setter, CFRange(location: 0, length: 0), path, nil), context)
         return context.makeImage()
     }

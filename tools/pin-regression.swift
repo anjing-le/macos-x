@@ -79,11 +79,11 @@ struct RasterFixture {
         for invalid in ["#A1B2C", "#GGGGGG", "rgb(256,1,2)", "rgb(-1,1,2)", "rgb(1,2)", "rgb(1,2,3) suffix", "#123456 extra"] {
             check(CaptureClipboardColor(text: invalid) == nil, "Invalid color cannot masquerade as a swatch")
         }
-        check(CaptureClipboard.text("short phrase") != nil, "Text clipboard card")
+        check(CaptureClipboard.text("short phrase")!.height < 80, "Short text does not reserve an oversized empty canvas")
         let textCard = CaptureClipboard.text("Hello macos-x\n截图文字测试\n\nSecond paragraph")!
         let textPixels = CapturePixelSampler(image: textCard)!
-        check(textCard.width == 1000 && textCard.height >= 120, "Text card leaves generous bounded space")
-        for point in [(2, 2), (20, 20), (textCard.width - 20, textCard.height - 20)] {
+        check(textCard.width == 952 && textCard.height >= 48, "Text card keeps readable text width with compact margins")
+        for point in [(2, 2), (5, 5), (textCard.width - 5, textCard.height - 5)] {
             check(textPixels.sample(x: point.0, y: point.1)!.hex == "#FFFFFF", "Text card background and padding stay white")
         }
         check(CaptureClipboard.text(String(repeating: "x", count: 4097)) == nil, "Text cap")
