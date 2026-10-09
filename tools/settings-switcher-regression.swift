@@ -54,6 +54,14 @@ import MacOSXCore
             }
         }
         // Real mouseDown events (not performClick) cover padding, picture and caption.
+        let shortcutDomain="cc.anjing.macos-x.layout-conflicts.\(UUID().uuidString)"
+        let shortcutDefaults=UserDefaults(suiteName:shortcutDomain)!
+        defer { shortcutDefaults.removePersistentDomain(forName:shortcutDomain) }
+        let shortcutStore=ShortcutStore(defaults:shortcutDefaults)
+        shortcutStore.set(ShortcutAction.layoutLeft.defaultBinding,for:.capture)
+        let duplicate="与“左半屏”重复"
+        try require(shortcutStore.conflict(ShortcutAction.layoutLeft.defaultBinding,action:.capture,activeActions:[.capture,.layoutLeft]) == duplicate,"enabled layout conflict is reported")
+        try require(shortcutStore.conflict(ShortcutAction.layoutLeft.defaultBinding,action:.capture,activeActions:[.capture]) != duplicate,"unadded layout does not disable existing shortcuts")
         var opened=0, toggled=0, enabled=true
         let toolCard=ToolCard(title:"提示词库",symbol:"text.bubble") { opened += 1 }
         toolCard.configureEnabled(enabled) { [weak toolCard] value in enabled=value; toggled += 1; toolCard?.updateEnabled(value) }

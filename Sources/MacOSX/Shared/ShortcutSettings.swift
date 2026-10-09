@@ -18,9 +18,9 @@ final class ShortcutStore {
     }
     private func key(_ action: ShortcutAction) -> String { "shortcut.\(action.rawValue)" }
 
-    func conflict(_ candidate: ShortcutBinding, action: ShortcutAction) -> String? {
+    func conflict(_ candidate: ShortcutBinding, action: ShortcutAction, activeActions:Set<ShortcutAction>?=nil) -> String? {
         guard candidate.isValid else { return "请使用 F1–F20，或 Control / Command 组合键" }
-        for other in ShortcutAction.allCases where other != action {
+        for other in ShortcutAction.allCases where other != action && (activeActions?.contains(other) ?? true) {
             if candidate.conflicts(with: binding(for: other)) { return "与“\(other.title)”重复" }
         }
         if candidate.kind == .doubleModifier {

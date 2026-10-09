@@ -4,12 +4,14 @@ enum Tool: String, CaseIterable, Hashable {
     case capture
     case windowSwitcher
     case kaomoji
+    case windowLayout
 
     var title: String {
         switch self {
         case .capture: return "截图录屏"
         case .windowSwitcher: return "窗口切换"
         case .kaomoji: return "提示词库"
+        case .windowLayout:return "窗口布局"
         }
     }
 
@@ -18,6 +20,7 @@ enum Tool: String, CaseIterable, Hashable {
         case .capture: return "camera.viewfinder"
         case .windowSwitcher: return "macwindow.on.rectangle"
         case .kaomoji: return "text.bubble"
+        case .windowLayout:return "rectangle.split.2x1"
         }
     }
 }
@@ -307,6 +310,7 @@ final class ToolboxWindowController: NSWindowController {
         switch tool {
         case .kaomoji: shortcuts = [modules.shortcutPicker(.wheel)]
         case .capture: shortcuts = [ShortcutAction.capture, .pin, .togglePins, .recording].map { modules.shortcutPicker($0, showsTitle: false) }
+        case .windowLayout:shortcuts=[ShortcutAction.layoutLeft,.layoutRight,.layoutUp,.layoutDown].map { modules.shortcutPicker($0) }
         case .windowSwitcher:
             let label = NSTextField(labelWithString: "⌘ Tab")
             label.font = .systemFont(ofSize:16); label.textColor = SketchPalette.ink; label.alignment = .center

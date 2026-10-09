@@ -14,6 +14,7 @@ final class ModuleCoordinator {
     private var capture: CaptureModule?
     private var finishingCaptures: [UUID: CaptureModule] = [:]
     private var switcher: WindowSwitcherModule?
+    private var layout:WindowLayoutModule?
     private var issues: [ShortcutAction: String] = [:]
     private var tapIssue: String?
     private var activeObserver: NSObjectProtocol?
@@ -27,12 +28,17 @@ final class ModuleCoordinator {
             switch action {
             case .wheel: self.wheel?.summon()
             case .capture:
+                self.layout?.cancelDrag()
                 self.input.endSwitcherSession()
                 let finished = self.switcher?.freezeForCapture()
                 if self.capture?.capture(snapshotReady: finished) != true { finished?() }
             case .pin: self.capture?.pin()
             case .recording: self.capture?.toggleRecording()
             case .togglePins: self.capture?.togglePins()
+            case .layoutLeft:self.layout?.perform(.left)
+            case .layoutRight:self.layout?.perform(.right)
+            case .layoutUp:self.layout?.perform(self.layout?.usesVerticalHalves == true ? .top : .maximize)
+            case .layoutDown:self.layout?.perform(self.layout?.usesVerticalHalves == true ? .bottom : .restore)
             }
         }
         input.onAdvance = { [weak self] reverse in self?.switcher?.advance(reverse: reverse) }
@@ -78,6 +84,8 @@ final class ModuleCoordinator {
 
     private func ensure(_ tool: Tool) {
         switch tool {
+        case .windowLayout:
+            if layout == nil { layout=WindowLayoutModule(defaults:defaults); layout?.onStatusChange={ [weak self] in self?.onStateChanged?(.windowLayout) } }
         case .kaomoji: if wheel == nil { wheel = PhraseWheelModule(defaults: defaults) }
         case .capture:
             if capture == nil {
@@ -99,7 +107,7 @@ final class ModuleCoordinator {
 
     private func start(_ tool: Tool) {
         ensure(tool)
-        switch tool { case .kaomoji: wheel?.start(); case .capture: capture?.start(); case .windowSwitcher: switcher?.start() }
+        switch tool { case .kaomoji: wheel?.start(); case .capture: capture?.start(); case .windowSwitcher: switcher?.start();case .windowLayout:layout?.start(); layout?.refreshPermission() }
     }
     private func stop(_ tool: Tool, remove: Bool) {
         switch tool {
@@ -112,6 +120,7 @@ final class ModuleCoordinator {
                 retiring.prepareToTerminate { [weak self] in self?.finishingCaptures[id] = nil }
             }
         case .windowSwitcher: switcher?.stop(); if remove { switcher = nil }
+        case .windowLayout:layout?.stop(); if remove { layout=nil }
         }
     }
 
@@ -127,11 +136,12 @@ final class ModuleCoordinator {
     private func configureInput() {
         guard !terminating else { return }
         var bindings: [ShortcutAction: ShortcutBinding] = [:]
+        let activeActions=Set(ShortcutAction.allCases.filter { isEnabled(Tool(rawValue:$0.moduleKey)!) })
         for action in ShortcutAction.allCases {
-            let tool: Tool = action == .wheel ? .kaomoji : .capture
+            let tool=Tool(rawValue:action.moduleKey)!
             guard isEnabled(tool) else { continue }
             let binding = shortcuts.binding(for: action)
-            if let issue = shortcuts.conflict(binding, action: action) {
+            if let issue = shortcuts.conflict(binding, action: action,activeActions:activeActions) {
                 issues[action] = issue
             } else { bindings[action] = binding; issues[action] = nil }
         }
@@ -147,27 +157,29 @@ final class ModuleCoordinator {
         case .kaomoji: return wheel!.settingsView
         case .capture: return capture!.settingsView
         case .windowSwitcher: return switcher!.settingsView
+        case .windowLayout:return layout!.settingsView
         }
     }
 
     func shortcutPicker(_ action: ShortcutAction, showsTitle: Bool = true) -> NSView {
-        let picker = ShortcutPicker(title: showsTitle ? (action == .wheel ? "唤起" : action.title) : "",
+        let label=action == .layoutUp ? (layout?.usesVerticalHalves == true ? "上半屏" : "最大化") : (action == .layoutDown ? (layout?.usesVerticalHalves == true ? "下半屏" : "恢复") : (action == .wheel ? "唤起" : action.title))
+        let picker = ShortcutPicker(title: showsTitle ? label : "",
             binding: shortcuts.binding(for: action), allowsDoubleTap: action == .wheel,
             recordingChanged: { [weak self] value in
                 guard let self, !self.terminating else { return }
                 self.input.setRecordingShortcut(value)
                 if !value {
                     self.configureInput()
-                    self.onStateChanged?(.kaomoji); self.onStateChanged?(.capture)
+                    self.onStateChanged?(.kaomoji); self.onStateChanged?(.capture); self.onStateChanged?(.windowLayout)
                 }
             },
             accepts: { [weak self] value in
                 guard let self else { return "请重试" }
-                return self.shortcuts.conflict(value, action: action) ?? self.input.probe(value, for: action)
+                return self.shortcuts.conflict(value, action: action,activeActions:Set(ShortcutAction.allCases.filter { self.isEnabled(Tool(rawValue:$0.moduleKey)!) })) ?? self.input.probe(value, for: action)
             }, didChange: { [weak self] value in
                 guard let self else { return }
                 self.shortcuts.set(value, for: action); self.configureInput()
-                self.onStateChanged?(action == .wheel ? .kaomoji : .capture)
+                self.onStateChanged?(Tool(rawValue:action.moduleKey)!)
             })
         if action == .togglePins { picker.toolTip = "暂时隐藏或显示桌面的全部贴图，不会删除图片。" }
         if action == .pin { picker.toolTip = "框选或标注时固定当前区域；其他时候贴出剪贴板内容。" }
@@ -175,7 +187,7 @@ final class ModuleCoordinator {
     }
 
     func needsAccessibility(_ tool: Tool) -> Bool {
-        (tool == .windowSwitcher || (tool == .kaomoji && shortcuts.binding(for: .wheel).kind == .doubleModifier))
+        (tool == .windowSwitcher || tool == .windowLayout || (tool == .kaomoji && shortcuts.binding(for: .wheel).kind == .doubleModifier))
             && !AXIsProcessTrusted()
     }
     func needsScreenCapture(_ tool: Tool) -> Bool {
@@ -192,6 +204,7 @@ final class ModuleCoordinator {
         if tool == .capture {
             return [ShortcutAction.capture, .pin, .togglePins, .recording].compactMap { issues[$0] }.first
         }
+        if tool == .windowLayout { return [ShortcutAction.layoutLeft,.layoutRight,.layoutUp,.layoutDown].compactMap { issues[$0] }.first }
         return needsAccessibility(tool) ? nil : tapIssue
     }
 
@@ -225,7 +238,7 @@ final class ModuleCoordinator {
         terminating = true
         if let activeObserver { NotificationCenter.default.removeObserver(activeObserver); self.activeObserver = nil }
         input.stop()
-        wheel?.stop(); switcher?.stop()
+        wheel?.stop(); switcher?.stop(); layout?.stop()
         let captures = Array(finishingCaptures.values) + (capture.map { [$0] } ?? [])
         guard !captures.isEmpty else { DispatchQueue.main.async { completion() }; return }
         var outstanding = captures.count

@@ -161,7 +161,7 @@ import AppKit
     private var lastSettingsHeight: CGFloat = 0
     private var compact: Bool { bounds.width < 740 }
     override var isFlipped: Bool { true }
-    override var intrinsicContentSize: NSSize { if usesBackdrop { return NSSize(width:840,height:kind == "capture" ? max(backdropHeight,backdropHeight*0.838+settings.fittingSize.height) : backdropHeight) }; return NSSize(width:840,height:kind == "kaomoji" ? (compact ? 848 : 470) : (kind == "capture" ? max(compact ? 864 : 440,(compact ? 664 : 352)+settings.fittingSize.height) : (compact ? 550 : 410))) }
+    override var intrinsicContentSize: NSSize { if kind == "windowLayout" { return NSSize(width:840,height:max(480,196+settings.fittingSize.height)) }; if usesBackdrop { return NSSize(width:840,height:kind == "capture" ? max(backdropHeight,backdropHeight*0.838+settings.fittingSize.height) : backdropHeight) }; return NSSize(width:840,height:kind == "kaomoji" ? (compact ? 848 : 470) : (kind == "capture" ? max(compact ? 864 : 440,(compact ? 664 : 352)+settings.fittingSize.height) : (compact ? 550 : 410))) }
     init(kind: String, settings: NSView, shortcuts: [NSView]) {
         self.kind=kind; self.settings=settings; self.shortcuts=shortcuts.map(ShortcutSettingsRow.init)
         backdrop = kind == "capture" ? IllustratedSettingChoice.artwork("SettingsCaptureBoard") : (kind == "windowSwitcher" ? IllustratedSettingChoice.artwork("SettingsSwitcherBoard") : nil)
@@ -256,6 +256,12 @@ import AppKit
     }
     override func layout() {
         super.layout()
+        if kind == "windowLayout" {
+            let w=bounds.width
+            for (i,view) in shortcuts.enumerated() { view.frame=CGRect(x:0,y:CGFloat(i)*46,width:w,height:42); view.layoutSubtreeIfNeeded() }
+            settings.frame=CGRect(x:0,y:196,width:w,height:max(280,settings.fittingSize.height)); settingsWidth.constant=w
+            settings.layoutSubtreeIfNeeded(); updateSettingsHeight(); return
+        }
         let w=bounds.width
         if abs(lastLayoutWidth-w) > 0.5 { lastLayoutWidth=w; invalidateIntrinsicContentSize() }
         configureFooter(settings)

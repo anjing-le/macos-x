@@ -27,6 +27,8 @@ jobs:
         run: zsh tools/run-switcher-regression.sh
       - name: Check scrollable window grid and settings guides without live windows
         run: zsh tools/run-settings-switcher-regression.sh
+      - name: Check window layout geometry and native frame application
+        run: zsh tools/run-window-layout-regression.sh
       - name: Check same-process window thread routing and cancellation
         run: zsh tools/run-local-window-regression.sh
       - name: Check quiet update reminders and manual installation choices

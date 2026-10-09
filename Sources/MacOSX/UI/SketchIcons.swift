@@ -2,13 +2,14 @@ import AppKit
 
 @MainActor
 enum SketchIcons {
-    enum Kind: String { case capture, switcher, prompt, plus, back, update, settings, close, minimize, expand }
+    enum Kind: String { case capture, switcher, layout, prompt, plus, back, update, settings, close, minimize, expand }
     private static var images: [String: NSImage] = [:]
     static func kind(for symbol: String) -> Kind? {
         switch symbol {
         case "camera.viewfinder": return .capture
         case "macwindow.on.rectangle": return .switcher
         case "text.bubble": return .prompt
+        case "rectangle.split.2x1":return .layout
         case "plus": return .plus
         case "chevron.left": return .back
         case "arrow.down.to.line": return .update
@@ -55,6 +56,9 @@ enum SketchIcons {
         case .switcher:
             tile(NSRect(x: 10, y: 23, width: 29, height: 29), SketchPalette.green)
             tile(NSRect(x: 26, y: 10, width: 29, height: 29), SketchPalette.green)
+        case .layout:
+            tile(NSRect(x:8,y:13,width:22,height:38),SketchPalette.blue)
+            tile(NSRect(x:34,y:13,width:22,height:38),SketchPalette.yellow)
         case .prompt:
             let bubble = NSBezierPath()
             bubble.move(to: CGPoint(x: 14, y: 16)); bubble.line(to: CGPoint(x: 9, y: 8))

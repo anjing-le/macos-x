@@ -4,7 +4,10 @@ import ApplicationServices
 import MacOSXCore
 
 enum ShortcutAction: UInt32, CaseIterable, Sendable {
-    case wheel = 1, capture, pin, recording, togglePins
+    case wheel = 1, capture, pin, recording, togglePins, layoutLeft, layoutRight, layoutUp, layoutDown
+    var moduleKey:String {
+        switch self { case .wheel:return "kaomoji";case .layoutLeft,.layoutRight,.layoutUp,.layoutDown:return "windowLayout";default:return "capture" }
+    }
     var title: String {
         switch self {
         case .wheel: return "提示词库"
@@ -12,6 +15,7 @@ enum ShortcutAction: UInt32, CaseIterable, Sendable {
         case .pin: return "贴图"
         case .recording: return "录屏"
         case .togglePins: return "显示 / 隐藏"
+        case .layoutLeft:return "左半屏";case .layoutRight:return "右半屏";case .layoutUp:return "向上";case .layoutDown:return "向下"
         }
     }
     var defaultBinding: ShortcutBinding {
@@ -21,6 +25,10 @@ enum ShortcutAction: UInt32, CaseIterable, Sendable {
         case .pin: return .init(keyCode: 99, modifiers: 0, keyLabel: "F3")
         case .recording: return .init(keyCode: 15, modifiers: 5, keyLabel: "R")
         case .togglePins: return .init(keyCode: 99, modifiers: 4, keyLabel: "F3")
+        case .layoutLeft:return .init(keyCode:123,modifiers:10,keyLabel:"←")
+        case .layoutRight:return .init(keyCode:124,modifiers:10,keyLabel:"→")
+        case .layoutUp:return .init(keyCode:126,modifiers:10,keyLabel:"↑")
+        case .layoutDown:return .init(keyCode:125,modifiers:10,keyLabel:"↓")
         }
     }
 }
