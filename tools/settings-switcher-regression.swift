@@ -53,6 +53,25 @@ import MacOSXCore
                 try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output).appendingPathComponent(kind + ".png"))
             }
         }
+        // Real mouseDown events (not performClick) cover padding, picture and caption.
+        let mouseReceiver=BoardReceiver()
+        let mouseChoice=IllustratedSettingChoice(title:"白光边缘",asset:"",slice:.zero,target:mouseReceiver,action:#selector(BoardReceiver.changed(_:)))
+        let mouseWindow=NSWindow(contentRect:CGRect(x:0,y:0,width:120,height:100),styleMask:.borderless,backing:.buffered,defer:false)
+        mouseWindow.contentView=mouseChoice; mouseChoice.frame=CGRect(x:0,y:0,width:120,height:100)
+        for point in [CGPoint(x:1,y:1),CGPoint(x:119,y:99),CGPoint(x:60,y:50),CGPoint(x:60,y:88)] {
+            mouseChoice.state = .off
+            let event=NSEvent.mouseEvent(with:.leftMouseDown,location:point,modifierFlags:[],timestamp:0,windowNumber:mouseWindow.windowNumber,context:nil,eventNumber:0,clickCount:1,pressure:1)!
+            mouseChoice.mouseDown(with:event)
+            try require(mouseChoice.state == .on,"mouse press selects the entire card immediately")
+            mouseChoice.mouseDown(with:event)
+        }
+        try require(mouseReceiver.calls == 4,"reclicking the selected card does not repeat work")
+        try require(mouseChoice.acceptsFirstMouse(for:nil),"inactive window accepts first card click")
+        mouseChoice.isEnabled=false
+        let disabledEvent=NSEvent.mouseEvent(with:.leftMouseDown,location:CGPoint(x:60,y:50),modifierFlags:[],timestamp:0,windowNumber:mouseWindow.windowNumber,context:nil,eventNumber:0,clickCount:1,pressure:1)!
+        mouseChoice.mouseDown(with:disabledEvent)
+        try require(mouseReceiver.calls == 4,"disabled card does not dispatch")
+        mouseWindow.contentView=nil
         let receiver=BoardReceiver()
         let toggle=MinimalToggle(title:"贴图白光边缘",target:receiver,action:#selector(BoardReceiver.changed(_:)))
         toggle.identifier = .init("capture-pin-outline")

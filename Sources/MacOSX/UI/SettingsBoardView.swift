@@ -21,6 +21,16 @@ import AppKit
         setButtonType(.radio); setAccessibilityLabel(title)
         _ = Self.artwork(asset)
     }
+    // Illustration cards select on press across their entire rectangle, including
+    // blank padding; they do not delegate tracking to a small native radio cell.
+    override func acceptsFirstMouse(for event:NSEvent?) -> Bool { isEnabled }
+    override func mouseDown(with event:NSEvent) {
+        guard isEnabled, bounds.contains(convert(event.locationInWindow,from:nil)) else { return }
+        window?.makeFirstResponder(self)
+        guard state != .on else { return }
+        state = .on; needsDisplay=true
+        if let action { NSApp.sendAction(action,to:target,from:self) }
+    }
     /// Compare the same picture on the same neutral surface; only the edge changes.
     private func drawOutlineChoice(_ glow:Bool) {
         let box=bounds.insetBy(dx:1,dy:1)
@@ -28,21 +38,21 @@ import AppKit
         let card=SketchPencil.outline(in:box.insetBy(dx:1,dy:1),radius:8)
         SketchPencil.stroke(card,color:state == .on ? SketchPalette.blue : SketchPalette.line,width:state == .on ? 1.7 : 0.7)
         let well=CGRect(x:7,y:8,width:bounds.width-14,height:bounds.height-35)
-        NSColor(calibratedWhite:0.78,alpha:1).setFill()
+        NSColor(calibratedWhite:0.43,alpha:1).setFill()
         NSBezierPath(roundedRect:well,xRadius:6,yRadius:6).fill()
-        let available=well.insetBy(dx:8,dy:7)
+        let available=well.insetBy(dx:12,dy:10)
         let pictureHeight=min(available.height,available.width/1.5)
         let pictureWidth=pictureHeight*1.5
         let picture=CGRect(x:available.midX-pictureWidth/2,y:available.midY-pictureHeight/2,width:pictureWidth,height:pictureHeight)
         if glow {
             NSGraphicsContext.saveGraphicsState()
-            let shadow=NSShadow(); shadow.shadowColor = .white; shadow.shadowBlurRadius=6; shadow.shadowOffset = .zero; shadow.set()
-            NSColor.white.setFill(); NSBezierPath(roundedRect:picture.insetBy(dx:-2,dy:-2),xRadius:3,yRadius:3).fill()
+            let shadow=NSShadow(); shadow.shadowColor = .white; shadow.shadowBlurRadius=9; shadow.shadowOffset = .zero; shadow.set()
+            NSColor.white.setFill(); NSBezierPath(roundedRect:picture.insetBy(dx:-4,dy:-4),xRadius:3,yRadius:3).fill()
             NSGraphicsContext.restoreGraphicsState()
         }
         if let image=Self.artwork("SettingsCaptureBoard") {
             // First landscape from the original 1774×887 board, in NSImage coordinates.
-            image.draw(in:picture,from:CGRect(x:689,y:322,width:150,height:100),operation:.sourceOver,fraction:1,respectFlipped:true,hints:[.interpolation:NSImageInterpolation.high])
+            image.draw(in:picture,from:CGRect(x:695,y:332,width:126,height:84),operation:.sourceOver,fraction:1,respectFlipped:true,hints:[.interpolation:NSImageInterpolation.high])
         }
         let text=glow ? "白光边缘" : "无边缘"
         let attributes:[NSAttributedString.Key:Any]=[.font:SketchPalette.heading(12),.foregroundColor:SketchPalette.ink]
@@ -92,15 +102,6 @@ import AppKit
                     let path=NSBezierPath(roundedRect:rect,xRadius:2,yRadius:2); path.fill(); path.lineWidth=0.6; path.stroke()
                 }
             }
-        } else if let glow = pinGlow {
-            let tile = CGRect(x: bounds.width*0.2, y: 40, width: bounds.width*0.6, height: bounds.height-55)
-            SketchPalette.muted.withAlphaComponent(0.12).setFill(); NSBezierPath(roundedRect:tile.insetBy(dx:-8,dy:-6),xRadius:8,yRadius:8).fill()
-            NSGraphicsContext.saveGraphicsState()
-            if glow { let shadow=NSShadow(); shadow.shadowColor = .white; shadow.shadowBlurRadius=8; shadow.set() }
-            SketchPalette.blue.withAlphaComponent(0.35).setFill()
-            NSBezierPath(roundedRect:tile,xRadius:6,yRadius:6).fill()
-            if glow { NSColor.white.setStroke(); let edge=NSBezierPath(roundedRect:tile.insetBy(dx:-2,dy:-2),xRadius:7,yRadius:7); edge.lineWidth=2; edge.stroke() }
-            NSGraphicsContext.restoreGraphicsState()
         } else if let image = Self.images[asset] {
             let source = CGRect(x: slice.minX * image.size.width, y: slice.minY * image.size.height,
                                 width: slice.width * image.size.width, height: slice.height * image.size.height)
