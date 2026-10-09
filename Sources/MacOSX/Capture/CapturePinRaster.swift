@@ -142,13 +142,20 @@ enum CaptureClipboard {
         let attributed = NSMutableAttributedString(attributedString: attributedText(value, size: 18))
         attributed.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: attributed.length))
         let setter = CTFramesetterCreateWithAttributedString(attributed)
-        let size = CTFramesetterSuggestFrameSizeWithConstraints(setter, CFRange(location: 0, length: 0), nil,
+        let measured = CTFramesetterSuggestFrameSizeWithConstraints(setter, CFRange(location: 0, length: 0), nil,
                                                                CGSize(width: 928, height: CGFloat.greatestFiniteMagnitude), nil)
-        guard size.height <= 1800, let context = CaptureRaster.context(width: 952, height: max(48, Int(size.height.rounded(.up)) + 24)) else { return nil }
+        // Keep the maximum reading width, but do not reserve it for short lines.
+        // A small rounding allowance avoids wrapping the final glyph anew.
+        let bodyWidth = min(928, max(1, Int(measured.width.rounded(.up)) + 2))
+        let size = CTFramesetterSuggestFrameSizeWithConstraints(setter, CFRange(location: 0, length: 0), nil,
+                                                               CGSize(width: CGFloat(bodyWidth), height: CGFloat.greatestFiniteMagnitude), nil)
+        guard size.height <= 1800, let context = CaptureRaster.context(width: bodyWidth + 24, height: max(48, Int(size.height.rounded(.up)) + 28)) else { return nil }
         context.setFillColor(CGColor(gray: 1, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: context.width, height: context.height))
-        let path = CGPath(rect: CGRect(x: 12, y: 12, width: 928, height: context.height - 24), transform: nil)
-        CTFrameDraw(CTFramesetterCreateFrame(setter, CFRange(location: 0, length: 0), path, nil), context)
+        let path = CGPath(rect: CGRect(x: 12, y: 12, width: bodyWidth, height: context.height - 24), transform: nil)
+        let frame = CTFramesetterCreateFrame(setter, CFRange(location: 0, length: 0), path, nil)
+        guard CTFrameGetVisibleStringRange(frame).length == attributed.length else { return nil }
+        CTFrameDraw(frame, context)
         return context.makeImage()
     }
     static func drawText(_ text: String, size: CGFloat, in rect: CGRect, context: CGContext) {

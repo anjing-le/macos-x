@@ -79,10 +79,23 @@ struct RasterFixture {
         for invalid in ["#A1B2C", "#GGGGGG", "rgb(256,1,2)", "rgb(-1,1,2)", "rgb(1,2)", "rgb(1,2,3) suffix", "#123456 extra"] {
             check(CaptureClipboardColor(text: invalid) == nil, "Invalid color cannot masquerade as a swatch")
         }
-        check(CaptureClipboard.text("short phrase")!.height < 80, "Short text does not reserve an oversized empty canvas")
+        let shortCard = CaptureClipboard.text("short phrase")!
+        check(shortCard.height < 80 && shortCard.width < 180, "Short text shrinks both canvas dimensions")
         let textCard = CaptureClipboard.text("Hello macos-x\n截图文字测试\n\nSecond paragraph")!
         let textPixels = CapturePixelSampler(image: textCard)!
-        check(textCard.width == 952 && textCard.height >= 48, "Text card keeps readable text width with compact margins")
+        check(textCard.width < 300 && textCard.height >= 48, "Multiline text fits its longest line rather than the fixed maximum width")
+        let longCard = CaptureClipboard.text(String(repeating: "长文本需要继续换行。", count: 40))!
+        check(longCard.width <= 952 && longCard.height > 100, "Long text retains bounded reading width and wraps")
+        for value in ["末尾一行\n", "\n", "   ", "中英混合 Hello 🙂\n最后一行完整"] {
+            check(CaptureClipboard.text(value) != nil, "Compact measurement preserves trailing newlines, whitespace and mixed glyphs")
+        }
+        if let output = ProcessInfo.processInfo.environment["MACOSX_TEXT_PIN_PREVIEW"] {
+            let sample = CaptureClipboard.text("已发布 0.0.51 OTA。\n- 马赛克改为圆形笔刷涂抹，支持点击点涂、按住拖动。\n- 滚轮调节下一笔的大小，鼠标旁圆圈显示覆盖范围。\n- ⌘Z 撤销，⇧⌘Z 重做。\n交互、导出回归、完整 CI 和公开 OTA 签名校验均通过，涂抹手感等你升级后体验。")!
+            let target = CGImageDestinationCreateWithURL(URL(fileURLWithPath: output) as CFURL, "public.png" as CFString, 1, nil)!
+            CGImageDestinationAddImage(target, sample, nil)
+            check(CGImageDestinationFinalize(target), "Render text pin visual preview")
+            print("Text pin preview: \(sample.width)×\(sample.height)")
+        }
         for point in [(2, 2), (5, 5), (textCard.width - 5, textCard.height - 5)] {
             check(textPixels.sample(x: point.0, y: point.1)!.hex == "#FFFFFF", "Text card background and padding stay white")
         }
