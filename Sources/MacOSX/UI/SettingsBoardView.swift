@@ -21,9 +21,45 @@ import AppKit
         setButtonType(.radio); setAccessibilityLabel(title)
         _ = Self.artwork(asset)
     }
+    /// Compare the same picture on the same neutral surface; only the edge changes.
+    private func drawOutlineChoice(_ glow:Bool) {
+        let box=bounds.insetBy(dx:1,dy:1)
+        SketchPalette.paper.setFill(); box.fill()
+        let card=SketchPencil.outline(in:box.insetBy(dx:1,dy:1),radius:8)
+        SketchPencil.stroke(card,color:state == .on ? SketchPalette.blue : SketchPalette.line,width:state == .on ? 1.7 : 0.7)
+        let well=CGRect(x:7,y:8,width:bounds.width-14,height:bounds.height-35)
+        NSColor(calibratedWhite:0.78,alpha:1).setFill()
+        NSBezierPath(roundedRect:well,xRadius:6,yRadius:6).fill()
+        let available=well.insetBy(dx:8,dy:7)
+        let pictureHeight=min(available.height,available.width/1.5)
+        let pictureWidth=pictureHeight*1.5
+        let picture=CGRect(x:available.midX-pictureWidth/2,y:available.midY-pictureHeight/2,width:pictureWidth,height:pictureHeight)
+        if glow {
+            NSGraphicsContext.saveGraphicsState()
+            let shadow=NSShadow(); shadow.shadowColor = .white; shadow.shadowBlurRadius=6; shadow.shadowOffset = .zero; shadow.set()
+            NSColor.white.setFill(); NSBezierPath(roundedRect:picture.insetBy(dx:-2,dy:-2),xRadius:3,yRadius:3).fill()
+            NSGraphicsContext.restoreGraphicsState()
+        }
+        if let image=Self.artwork("SettingsCaptureBoard") {
+            // First landscape from the original 1774×887 board, in NSImage coordinates.
+            image.draw(in:picture,from:CGRect(x:689,y:322,width:150,height:100),operation:.sourceOver,fraction:1,respectFlipped:true,hints:[.interpolation:NSImageInterpolation.high])
+        }
+        let text=glow ? "白光边缘" : "无边缘"
+        let attributes:[NSAttributedString.Key:Any]=[.font:SketchPalette.heading(12),.foregroundColor:SketchPalette.ink]
+        let size=(text as NSString).size(withAttributes:attributes)
+        (text as NSString).draw(at:CGPoint(x:(bounds.width-size.width)/2,y:bounds.height-22),withAttributes:attributes)
+        if state == .on {
+            let dot=CGRect(x:bounds.width-20,y:2,width:18,height:18)
+            SketchPalette.blue.setFill(); NSBezierPath(ovalIn:dot).fill()
+            let tick=NSBezierPath(); tick.move(to:CGPoint(x:dot.minX+4,y:dot.midY)); tick.line(to:CGPoint(x:dot.minX+7,y:dot.midY+3)); tick.line(to:CGPoint(x:dot.maxX-3,y:dot.minY+4))
+            NSColor.white.setStroke(); tick.lineWidth=1.5; tick.stroke()
+        }
+        if window?.firstResponder === self { SketchPencil.stroke(card,color:SketchPalette.yellow,width:2) }
+    }
     required init?(coder: NSCoder) { nil }
     override var intrinsicContentSize: NSSize { NSSize(width: 190, height: 156) }
     override func draw(_ dirtyRect: NSRect) {
+        if let glow=pinGlow { drawOutlineChoice(glow); return }
         if backdropOnly {
             if state == .on {
                 if !checkOnly { SketchPencil.stroke(SketchPencil.outline(in:bounds.insetBy(dx:2,dy:2),radius:10),color:SketchPalette.yellow,width:1.8) }
@@ -191,8 +227,8 @@ import AppKit
         for child in view.subviews { configureFooter(child) }
     }
     // Entire illustration and caption are one target, in the source image coordinate space.
-    static let captureOutlineSlots=[CGRect(x:670.0/1774.0,y:455.0/887.0,width:175.0/1774.0,height:170.0/887.0),
-                                    CGRect(x:925.0/1774.0,y:455.0/887.0,width:175.0/1774.0,height:170.0/887.0)]
+    static let captureOutlineSlots=[CGRect(x:660.0/1774.0,y:445.0/887.0,width:200.0/1774.0,height:180.0/887.0),
+                                    CGRect(x:915.0/1774.0,y:445.0/887.0,width:200.0/1774.0,height:180.0/887.0)]
     private func layoutBackdrop() {
         for view in art { view.isHidden=true }
         for choice in selectors { choice.backdropOnly=true; choice.checkOnly=kind == "capture" }
