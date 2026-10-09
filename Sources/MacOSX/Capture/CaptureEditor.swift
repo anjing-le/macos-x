@@ -78,6 +78,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
             panel.animationBehavior = .none
         }
         window.hasShadow = false
+        window.acceptsMouseMovedEvents = true
         window.delegate = self; window.contentView = canvas
         let background = CaptureToolbarSurface()
         toolbar.isOpaque = false; toolbar.backgroundColor = .clear; toolbar.hasShadow = false
@@ -191,7 +192,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     /// Only the active drawing tool consumes wheel input. No global listener or idle timer.
     func handleThicknessScroll(_ event: NSEvent) -> Bool {
         guard !closed, !exporting, !adjustingRegion, textInput == nil,
-              let tool = canvas.tool, [.rectangle, .ellipse, .arrow, .pen, .highlighter].contains(tool),
+              let tool = canvas.tool, [.rectangle, .ellipse, .arrow, .pen, .highlighter, .mosaic].contains(tool),
               event.momentumPhase.isEmpty else { return false }
         if event.phase.contains(.began) { wheelRemainder = 0 }
         let delta = event.scrollingDeltaY * (event.isDirectionInvertedFromDevice ? -1 : 1)
@@ -204,6 +205,15 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         return true
     }
     private func adjustLineWidth(by steps: Int) {
+        if canvas.tool == .mosaic {
+            let diameter = max(8, min(160, canvas.mosaicDiameter + CGFloat(steps) * 4))
+            guard diameter != canvas.mosaicDiameter else { return }
+            canvas.mosaicDiameter = diameter
+            status.stringValue = "笔刷 \(Int(diameter)) · 滚轮调节"; status.isHidden = false
+            toolButtons.forEach { $0.setAccessibilityValue("笔刷直径 \(Int(diameter))") }
+            if window.isVisible { positionToolbar() }
+            return
+        }
         let width = max(1, min(12, canvas.lineWidth + CGFloat(steps)))
         guard width != canvas.lineWidth else { return }
         canvas.lineWidth = width
@@ -259,6 +269,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     func windowWillClose(_ notification: Notification) {
         guard !closed else { return }
         closed = true; revision &+= 1; lifetime.cancel(); preview?.cancel()
+        canvas.cancelDraft(); canvas.stopBrushPreview(); window.acceptsMouseMovedEvents = false
         if let localMonitor { NSEvent.removeMonitor(localMonitor); self.localMonitor = nil }
         recognition?.cancel(); recognition = nil
         colorPopover?.close(); colorPopover = nil
@@ -276,7 +287,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     private func selectTool(_ tool: CaptureTool) {
         finishText(commit: true); canvas.cancelDraft(); wheelRemainder = 0
         canvas.tool = canvas.tool == tool ? nil : tool
-        if status.stringValue.hasPrefix("粗细 "), canvas.tool == nil || canvas.tool == .text || canvas.tool == .mosaic || canvas.tool == .blur || canvas.tool == .eraser {
+        if status.stringValue.hasPrefix("笔刷 ") || (status.stringValue.hasPrefix("粗细 ") && (canvas.tool == nil || canvas.tool == .text || canvas.tool == .mosaic || canvas.tool == .blur || canvas.tool == .eraser)) {
             status.stringValue = ""; status.isHidden = true
         }
         updateToolButtons(); updateSelectionInput()

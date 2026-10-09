@@ -41,7 +41,18 @@ struct CaptureAnnotation {
         }
         let minX = points.map(\.x).min() ?? first.x, maxX = points.map(\.x).max() ?? first.x
         let minY = points.map(\.y).min() ?? first.y, maxY = points.map(\.y).max() ?? first.y
-        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+        let rect = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+        return tool == .mosaic ? rect.insetBy(dx: -width / 2, dy: -width / 2) : rect
+    }
+    var mosaicMask: CGPath? {
+        guard tool == .mosaic, let first = points.first, width.isFinite, width > 0 else { return nil }
+        let path = CGMutablePath(); path.move(to: first)
+        for point in points.dropFirst() { path.addLine(to: point) }
+        // A click is one circular dab, including a stationary down/up pair.
+        if points.allSatisfy({ $0 == first }) {
+            return CGPath(ellipseIn: CGRect(x: first.x - width / 2, y: first.y - width / 2, width: width, height: width), transform: nil)
+        }
+        return path.copy(strokingWithWidth: width, lineCap: .round, lineJoin: .round, miterLimit: 1)
     }
 }
 
@@ -68,13 +79,18 @@ enum CaptureAnnotationRenderer {
                 let source = CIImage(cgImage: patch)
                 let output: CIImage
                 if annotation.tool == .mosaic {
-                    output = source.applyingFilter("CIPixellate", parameters: [kCIInputScaleKey: max(8, annotation.width * 4)])
+                    output = source.clampedToExtent().applyingFilter("CIPixellate", parameters: [kCIInputScaleKey: 10])
                 } else {
                     output = source.clampedToExtent().applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: max(6, annotation.width * 2)])
                 }
                 if effects == nil { effects = CIContext(options: [.cacheIntermediates: false, .useSoftwareRenderer: true]) }
                 guard let image = effects?.createCGImage(output.cropped(to: source.extent), from: source.extent) else { return nil }
+                context.saveGState()
+                if annotation.tool == .mosaic, let mask = annotation.mosaicMask {
+                    context.addPath(mask); context.clip()
+                }
                 context.draw(image, in: rect)
+                context.restoreGState()
             } else {
                 drawVector(annotation, in: context)
             }
@@ -162,9 +178,10 @@ enum CaptureCrayonStroke {
 final class CaptureCanvas: NSView {
     var base: CGImage
     var image: CGImage { didSet { needsDisplay = true } }
-    var tool: CaptureTool?
+    var tool: CaptureTool? { didSet { updateBrushPosition(); needsDisplay = true } }
     var ink = CaptureInk.red
     var lineWidth: CGFloat = 3
+    var mosaicDiameter: CGFloat = 32 { didSet { updateBrushPosition(); needsDisplay = true } }
     var imageInset: CGFloat = 12
     var onAnnotation: ((CaptureAnnotation) -> Void)?
     var onErase: ((CGPoint, CGFloat) -> Void)?
@@ -175,13 +192,66 @@ final class CaptureCanvas: NSView {
     var onConfirm: (() -> Void)?
     var onCancel: (() -> Void)?
     private var draft: CaptureAnnotation?
+    private var brushPosition: CGPoint?
+    private var brushTracking: NSTrackingArea?
+    private var mosaicPreview: CGImage?
+    private let brushQueue = DispatchQueue(label: "cc.anjing.macos-x.mosaic-preview", qos: .userInitiated)
+    private var brushBusy = false
+    private var brushPending: (CGImage, CaptureAnnotation, UInt64)?
+    private var brushGeneration: UInt64 = 0
+    private var brushTicket: CaptureImageService.Ticket?
+    func stopBrushPreview() {
+        brushGeneration &+= 1; brushPending = nil; brushTicket?.cancel(); brushTicket = nil
+        mosaicPreview = nil; brushPosition = nil
+    }
+    private func requestBrushPreview() {
+        guard let draft, draft.tool == .mosaic else { return }
+        brushPending = (image, draft, brushGeneration)
+        drainBrushPreview()
+    }
+    private func drainBrushPreview() {
+        guard !brushBusy, let (base, mark, generation) = brushPending else { return }
+        brushPending = nil; brushBusy = true
+        let ticket = CaptureImageService.Ticket(); brushTicket = ticket
+        brushQueue.async { [weak self] in
+            let result = autoreleasepool {
+                CaptureAnnotationRenderer.render(base: base, annotations: [mark], isCurrent: { ticket.valid })
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.brushBusy = false
+                if self.brushGeneration == generation, ticket.valid, self.draft?.tool == .mosaic {
+                    self.mosaicPreview = result; self.needsDisplay = true
+                }
+                self.drainBrushPreview()
+            }
+        }
+    }
     @discardableResult func cancelDraft() -> Bool {
         guard draft != nil else { return false }
-        draft = nil; needsDisplay = true; return true
+        draft = nil; stopBrushPreview(); needsDisplay = true; return true
     }
     override var acceptsFirstResponder: Bool { true }
     init(image: CGImage) { base = image; self.image = image; super.init(frame: .zero) }
     required init?(coder: NSCoder) { nil }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let brushTracking { removeTrackingArea(brushTracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(area); brushTracking = area
+    }
+    private func updateBrushPosition() {
+        guard tool == .mosaic, let window else { brushPosition = nil; return }
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        brushPosition = imageRect.contains(point) ? point : nil
+    }
+    override func mouseMoved(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        brushPosition = tool == .mosaic && imageRect.contains(point) ? point : nil
+        if tool == .mosaic { needsDisplay = true }
+    }
+    override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
+    override func mouseExited(with event: NSEvent) { brushPosition = nil; needsDisplay = true }
 
     private var imageRect: CGRect {
         let scale = min((bounds.width - imageInset * 2) / CGFloat(base.width),
@@ -205,36 +275,46 @@ final class CaptureCanvas: NSView {
             let device = context.convertToDeviceSpace(imageRect)
             let nativePixels = abs(device.width-CGFloat(image.width)) < 0.01 && abs(device.height-CGFloat(image.height)) < 0.01
             context.interpolationQuality = nativePixels ? .none : .high
-            context.draw(image,in:imageRect)
+            context.draw(mosaicPreview ?? image,in:imageRect)
             context.restoreGState()
         }
-        if let draft, let context = NSGraphicsContext.current?.cgContext {
+        if let draft, draft.tool != .mosaic, let context = NSGraphicsContext.current?.cgContext {
             context.saveGState()
             context.translateBy(x: imageRect.minX, y: imageRect.minY); context.scaleBy(x: scale, y: scale)
             CaptureAnnotationRenderer.drawVector(draft, in: context)
+            context.restoreGState()
+        }
+        if tool == .mosaic, let point = brushPosition, let context = NSGraphicsContext.current?.cgContext {
+            context.saveGState(); context.clip(to: imageRect)
+            let diameter = draft?.tool == .mosaic ? (draft!.width * scale) : mosaicDiameter
+            let circle = CGRect(x: point.x - diameter / 2, y: point.y - diameter / 2, width: diameter, height: diameter)
+            context.setStrokeColor(CGColor(gray: 1, alpha: 0.95)); context.setLineWidth(3); context.strokeEllipse(in: circle)
+            context.setStrokeColor(CGColor(gray: 0.25, alpha: 0.9)); context.setLineWidth(1); context.strokeEllipse(in: circle)
             context.restoreGState()
         }
     }
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         guard let tool, imageRect.contains(convert(event.locationInWindow, from: nil)) else { return }
-        let point = imagePoint(event), width = lineWidth / max(scale, 0.01)
+        let point = imagePoint(event), width = (tool == .mosaic ? mosaicDiameter : lineWidth) / max(scale, 0.01)
         if tool == .eraser { onErase?(point, 12 / scale); return }
         if tool == .text { onText?(point, width, ink); return }
         draft = CaptureAnnotation(tool: tool, points: [point, point], ink: ink, width: width)
+        mouseMoved(with: event); requestBrushPreview(); needsDisplay = true
     }
     override func mouseDragged(with event: NSEvent) {
         if tool == .eraser { onErase?(imagePoint(event), 12 / scale); return }
         guard var draft else { return }
-        if draft.tool == .pen || draft.tool == .highlighter {
+        if draft.tool == .pen || draft.tool == .highlighter || draft.tool == .mosaic {
             if draft.points.count < 4096 { draft.points.append(imagePoint(event)) }
         } else { draft.points[1] = imagePoint(event) }
-        self.draft = draft; needsDisplay = true
+        self.draft = draft; mouseMoved(with: event); requestBrushPreview(); needsDisplay = true
     }
     override func mouseUp(with event: NSEvent) {
+        if var mark = draft, mark.tool == .mosaic, mark.points.count < 4096 { mark.points.append(imagePoint(event)); draft = mark }
         guard let annotation = draft else { return }
-        draft = nil; needsDisplay = true
-        if annotation.tool == .pen || annotation.tool == .highlighter || annotation.bounds.width > 1 || annotation.bounds.height > 1 {
+        draft = nil; stopBrushPreview(); mouseMoved(with: event); needsDisplay = true
+        if annotation.tool == .pen || annotation.tool == .highlighter || annotation.tool == .mosaic || annotation.bounds.width > 1 || annotation.bounds.height > 1 {
             onAnnotation?(annotation)
         }
     }

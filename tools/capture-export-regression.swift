@@ -48,6 +48,17 @@ import AppKit
             let changed = (20..<44).contains { y in (20..<44).contains { x in before.sample(x: x, y: y)?.hex != after.sample(x: x, y: y)?.hex } }
             check(changed, "redaction actually changes content")
         }
+        let dab = CaptureAnnotation(tool: .mosaic, points: [CGPoint(x: 32, y: 32)], ink: .red, width: 24)
+        let dabImage = CaptureAnnotationRenderer.render(base: image, annotations: [dab])!
+        let beforeDab = CapturePixelSampler(image: image)!, afterDab = CapturePixelSampler(image: dabImage)!
+        check(dab.bounds == CGRect(x: 20, y: 20, width: 24, height: 24), "Dab bounds include the circular brush radius")
+        check(afterDab.sample(x: 22, y: 22)?.hex == beforeDab.sample(x: 22, y: 22)?.hex, "Circular brush does not redact its bounding-box corners")
+        check((26..<38).contains { y in (26..<38).contains { x in beforeDab.sample(x: x, y: y)?.hex != afterDab.sample(x: x, y: y)?.hex } }, "A single click produces real mosaic pixels")
+        let trail = CaptureAnnotation(tool: .mosaic, points: [CGPoint(x: 8, y: 32), CGPoint(x: 56, y: 32)], ink: .red, width: 16)
+        let trailImage = CaptureAnnotationRenderer.render(base: image, annotations: [trail])!
+        let afterTrail = CapturePixelSampler(image: trailImage)!
+        check((28..<36).contains { y in (28..<36).contains { x in beforeDab.sample(x: x, y: y)?.hex != afterTrail.sample(x: x, y: y)?.hex } }, "Fast sparse drag covers the continuous path between mouse samples")
+        check(afterTrail.sample(x: 32, y: 18)?.hex == beforeDab.sample(x: 32, y: 18)?.hex, "Pixels away from the brush path are unchanged")
         let black = CaptureRaster.context(width: 64, height: 64)!
         black.setFillColor(CGColor(gray: 0, alpha: 1)); black.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
         let darkBase = black.makeImage()!

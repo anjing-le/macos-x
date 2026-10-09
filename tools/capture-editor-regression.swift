@@ -53,6 +53,33 @@ import AppKit
         precondition(canvas.lineWidth == 1 && !editor.window.isVisible, "Stroke width lower bound without presenting windows")
         precondition(editor.handleSelectionKey(key(21, "4")))
         precondition(!editor.handleThicknessScroll(wheel(1)), "Text tool must not accidentally change font size")
+        precondition(editor.handleSelectionKey(key(23, "5")))
+        precondition(editor.handleThicknessScroll(wheel(1)) && canvas.mosaicDiameter == 36 && canvas.lineWidth == 1, "Mosaic wheel changes diameter separately from drawing width")
+        for _ in 0..<50 { _ = editor.handleThicknessScroll(wheel(-1)) }
+        precondition(canvas.mosaicDiameter == 8, "Mosaic diameter lower bound")
+        for _ in 0..<50 { _ = editor.handleThicknessScroll(wheel(1)) }
+        precondition(canvas.mosaicDiameter == 160, "Mosaic diameter upper bound")
+        let brushCanvas = CaptureCanvas(image: image); brushCanvas.imageInset = 0
+        let brushWindow = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 200, height: 160), styleMask: .borderless, backing: .buffered, defer: false)
+        brushWindow.isReleasedWhenClosed = false; brushWindow.contentView = brushCanvas
+        brushCanvas.tool = .mosaic
+        var strokes = [CaptureAnnotation](); brushCanvas.onAnnotation = { strokes.append($0) }
+        func mouse(_ type: NSEvent.EventType, _ point: CGPoint) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                windowNumber: brushWindow.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
+        }
+        brushCanvas.mouseDown(with: mouse(.leftMouseDown, CGPoint(x: 80, y: 80)))
+        brushCanvas.mouseDragged(with: mouse(.leftMouseDragged, CGPoint(x: 110, y: 90)))
+        brushCanvas.mouseUp(with: mouse(.leftMouseUp, CGPoint(x: 140, y: 100)))
+        precondition(strokes.count == 1 && strokes[0].points.contains(CGPoint(x: 110, y: 90)) && strokes[0].points.last == CGPoint(x: 140, y: 100), "One drag commits one freehand stroke, including release position")
+        brushCanvas.mouseDown(with: mouse(.leftMouseDown, CGPoint(x: 50, y: 50)))
+        brushCanvas.mouseUp(with: mouse(.leftMouseUp, CGPoint(x: 50, y: 50)))
+        precondition(strokes.count == 2 && strokes[1].width == 32, "Click commits a circular dab with the selected diameter")
+        brushCanvas.mouseDown(with: mouse(.leftMouseDown, CGPoint(x: 50, y: 50)))
+        precondition(brushCanvas.cancelDraft(), "Active brush stroke can be cancelled")
+        brushCanvas.mouseUp(with: mouse(.leftMouseUp, CGPoint(x: 50, y: 50)))
+        precondition(strokes.count == 2, "Cancelled stroke does not commit")
+        brushCanvas.stopBrushPreview(); brushWindow.close()
         precondition(editor.handleSelectionKey(key(53, "\u{1b}")))
         let palette = CaptureColorPalette(colors: [SketchPalette.ink, SketchPalette.coral, SketchPalette.orange, SketchPalette.yellow, SketchPalette.green, SketchPalette.blue, SketchPalette.purple, .white], selected: SketchPalette.coral, target: editor, action: NSSelectorFromString("chooseColor:"))
         precondition(palette.subviews.count == 8, "All eight preset colours remain directly selectable")
