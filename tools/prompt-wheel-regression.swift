@@ -23,6 +23,14 @@ import MacOSXCore
                     precondition(rows.count == count)
                     for row in rows { precondition(content.bounds.contains(row.frame) && !row.frame.intersects(field.frame)) }
                 }
+                if style == .ring && count == 10 {
+                    let hit=content.hitTest(CGPoint(x:content.bounds.midX,y:content.bounds.maxY-40)) as? NSButton
+                    precondition(hit?.tag == 0,"top ring sector is slot one")
+                    if let output=ProcessInfo.processInfo.environment["MACOSX_SETTINGS_PREVIEW"],let bitmap=content.bitmapImageRepForCachingDisplay(in:content.bounds) {
+                        content.cacheDisplay(in:content.bounds,to:bitmap)
+                        try bitmap.representation(using:.png,properties:[:])?.write(to:URL(fileURLWithPath:output).appendingPathComponent("ring-runtime.png"))
+                    }
+                }
                 candidate.dismiss()
             }
         }

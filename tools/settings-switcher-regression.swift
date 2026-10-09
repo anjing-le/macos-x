@@ -72,6 +72,30 @@ import MacOSXCore
         mouseChoice.mouseDown(with:disabledEvent)
         try require(mouseReceiver.calls == 4,"disabled card does not dispatch")
         mouseWindow.contentView=nil
+        let options=(0..<500).map { SketchDropdown.Item(title:"选项 \($0)",index:$0,enabled:$0 != 1) }
+        let dropdown=SketchDropdown(items:options,selected:0,width:240)
+        if let output, let bitmap=dropdown.surface.bitmapImageRepForCachingDisplay(in:dropdown.surface.bounds) {
+            dropdown.surface.layoutSubtreeIfNeeded()
+            dropdown.surface.cacheDisplay(in:dropdown.surface.bounds,to:bitmap)
+            try bitmap.representation(using:.png,properties:[:])?.write(to:URL(fileURLWithPath:output).appendingPathComponent("custom-dropdown.png"))
+        }
+        var chosen:Int?, dismissals=0
+        dropdown.onChoose={ chosen=$0 }; dropdown.onDismiss={ dismissals += 1 }
+        dropdown.moveSelection(1)
+        try require(dropdown.table.selectedRow == 2,"keyboard skips disabled choices")
+        dropdown.search.stringValue="选项 499"
+        dropdown.controlTextDidChange(Notification(name:NSControl.textDidChangeNotification,object:dropdown.search))
+        try require(dropdown.table.numberOfRows == 1,"long dropdown is searched without changing source indices")
+        dropdown.commitSelection()
+        try require(chosen == 499 && dismissals == 1,"filtered Enter commits original index once")
+        dropdown.dismiss(); try require(dismissals == 1,"dismissal releases once")
+        let cancelled=SketchDropdown(items:options,selected:3,width:240)
+        cancelled.onChoose={ _ in preconditionFailure("cancel must not commit") }
+        cancelled.search.stringValue="不存在"
+        cancelled.controlTextDidChange(Notification(name:NSControl.textDidChangeNotification,object:cancelled.search))
+        cancelled.commitSelection()
+        try require(cancelled.table.numberOfRows == 0,"empty dropdown result does not commit")
+        cancelled.dismiss()
         let receiver=BoardReceiver()
         let toggle=MinimalToggle(title:"贴图白光边缘",target:receiver,action:#selector(BoardReceiver.changed(_:)))
         toggle.identifier = .init("capture-pin-outline")

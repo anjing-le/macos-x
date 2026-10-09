@@ -92,6 +92,9 @@ import MacOSXCore
     private var libraryMode = false
     private var rows: [Int] = []
     private var pending: PromptImport?
+    private var importDropdown:SketchDropdown?
+    private let editorHeading=NSTextField(labelWithString:"标题与内容")
+    private let editorHint=NSTextField(wrappingLabelWithString:"点左侧常用位置进行编辑；全部提示词可搜索、分配到常用位置。")
     private var loading = false
     private var wasCompact = false
     private let presentationHost = NSView()
@@ -160,6 +163,9 @@ import MacOSXCore
         listScroll.documentView = table; listScroll.hasVerticalScroller = true; listScroll.autohidesScrollers = true; listScroll.drawsBackground = false
         status.font = .systemFont(ofSize:11); status.textColor = .secondaryLabelColor; status.maximumNumberOfLines = 2
         for view in [picker,placement,titleField,scroll,search,listScroll,status] { addSubview(view) }
+        editorHeading.font=SketchPalette.heading(20); editorHeading.textColor=SketchPalette.ink
+        editorHint.font = .systemFont(ofSize:12); editorHint.textColor=SketchPalette.muted; editorHint.maximumNumberOfLines=2
+        for view in [editorHeading,editorHint] { addSubview(view) }
         selectSlot(0)
     }
     required init?(coder: NSCoder) { nil }
@@ -175,6 +181,8 @@ import MacOSXCore
             button.backdropOnly=true
             button.frame=illustratedSlot(CGRect(x:index == 0 ? 0.028 : 0.175,y:0.038,width:0.135,height:0.245))
         }
+        editorHeading.frame=illustratedSlot(CGRect(x:0.49,y:0.055,width:0.47,height:0.065))
+        editorHint.frame=illustratedSlot(CGRect(x:0.49,y:0.14,width:0.47,height:0.08))
         let countX=bounds.width*0.34
         ringCountLabel.frame=CGRect(x:countX,y:bounds.height-30,width:52,height:20)
         ringCount.frame=CGRect(x:countX+54,y:bounds.height-34,width:58,height:28)
@@ -183,7 +191,7 @@ import MacOSXCore
         wheelTab.frame=illustratedSlot(CGRect(x:0.02,y:0.30,width:0.065,height:0.065))
         libraryTab.frame=illustratedSlot(CGRect(x:0.09,y:0.30,width:0.065,height:0.065))
         add.frame=illustratedSlot(CGRect(x:0.40,y:0.30,width:0.035,height:0.065))
-        presentationHost.frame=illustratedSlot(CGRect(x:0.02,y:0.38,width:0.42,height:0.46)); layoutPreview()
+        presentationHost.frame=illustratedSlot(CGRect(x:0.02,y:0.355,width:0.42,height:0.49)); layoutPreview()
         search.frame=illustratedSlot(CGRect(x:0.02,y:0.38,width:0.42,height:0.065))
         listScroll.frame=illustratedSlot(CGRect(x:0.02,y:0.46,width:0.42,height:0.38))
         picker.frame=illustratedSlot(CGRect(x:0.49,y:0.27,width:0.48,height:0.065)); placement.frame=picker.frame
@@ -199,6 +207,7 @@ import MacOSXCore
     }
     override func layout() {
         super.layout()
+        editorHeading.isHidden=compact || artwork == nil; editorHint.isHidden=editorHeading.isHidden
         titleField.usesArtwork = !compact && artwork != nil
         scroll.usesArtwork = !compact && artwork != nil
         if !compact && artwork != nil {
@@ -389,10 +398,11 @@ import MacOSXCore
             } catch { status.stringValue = error.localizedDescription }
             return
         }
-        let menu = NSMenu()
-        menu.addItem(withTitle:"选择 JSON 文件",action:#selector(importFile),keyEquivalent:"").target = self
-        menu.addItem(withTitle:"粘贴 JSON",action:#selector(importClipboard),keyEquivalent:"").target = self
-        menu.popUp(positioning:nil,at:NSPoint(x:0,y:importer.bounds.height),in:importer)
+        if let importDropdown { importDropdown.dismiss(); return }
+        let dropdown=SketchDropdown(items:[.init(title:"选择 JSON 文件",index:0),.init(title:"粘贴 JSON",index:1)],selected:-1,width:220)
+        dropdown.onChoose = { [weak self] index in if index == 0 { self?.importFile() } else { self?.importClipboard() } }
+        dropdown.onDismiss = { [weak self] in self?.importDropdown=nil }
+        importDropdown=dropdown; dropdown.present(relativeTo:importer)
     }
     @objc private func cancelPendingImport() { pending = nil; importer.title = "导入 JSON"; cancelImport.isHidden = true; format.isHidden = false; status.stringValue = "" }
     @objc private func importClipboard() {

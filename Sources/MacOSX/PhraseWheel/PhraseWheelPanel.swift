@@ -20,6 +20,10 @@ struct PromptPresentation: Equatable {
             guard !isHidden, sector.contains(convert(point, from: superview)) else { return nil }
             return self
         }
+        override func mouseDown(with event:NSEvent) {
+            guard isEnabled, sector.contains(convert(event.locationInWindow,from:nil)) else { return }
+            if let action { NSApp.sendAction(action,to:target,from:self) }
+        }
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
             if let tracking { removeTrackingArea(tracking) }
@@ -34,12 +38,12 @@ struct PromptPresentation: Equatable {
             let active = state == .on
             SketchPalette.fill(sector, color: active ? SketchPalette.purple.withAlphaComponent(0.20) : SketchPalette.paper)
             SketchPencil.stroke(sector, color: active ? SketchPalette.purple : SketchPalette.line.withAlphaComponent(0.6), width: active ? 0.85 : 0.55)
-            let text = NSAttributedString(string: title, attributes: [.font: NSFont.systemFont(ofSize: 11, weight: .medium), .foregroundColor: isEnabled ? (active ? SketchPalette.purple : SketchPalette.ink) : SketchPalette.muted])
+            let text = NSAttributedString(string: title, attributes: [.font: NSFont.systemFont(ofSize: 12, weight: active ? .semibold : .medium), .foregroundColor: isEnabled ? (active ? SketchPalette.purple : SketchPalette.ink) : SketchPalette.muted])
             let paragraph = NSMutableParagraphStyle(); paragraph.alignment = .center; paragraph.lineBreakMode = .byTruncatingTail
             let styled = NSMutableAttributedString(attributedString: text); styled.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: styled.length))
-            let width = max(1,bounds.width-10)
+            let width:CGFloat = 72
             let height = min(30,ceil(styled.boundingRect(with:CGSize(width:width,height:30),options:[.usesLineFragmentOrigin]).height))
-            let rect = CGRect(x:5,y:bounds.midY-height/2,width:width,height:height)
+            let rect = CGRect(x:labelCenter.x-width/2,y:labelCenter.y-height/2,width:width,height:height)
             styled.draw(with: rect, options: [.usesLineFragmentOrigin])
         }
     }
@@ -79,16 +83,22 @@ struct PromptPresentation: Equatable {
         super.layout()
         let count = min(10, max(0, visibleCount))
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
-        let radius = max(30, min(bounds.width, bounds.height)/2 - 56)
-        let width = min(76, radius * 0.54)
-        for (index, card) in cards.enumerated() {
-            card.isHidden = index >= count
+        let outer = max(30,min(bounds.width,bounds.height)/2-12)
+        let inner = max(20,outer*0.53)
+        let radius=(outer+inner)/2
+        for (index,card) in cards.enumerated() {
+            card.isHidden=index >= count
             guard !card.isHidden else { continue }
-            let angle = (90 - CGFloat(index) * 360 / CGFloat(count)) * .pi / 180
-            card.frame = CGRect(x: center.x + cos(angle)*radius-width/2,
-                                y: center.y + sin(angle)*radius-21, width: width, height: 42)
-            card.sector = SketchPencil.outline(in: card.bounds.insetBy(dx:1,dy:1), radius: 8)
-            card.needsDisplay = true
+            card.frame=bounds
+            let angle:CGFloat=90-CGFloat(index)*360/CGFloat(count)
+            let half:CGFloat=180/CGFloat(count)-0.8
+            let start=angle+half, end=angle-half
+            let sector=NSBezierPath()
+            sector.appendArc(withCenter:center,radius:outer,startAngle:start,endAngle:end,clockwise:true)
+            sector.appendArc(withCenter:center,radius:inner,startAngle:end,endAngle:start,clockwise:false)
+            sector.close(); card.sector=sector
+            card.labelCenter=CGPoint(x:center.x+cos(angle * .pi/180)*radius,y:center.y+sin(angle * .pi/180)*radius)
+            card.needsDisplay=true
         }
     }
 }
@@ -215,7 +225,7 @@ struct PromptPresentation: Equatable {
         surface.radius = 16; surface.edge = SketchPalette.line.withAlphaComponent(0.6)
         addSubview(surface); addSubview(search)
         preview.font = .systemFont(ofSize: 12); preview.textColor = .secondaryLabelColor
-        preview.maximumNumberOfLines = 4; preview.lineBreakMode = .byTruncatingTail
+        preview.maximumNumberOfLines = 2; preview.lineBreakMode = .byTruncatingTail
         preview.setAccessibilityLabel("提示词内容预览"); addSubview(preview)
         empty.font = .systemFont(ofSize: 12); empty.textColor = .tertiaryLabelColor; addSubview(empty)
         ring.visibleCount = presentation.count
@@ -260,7 +270,7 @@ struct PromptPresentation: Equatable {
         let top = min(bounds.maxY-20, center.y + blockHeight/2)
         search.frame = showsList ? CGRect(x:28,y:top-30,width:bounds.width-56,height:30)
                                 : CGRect(x:center.x-66,y:center.y-15,width:132,height:30)
-        preview.frame = CGRect(x:center.x-62,y:center.y-68,width:124,height:44)
+        preview.frame = CGRect(x:center.x-56,y:center.y-54,width:112,height:32)
         empty.frame = CGRect(x:28,y:search.frame.minY-32,width:bounds.width-56,height:22)
         for (row, result) in results.enumerated() {
             result.frame = CGRect(x:28,y:search.frame.minY-10-CGFloat(row+1)*rowHeight,width:bounds.width-56,height:rowHeight)
