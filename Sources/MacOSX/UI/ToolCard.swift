@@ -11,18 +11,64 @@ final class ToolCard: NSControl {
     private var enableButton:ModuleEnableButton?
     private var accessibleEntry:CardAccessibleEntry?
     private var enabledChanged:((Bool)->Void)?
+    private var moduleEnabled = true
+    private var colorImage: NSImage?
+    private var monochromeImage: NSImage?
+    private var removeButton: CardActionButton?
+    private var removed: (() -> Void)?
+    private let stateLabel = NSTextField(labelWithString: "")
+    private var catalogAdded = false
+    func configureRemoval(_ action: @escaping () -> Void) {
+        removed = action
+        if removeButton == nil {
+            let button = CardActionButton(title: "移除", target: self, action: #selector(removeModule))
+            button.setAccessibilityLabel("移除\(titleLabel.stringValue)，保留设置")
+            button.onFocusChanged = { [weak self] in self?.updateAppearance(animated: false) }
+            removeButton = button; addSubview(button)
+        }
+        updateAccessibilityChildren(); updateAppearance(animated: false); needsLayout = true
+    }
+    @objc private func removeModule() { removed?() }
+    func configureCatalogState(added: Bool) {
+        catalogAdded = added; stateLabel.stringValue = added ? "✓ 已添加" : "＋ 添加"
+        setAccessibilityValue(added ? "已添加" : "未添加")
+        updateAppearance(animated: false)
+    }
+    private func updateAccessibilityChildren() {
+        guard let accessibleEntry else { return }
+        var children: [Any] = [accessibleEntry]
+        if let enableButton { children.append(enableButton) }
+        if let removeButton { children.append(removeButton) }
+        setAccessibilityChildren(children)
+    }
     func configureEnabled(_ enabled:Bool,onChange:@escaping (Bool)->Void) {
         enabledChanged=onChange
         if enableButton == nil {
             let button=ModuleEnableButton(title:titleLabel.stringValue,target:self,action:#selector(changeModuleEnabled))
             enableButton=button; addSubview(button)
+            button.onFocusChanged = { [weak self] in self?.updateAppearance(animated: false) }
             let entry=CardAccessibleEntry(card:self,title:titleLabel.stringValue)
             accessibleEntry=entry
-            setAccessibilityRole(.group); setAccessibilityChildren([entry,button])
+            setAccessibilityRole(.group); updateAccessibilityChildren()
         }
         updateEnabled(enabled); needsLayout=true
     }
-    func updateEnabled(_ enabled:Bool) { enableButton?.state=enabled ? .on : .off; enableButton?.needsDisplay=true }
+    func updateEnabled(_ enabled:Bool) {
+        moduleEnabled = enabled
+        enableButton?.state=enabled ? .on : .off; enableButton?.needsDisplay=true
+        if !enabled, monochromeImage == nil, let source = colorImage,
+           let image = source.cgImage(forProposedRect: nil, context: nil, hints: nil),
+           let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
+               space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+            let rect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+            context.draw(image, in: rect); context.clip(to: rect, mask: image); context.setBlendMode(.saturation)
+            context.setFillColor(CGColor(gray: 0, alpha: 1)); context.fill(rect)
+            if let gray = context.makeImage() { monochromeImage = NSImage(cgImage: gray, size: source.size) }
+        }
+        symbolView.image = enabled ? colorImage : (monochromeImage ?? colorImage)
+        stateLabel.stringValue = enabled ? "" : "已关闭"
+        updateAppearance(animated: false)
+    }
     @objc private func changeModuleEnabled() {
         guard let button=enableButton else { return }
         enabledChanged?(button.state == .on)
@@ -45,6 +91,7 @@ final class ToolCard: NSControl {
         didSet {
             if !isEnabled { mousePressed = false; pressedKey = nil }
             enableButton?.isEnabled=isEnabled
+            removeButton?.isEnabled=isEnabled
             setAccessibilityEnabled(isEnabled)
             updateAppearance(animated: true)
         }
@@ -65,6 +112,7 @@ final class ToolCard: NSControl {
         surface.layer?.masksToBounds = false
 
         symbolView.image = SketchCardArt.image(symbol) ?? SketchIcons.image(symbol, size: 128)
+        colorImage = symbolView.image
         symbolView.imageScaling = .scaleProportionallyUpOrDown
         symbolView.wantsLayer = true
         titleLabel.font = SketchPalette.heading(20)
@@ -74,6 +122,9 @@ final class ToolCard: NSControl {
         titleLabel.wantsLayer = true
 
         addSubview(surface)
+        stateLabel.font = .systemFont(ofSize: 12); stateLabel.textColor = SketchPalette.muted
+        stateLabel.alignment = .right; stateLabel.setAccessibilityElement(false)
+        addSubview(stateLabel)
         surface.addSubview(symbolView)
         surface.addSubview(titleLabel)
         for view in [surface, symbolView, titleLabel] { view.translatesAutoresizingMaskIntoConstraints = false }
@@ -119,6 +170,7 @@ final class ToolCard: NSControl {
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let hit=super.hitTest(point) else { return nil }
         if let button=enableButton,hit === button || hit.isDescendant(of:button) { return button }
+        if let button=removeButton,hit === button || hit.isDescendant(of:button) { return button }
         return self
     }
 
@@ -168,6 +220,8 @@ final class ToolCard: NSControl {
     override func layout() {
         super.layout()
         enableButton?.frame=CGRect(x:bounds.width-78,y:bounds.height-40,width:68,height:30)
+        removeButton?.frame = CGRect(x: 10, y: 8, width: 56, height: 26)
+        stateLabel.frame = CGRect(x: bounds.width - 90, y: 10, width: 78, height: 20)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         surface.layer?.shadowPath = CGPath(roundedRect: surface.bounds,
@@ -242,8 +296,11 @@ final class ToolCard: NSControl {
         guard let cardLayer = surface.layer, let iconLayer = symbolView.layer,
               let textLayer = titleLabel.layer else { return }
         let focused = keyboardFocused && window?.isKeyWindow == true
-        let revealed = isEnabled && (hovered || focused)
-        enableButton?.emphasized=hovered || focused
+        let childFocused = window?.isKeyWindow == true && (enableButton?.hasKeyboardFocus == true || removeButton?.hasKeyboardFocus == true)
+        let revealed = isEnabled && (hovered || focused || childFocused)
+        enableButton?.isHidden = !revealed
+        removeButton?.isHidden = !revealed
+        enableButton?.emphasized=revealed
         let reducedMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         let duration = animated && !reducedMotion ? 0.25 : 0
         let pressed = mousePressed || pressedKey != nil
@@ -251,7 +308,7 @@ final class ToolCard: NSControl {
         let iconScale: CGFloat = reducedMotion || !revealed ? 1 : 0.95
 
         surface.fill = SketchPalette.paper
-        surface.edge = revealed ? SketchPalette.yellow : SketchPalette.line.withAlphaComponent(0.6)
+        surface.edge = revealed ? (moduleEnabled ? SketchPalette.yellow : SketchPalette.ink.withAlphaComponent(0.6)) : SketchPalette.line.withAlphaComponent(0.6)
         cardLayer.backgroundColor = NSColor.clear.cgColor
         cardLayer.borderColor = NSColor.clear.cgColor
         cardLayer.shadowColor = NSColor.black.cgColor
@@ -283,8 +340,14 @@ final class ToolCard: NSControl {
     }
 }
 
-/// A permanent state label with a generous independent click target.
-@MainActor final class ModuleEnableButton:MinimalButton {
+@MainActor class CardActionButton: MinimalButton {
+    var onFocusChanged: (() -> Void)?
+    private(set) var hasKeyboardFocus = false
+    override func becomeFirstResponder() -> Bool { let result = super.becomeFirstResponder(); hasKeyboardFocus = result; onFocusChanged?(); return result }
+    override func resignFirstResponder() -> Bool { let result = super.resignFirstResponder(); if result { hasKeyboardFocus = false }; onFocusChanged?(); return result }
+}
+/// Revealed with its card; keyboard focus keeps its independent target visible.
+@MainActor final class ModuleEnableButton:CardActionButton {
     private let moduleTitle:String
     var emphasized=false { didSet { if emphasized != oldValue { needsDisplay=true } } }
     init(title:String,target:AnyObject?,action:Selector?) {

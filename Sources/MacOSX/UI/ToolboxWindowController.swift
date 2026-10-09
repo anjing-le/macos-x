@@ -281,24 +281,30 @@ final class ToolboxWindowController: NSWindowController {
         var cards = added.tools.map { tool in
             let card=ToolCard(title:tool.title,symbol:tool.symbol) { [weak self] in self?.showSettings(tool) }
             card.configureEnabled(modules.isEnabled(tool)) { [weak self] enabled in self?.modules.setEnabled(enabled,tool:tool) }
+            card.configureRemoval { [weak self] in
+                guard let self else { return }
+                self.added.remove(tool); self.modules.reconcile(self.added.tools); self.showHome()
+            }
             homeCards[tool]=card
             return card
         }
-        if added.tools.count < Tool.allCases.count {
-            cards.append(ToolCard(title: "添加", symbol: "plus") { [weak self] in self?.showCatalog() })
-        }
+        cards.append(ToolCard(title: "功能池", symbol: "plus") { [weak self] in self?.showCatalog() })
         content.showCards(cards)
     }
 
     private func showCatalog() {
         navigate(.catalog, title: "添加功能")
-        content.showCards(Tool.allCases.filter { !added.tools.contains($0) }.map { tool in
-            ToolCard(title: tool.title, symbol: tool.symbol) { [weak self] in
+        content.showCards(Tool.allCases.map { tool in
+            let card = ToolCard(title: tool.title, symbol: tool.symbol) { [weak self] in
                 guard let self else { return }
+                if self.added.tools.contains(tool) { self.showSettings(tool); return }
                 self.added.add(tool)
                 self.modules.reconcile(self.added.tools)
                 self.showHome()
             }
+            if added.tools.contains(tool) { card.updateEnabled(modules.isEnabled(tool)) }
+            card.configureCatalogState(added: added.tools.contains(tool))
+            return card
         })
     }
 
