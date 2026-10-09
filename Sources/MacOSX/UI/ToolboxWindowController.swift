@@ -50,6 +50,10 @@ private final class AddedTools {
         tools.removeAll { $0 == tool }
         save()
     }
+    func reorder(_ order: [Tool]) {
+        guard order.count == tools.count, Set(order) == Set(tools) else { return }
+        tools = order; save()
+    }
 
     private func save() {
         defaults.set(tools.map(\.rawValue), forKey: key)
@@ -153,7 +157,7 @@ private final class ToolboxContent: NSView {
         scroll.documentView = detailDocument
         views.forEach { view in
             detail.addArrangedSubview(view)
-            if view is SettingsBoardView || view is ModuleSettingsHeader {
+            if view is SettingsBoardView || view is ModuleSettingsHeader || view is ModuleCatalogView {
                 view.widthAnchor.constraint(equalTo: detail.widthAnchor).isActive = true
             }
         }
@@ -179,7 +183,7 @@ private final class ToolboxContent: NSView {
         } else {
             let inset: CGFloat = 24
             let preferredWidth = max(480, detail.arrangedSubviews.map { $0.intrinsicContentSize.width }.max() ?? 480)
-            let fillsPage = detail.arrangedSubviews.contains { $0 is SettingsBoardView }
+            let fillsPage = detail.arrangedSubviews.contains { $0 is SettingsBoardView || $0 is ModuleCatalogView }
             let contentWidth = max(220, fillsPage ? width - inset * 2 : min(preferredWidth, width - inset * 2))
             detailWidth.constant = contentWidth
             detail.frame = NSRect(x: inset, y: inset, width: contentWidth, height: max(0, detail.fittingSize.height))
@@ -293,19 +297,20 @@ final class ToolboxWindowController: NSWindowController {
     }
 
     private func showCatalog() {
-        navigate(.catalog, title: "添加功能")
-        content.showCards(Tool.allCases.map { tool in
-            let card = ToolCard(title: tool.title, symbol: tool.symbol) { [weak self] in
-                guard let self else { return }
-                if self.added.tools.contains(tool) { self.showSettings(tool); return }
-                self.added.add(tool)
-                self.modules.reconcile(self.added.tools)
-                self.showHome()
-            }
-            if added.tools.contains(tool) { card.updateEnabled(modules.isEnabled(tool)) }
-            card.configureCatalogState(added: added.tools.contains(tool))
-            return card
-        })
+        settingsHeader = nil
+        navigate(.catalog, title: "编辑功能")
+        let editor = ModuleCatalogView(added: added.tools)
+        editor.onToggle = { [weak self, weak editor] tool in
+            guard let self else { return }
+            if self.added.tools.contains(tool) { self.added.remove(tool) } else { self.added.add(tool) }
+            self.modules.reconcile(self.added.tools)
+            editor?.configure(added: self.added.tools)
+        }
+        editor.onReorder = { [weak self, weak editor] order in
+            guard let self else { return }
+            self.added.reorder(order); editor?.configure(added: self.added.tools)
+        }
+        content.showDetail([editor])
     }
 
     private func showSettings(_ tool: Tool) {

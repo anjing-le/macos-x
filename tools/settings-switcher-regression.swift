@@ -35,6 +35,29 @@ import MacOSXCore
         try require(AddedTools(defaults:registryDefaults).tools == [.capture],"Removal persists across reopening")
         registry.add(.kaomoji)
         try require(AddedTools(defaults:registryDefaults).tools == [.capture,.kaomoji] && registryDefaults.string(forKey:"fixture.prompt-content") == "保留的提示词","Re-adding restores entry without deleting unrelated content")
+        registry.reorder([.kaomoji,.capture])
+        try require(AddedTools(defaults:registryDefaults).tools == [.kaomoji,.capture],"Home order persists across reopening")
+        registry.reorder([.capture,.capture])
+        try require(registry.tools == [.kaomoji,.capture],"Reorder cannot duplicate or lose membership")
+        let catalog=ModuleCatalogView(added:[.kaomoji,.capture])
+        var catalogChanges=0
+        catalog.onToggle = { tool in catalogChanges += 1 }
+        catalog.onReorder = { order in registry.reorder(order); catalog.configure(added:order) }
+        catalog.place(.kaomoji,at:1)
+        try require(catalog.added == [.capture,.kaomoji] && registry.tools == catalog.added,"Drag placement changes the saved home order")
+        catalog.move(.kaomoji,by:-1)
+        try require(catalog.added == [.kaomoji,.capture],"Keyboard/button movement uses the same saved order")
+        catalog.place(.windowLayout,at:0); catalog.move(.kaomoji,by:-1)
+        try require(catalog.added == [.kaomoji,.capture],"Unadded and out-of-bounds moves are rejected")
+        for width:CGFloat in [912,300] {
+            catalog.frame.size.width=width; catalog.needsLayout=true; catalog.layoutSubtreeIfNeeded()
+            let poolCards=catalog.subviews.compactMap { $0 as? ModuleCatalogCard }
+            try require(poolCards.count == Tool.allCases.count,"Editor retains added and available cards")
+            try require(poolCards.allSatisfy { $0.frame.minX >= 0 && $0.frame.maxX <= width },"Editor cards fit wide and narrow layouts")
+        }
+        let member=catalog.subviews.compactMap { $0 as? ModuleCatalogCard }.first!
+        member.membership.performClick(nil)
+        try require(catalogChanges == 1,"Editor membership button invokes only membership callback")
         for index in [0, 8, 127, 255, 0] {
             canvas.scrollToVisible(layout.card(at: index))
             scroll.reflectScrolledClipView(scroll.contentView)
