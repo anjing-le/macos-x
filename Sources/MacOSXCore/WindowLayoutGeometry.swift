@@ -33,7 +33,7 @@ public enum WindowLayoutGeometry {
         let top=screen.maxY-point.y<threshold,bottom=point.y-screen.minY<threshold
         if left && top { return .topLeft }; if right && top { return .topRight }
         if left && bottom { return .bottomLeft }; if right && bottom { return .bottomRight }
-        if top { return .maximize }; if left { return .left }; if right { return .right }
+        if top { return .top }; if bottom { return .bottom }; if left { return .left }; if right { return .right }
         return nil
     }
     public static func isMove(original:CGRect,current:CGRect)->Bool {

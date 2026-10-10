@@ -78,6 +78,33 @@ import MacOSXCore
             try require(SketchPencil.outline(in:rect,radius:8).isEmpty,"transient invalid drawing bounds are safe")
         }
         let output = ProcessInfo.processInfo.environment["MACOSX_SETTINGS_PREVIEW"]
+        let layoutModule = WindowLayoutModule()
+        let layoutActions: [ShortcutAction] = [.layoutLeft, .layoutRight, .layoutUp, .layoutDown]
+        try require(layoutActions.map(\.title) == ["左半屏", "右半屏", "上半屏", "下半屏"], "shortcut names match four directional halves")
+        let layoutKeys: [NSView] = layoutActions.map {
+            ShortcutPicker(title: "", binding: $0.defaultBinding, allowsDoubleTap: false,
+                recordingChanged: { _ in }, accepts: { _ in nil }, didChange: { _ in })
+        }
+        let layoutBoard = SettingsBoardView(kind: "windowLayout", settings: layoutModule.settingsView, shortcuts: layoutKeys)
+        for width: CGFloat in [840, 600] {
+            layoutBoard.frame.size.width = width; layoutBoard.needsLayout = true; layoutBoard.layoutSubtreeIfNeeded()
+            layoutBoard.frame.size.height = layoutBoard.intrinsicContentSize.height; layoutBoard.layoutSubtreeIfNeeded()
+            let diagrams = layoutBoard.subviews.compactMap { $0 as? NSImageView }
+            let keys = layoutBoard.subviews.compactMap { $0 as? ShortcutSettingsRow }
+            try require(diagrams.count == 4 && diagrams.allSatisfy { $0.image != nil } && keys.count == 4,
+                        "four bundled diagrams each retain a real editable keycap")
+            for index in 0..<4 {
+                try require(abs(keys[index].frame.midX - diagrams[index].frame.midX) < 1 && keys[index].frame.minY >= diagrams[index].frame.maxY,
+                            "each shortcut stays immediately below its own diagram")
+                try require(layoutBoard.bounds.contains(keys[index].frame) && layoutBoard.bounds.contains(diagrams[index].frame),
+                            "four actions fit both wide and compact settings boards")
+            }
+            if width == 840, let output, let bitmap = layoutBoard.bitmapImageRepForCachingDisplay(in: layoutBoard.bounds) {
+                layoutBoard.cacheDisplay(in: layoutBoard.bounds, to: bitmap)
+                try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output).appendingPathComponent("window-layout-board.png"))
+            }
+        }
+        layoutModule.stop()
         for tool in Tool.allCases {
             try require(SketchCardArt.image(tool.symbol) != nil, "all four approved entry illustrations must load from the bundled atlas")
         }

@@ -12,12 +12,15 @@ import MacOSXCore
         precondition(window.frame == CGRect(x:0,y:25,width:720,height:875))
         WindowLayoutNative.apply(window,frame:WindowLayoutGeometry.frame(for:.right,in:work)!)
         precondition(window.frame.minX == 720)
+        WindowLayoutNative.apply(window,frame:WindowLayoutGeometry.frame(for:.top,in:work)!)
+        precondition(window.frame.minY == 462 && window.frame.height == 438 && window.frame.width == 1440)
+        WindowLayoutNative.apply(window,frame:WindowLayoutGeometry.frame(for:.bottom,in:work)!)
+        precondition(window.frame.minY == 25 && window.frame.height == 437 && window.frame.width == 1440)
         WindowLayoutNative.apply(window,frame:original)
         precondition(window.frame == original)
         WindowLayoutNative.apply(window,frame:CGRect(x:0,y:0,width:200,height:100))
         precondition(window.frame.size == CGSize(width:360,height:240))
-        let defaults=UserDefaults(suiteName:"layout-fixture-\(UUID().uuidString)")!
-        let module=WindowLayoutModule(defaults:defaults)
+        let module=WindowLayoutModule()
         let settings=module.settingsView
         settings.frame.size=CGSize(width:840,height:300); settings.layoutSubtreeIfNeeded()
         if let path=ProcessInfo.processInfo.environment["MACOSX_SETTINGS_PREVIEW"],let bitmap=settings.bitmapImageRepForCachingDisplay(in:settings.bounds) {

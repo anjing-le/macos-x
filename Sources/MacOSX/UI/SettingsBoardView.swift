@@ -147,6 +147,13 @@ import AppKit
     private let settingsWidth: NSLayoutConstraint
     private let shortcuts: [NSView]
     private var art: [NSView] = []
+    private var layoutArtwork: [NSImageView] = []
+    private var layoutCaptions: [NSTextField] = []
+    private var layoutFooterY: CGFloat {
+        let columns = compact ? 2 : 4
+        let width = (bounds.width - CGFloat(columns - 1) * 16) / CGFloat(columns)
+        return CGFloat(4 / columns) * (min(190, max(80, width * 0.9)) + 78) + 24
+    }
     private var selectors: [IllustratedSettingChoice] = []
     private var sourceToggle: NSButton?
     private var sourceMode: NSPopUpButton?
@@ -161,7 +168,7 @@ import AppKit
     private var lastSettingsHeight: CGFloat = 0
     private var compact: Bool { bounds.width < 740 }
     override var isFlipped: Bool { true }
-    override var intrinsicContentSize: NSSize { if kind == "windowLayout" { return NSSize(width:840,height:max(480,196+settings.fittingSize.height)) }; if usesBackdrop { return NSSize(width:840,height:kind == "capture" ? max(backdropHeight,backdropHeight*0.838+settings.fittingSize.height) : backdropHeight) }; return NSSize(width:840,height:kind == "kaomoji" ? (compact ? 848 : 470) : (kind == "capture" ? max(compact ? 864 : 440,(compact ? 664 : 352)+settings.fittingSize.height) : (compact ? 550 : 410))) }
+    override var intrinsicContentSize: NSSize { if kind == "windowLayout" { return NSSize(width:840,height:max(380,layoutFooterY+settings.fittingSize.height)) }; if usesBackdrop { return NSSize(width:840,height:kind == "capture" ? max(backdropHeight,backdropHeight*0.838+settings.fittingSize.height) : backdropHeight) }; return NSSize(width:840,height:kind == "kaomoji" ? (compact ? 848 : 470) : (kind == "capture" ? max(compact ? 864 : 440,(compact ? 664 : 352)+settings.fittingSize.height) : (compact ? 550 : 410))) }
     init(kind: String, settings: NSView, shortcuts: [NSView]) {
         self.kind=kind; self.settings=settings; self.shortcuts=shortcuts.map(ShortcutSettingsRow.init)
         backdrop = kind == "capture" ? IllustratedSettingChoice.artwork("SettingsCaptureBoard") : (kind == "windowSwitcher" ? IllustratedSettingChoice.artwork("SettingsSwitcherBoard") : nil)
@@ -170,6 +177,24 @@ import AppKit
         super.init(frame: CGRect(x:0,y:0,width:840,height:410))
         settingsWidth.isActive=true
         addSubview(settings); for shortcut in self.shortcuts { addSubview(shortcut) }
+        if kind == "windowLayout" {
+            let sheet = IllustratedSettingChoice.artwork("SettingsLayoutBoard")
+            for (index, title) in ["左半屏", "右半屏", "上半屏", "下半屏"].enumerated() {
+                let view = NSImageView(); view.imageScaling = .scaleProportionallyUpOrDown
+                if let sheet {
+                    let region = CGRect(x: CGFloat(index) * sheet.size.width / 4, y: sheet.size.height * 0.17,
+                                        width: sheet.size.width / 4, height: sheet.size.height * 0.68)
+                    view.image = NSImage(size: region.size, flipped: false) { _ in
+                        sheet.draw(in: CGRect(origin: .zero, size: region.size), from: region, operation: .sourceOver, fraction: 1)
+                        return true
+                    }
+                }
+                view.setAccessibilityElement(false); layoutArtwork.append(view); addSubview(view)
+                let caption = NSTextField(labelWithString: title)
+                caption.font = SketchPalette.heading(18); caption.textColor = SketchPalette.ink; caption.alignment = .center
+                layoutCaptions.append(caption); addSubview(caption)
+            }
+        }
         for hint in captureHints { hint.font = .systemFont(ofSize:13); hint.textColor=SketchPalette.ink; hint.alignment = .center; hint.isHidden=true; addSubview(hint) }
         if kind == "capture", let stack=settings as? NSStackView, stack.arrangedSubviews.count >= 4 {
             let toggle=stack.arrangedSubviews.first { $0.identifier?.rawValue == "capture-pin-outline" } as? NSButton
@@ -218,6 +243,14 @@ import AppKit
     }
     override func draw(_ dirtyRect: NSRect) {
         SketchPalette.paper.setFill(); dirtyRect.fill()
+        if kind == "windowLayout" {
+            for shortcut in shortcuts {
+                let cap = SketchPencil.outline(in: shortcut.frame.insetBy(dx: 4, dy: 2), radius: 7)
+                SketchPalette.fill(cap, color: SketchPalette.paper)
+                SketchPencil.stroke(cap, color: SketchPalette.line, width: 1)
+            }
+            return
+        }
         guard usesBackdrop, let backdrop else { return }
         let source = kind == "capture" ? CGRect(origin:.zero,size:backdrop.size) : CGRect(x:0,y:67,width:1774,height:635)
         backdrop.draw(in:CGRect(x:0,y:0,width:bounds.width,height:backdropHeight),from:source,operation:.sourceOver,fraction:1,respectFlipped:true,hints:[.interpolation:NSImageInterpolation.high])
@@ -258,8 +291,20 @@ import AppKit
         super.layout()
         if kind == "windowLayout" {
             let w=bounds.width
-            for (i,view) in shortcuts.enumerated() { view.frame=CGRect(x:0,y:CGFloat(i)*46,width:w,height:42); view.layoutSubtreeIfNeeded() }
-            settings.frame=CGRect(x:0,y:196,width:w,height:max(280,settings.fittingSize.height)); settingsWidth.constant=w
+            let columns = compact ? 2 : 4
+            let width = (w - CGFloat(columns - 1) * 16) / CGFloat(columns)
+            let height = min(190, max(80, width * 0.9)), rowHeight = height + 78
+            for (i, view) in layoutArtwork.enumerated() {
+                let x = CGFloat(i % columns) * (width + 16), y = CGFloat(i / columns) * rowHeight
+                view.frame = CGRect(x: x, y: y, width: width, height: height)
+                layoutCaptions[i].frame = CGRect(x: x, y: y + height + 4, width: width, height: 26)
+                if shortcuts.indices.contains(i) {
+                    shortcuts[i].frame = CGRect(x: x + max(0, (width - 132) / 2), y: y + height + 32, width: min(132, width), height: 40)
+                    shortcuts[i].layoutSubtreeIfNeeded()
+                }
+            }
+            if abs(lastLayoutWidth-w)>0.5 { lastLayoutWidth=w; invalidateIntrinsicContentSize() }
+            settings.frame=CGRect(x:0,y:layoutFooterY,width:w,height:settings.fittingSize.height); settingsWidth.constant=w
             settings.layoutSubtreeIfNeeded(); updateSettingsHeight(); return
         }
         let w=bounds.width

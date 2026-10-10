@@ -23,6 +23,7 @@ PY
 xcrun swiftc -I "$guide_bin/Modules" "$guide_bin"/MacOSXCore.build/*.swift.o \
  Sources/MacOSX/UI/SketchTheme.swift Sources/MacOSX/UI/SketchIcons.swift Sources/MacOSX/UI/ToolCard.swift Sources/MacOSX/UI/MinimalControls.swift Sources/MacOSX/UI/ModuleCatalogView.swift \
  Sources/MacOSX/Shared/ShortcutSettings.swift Sources/MacOSX/Capture/RecordingPresentation.swift Sources/MacOSX/UI/SettingsGuideView.swift Sources/MacOSX/UI/SettingsBoardView.swift Sources/MacOSX/WindowSwitcher/SwitcherPanel.swift \
+ Sources/MacOSX/WindowLayout/*.swift \
  "$guide_dir/SwitcherWindow.swift" "$guide_dir/ShortcutTypes.swift" "$guide_dir/RegistryAndFixture.swift" \
  -o "$guide_dir/Preview.app/Contents/MacOS/Preview"
 "$guide_dir/Preview.app/Contents/MacOS/Preview"

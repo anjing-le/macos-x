@@ -37,8 +37,8 @@ final class ModuleCoordinator {
             case .togglePins: self.capture?.togglePins()
             case .layoutLeft:self.layout?.perform(.left)
             case .layoutRight:self.layout?.perform(.right)
-            case .layoutUp:self.layout?.perform(self.layout?.usesVerticalHalves == true ? .top : .maximize)
-            case .layoutDown:self.layout?.perform(self.layout?.usesVerticalHalves == true ? .bottom : .restore)
+            case .layoutUp:self.layout?.perform(.top)
+            case .layoutDown:self.layout?.perform(.bottom)
             }
         }
         input.onAdvance = { [weak self] reverse in self?.switcher?.advance(reverse: reverse) }
@@ -85,7 +85,7 @@ final class ModuleCoordinator {
     private func ensure(_ tool: Tool) {
         switch tool {
         case .windowLayout:
-            if layout == nil { layout=WindowLayoutModule(defaults:defaults); layout?.onStatusChange={ [weak self] in self?.onStateChanged?(.windowLayout) } }
+            if layout == nil { layout=WindowLayoutModule(); layout?.onStatusChange={ [weak self] in self?.onStateChanged?(.windowLayout) } }
         case .kaomoji: if wheel == nil { wheel = PhraseWheelModule(defaults: defaults) }
         case .capture:
             if capture == nil {
@@ -162,7 +162,7 @@ final class ModuleCoordinator {
     }
 
     func shortcutPicker(_ action: ShortcutAction, showsTitle: Bool = true) -> NSView {
-        let label=action == .layoutUp ? (layout?.usesVerticalHalves == true ? "上半屏" : "最大化") : (action == .layoutDown ? (layout?.usesVerticalHalves == true ? "下半屏" : "恢复") : (action == .wheel ? "唤起" : action.title))
+        let label=action == .wheel ? "唤起" : action.title
         let picker = ShortcutPicker(title: showsTitle ? label : "",
             binding: shortcuts.binding(for: action), allowsDoubleTap: action == .wheel,
             recordingChanged: { [weak self] value in

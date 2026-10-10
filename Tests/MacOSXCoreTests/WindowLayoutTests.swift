@@ -7,6 +7,9 @@ final class WindowLayoutTests:XCTestCase {
         XCTAssertEqual(left.maxX,right.minX); XCTAssertEqual(left.width+right.width,work.width)
         let tl=WindowLayoutGeometry.frame(for:.topLeft,in:work,scale:2)!,bl=WindowLayoutGeometry.frame(for:.bottomLeft,in:work,scale:2)!
         XCTAssertEqual(tl.minY,bl.maxY); XCTAssertEqual(tl.height+bl.height,work.height)
+        let top=WindowLayoutGeometry.frame(for:.top,in:work,scale:2)!,bottom=WindowLayoutGeometry.frame(for:.bottom,in:work,scale:2)!
+        XCTAssertEqual(bottom.maxY,top.minY); XCTAssertEqual(top.height+bottom.height,work.height)
+        XCTAssertEqual(top.width,work.width); XCTAssertEqual(bottom.width,work.width)
         XCTAssertEqual(WindowLayoutGeometry.frame(for:.maximize,in:work),work)
         XCTAssertNil(WindowLayoutGeometry.frame(for:.restore,in:work))
     }
@@ -14,11 +17,11 @@ final class WindowLayoutTests:XCTestCase {
         let screen=CGRect(x:0,y:0,width:1440,height:900)
         XCTAssertEqual(WindowLayoutGeometry.snap(at:CGPoint(x:1,y:450),on:screen),.left)
         XCTAssertEqual(WindowLayoutGeometry.snap(at:CGPoint(x:1439,y:450),on:screen),.right)
-        XCTAssertEqual(WindowLayoutGeometry.snap(at:CGPoint(x:720,y:899),on:screen),.maximize)
+        XCTAssertEqual(WindowLayoutGeometry.snap(at:CGPoint(x:720,y:899),on:screen),.top)
         XCTAssertEqual(WindowLayoutGeometry.snap(at:CGPoint(x:1,y:899),on:screen),.topLeft)
         XCTAssertEqual(WindowLayoutGeometry.snap(at:CGPoint(x:1439,y:1),on:screen),.bottomRight)
         XCTAssertNil(WindowLayoutGeometry.snap(at:CGPoint(x:720,y:450),on:screen))
-        XCTAssertNil(WindowLayoutGeometry.snap(at:CGPoint(x:720,y:1),on:screen))
+        XCTAssertEqual(WindowLayoutGeometry.snap(at:CGPoint(x:720,y:1),on:screen),.bottom)
         XCTAssertNil(WindowLayoutGeometry.snap(at:CGPoint(x:-1,y:450),on:screen))
     }
     func testMovingIsRequiredAndResizeRejected() {

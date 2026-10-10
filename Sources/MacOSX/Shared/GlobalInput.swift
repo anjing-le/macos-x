@@ -15,7 +15,7 @@ enum ShortcutAction: UInt32, CaseIterable, Sendable {
         case .pin: return "贴图"
         case .recording: return "录屏"
         case .togglePins: return "显示 / 隐藏"
-        case .layoutLeft:return "左半屏";case .layoutRight:return "右半屏";case .layoutUp:return "向上";case .layoutDown:return "向下"
+        case .layoutLeft:return "左半屏";case .layoutRight:return "右半屏";case .layoutUp:return "上半屏";case .layoutDown:return "下半屏"
         }
     }
     var defaultBinding: ShortcutBinding {

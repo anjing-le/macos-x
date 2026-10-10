@@ -321,7 +321,7 @@ final class ToolboxWindowController: NSWindowController {
         switch tool {
         case .kaomoji: shortcuts = [modules.shortcutPicker(.wheel)]
         case .capture: shortcuts = [ShortcutAction.capture, .pin, .togglePins, .recording].map { modules.shortcutPicker($0, showsTitle: false) }
-        case .windowLayout:shortcuts=[ShortcutAction.layoutLeft,.layoutRight,.layoutUp,.layoutDown].map { modules.shortcutPicker($0) }
+        case .windowLayout:shortcuts=[ShortcutAction.layoutLeft,.layoutRight,.layoutUp,.layoutDown].map { modules.shortcutPicker($0, showsTitle: false) }
         case .windowSwitcher:
             let label = NSTextField(labelWithString: "⌘ Tab")
             label.font = .systemFont(ofSize:16); label.textColor = SketchPalette.ink; label.alignment = .center

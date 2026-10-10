@@ -14,11 +14,9 @@ import MacOSXCore
     private var preview:LayoutPreviewPanel?
     private var pendingAction:WindowLayoutAction?
     private var history:[Saved]=[]
-    private let defaults:UserDefaults
     private let status=NSTextField(wrappingLabelWithString:"")
     private lazy var settings=makeSettings()
     var settingsView:NSView { settings }
-    var usesVerticalHalves:Bool { defaults.bool(forKey:"layout.vertical-halves") }
     private enum Target { case local(NSWindow,CGRect),external(ExternalLayoutWindow)
         var frame:CGRect { switch self { case let .local(_,frame):return frame;case let .external(value):return WindowLayoutGeometry.axFrame(value.frame,primaryTop:CGDisplayBounds(CGMainDisplayID()).height) } }
     }
@@ -29,7 +27,7 @@ import MacOSXCore
         init(_ target:Target) { frame=target.frame; switch target { case let .local(window,_):local=window; external=nil; case let .external(window):external=window } }
         func matches(_ target:Target)->Bool { switch target { case let .local(window,_):return local === window;case let .external(window):return external?.matches(window) == true } }
     }
-    init(defaults:UserDefaults = .standard) { self.defaults=defaults }
+    init() {}
     func start() {
         guard !enabled else { return }; enabled=true
         guard AXIsProcessTrusted() else { updateStatus("需要辅助功能权限"); return }
@@ -158,12 +156,10 @@ import MacOSXCore
         let stack=NSStackView(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing=16
         let heading=NSTextField(labelWithString:"拖到边缘，松手落位")
         heading.font=SketchPalette.heading(22); heading.textColor=SketchPalette.ink
-        let description=NSTextField(wrappingLabelWithString:"左右边缘：半屏　·　上边缘：最大化\n四个角：四分之一屏　·　预览出现后松手")
+        let description=NSTextField(wrappingLabelWithString:"左、右、上、下边缘：对应半屏\n四个角：四分之一屏　·　预览出现后松手")
         description.font = .systemFont(ofSize:14); description.textColor=SketchPalette.muted
-        let diagram=LayoutDiagram(); diagram.heightAnchor.constraint(equalToConstant:160).isActive=true
         status.font = .systemFont(ofSize:12); status.textColor=SketchPalette.muted; status.maximumNumberOfLines=2
-        for view in [heading,diagram,description,status] { stack.addArrangedSubview(view) }
-        diagram.widthAnchor.constraint(equalTo:stack.widthAnchor).isActive=true
+        for view in [heading,description,status] { stack.addArrangedSubview(view) }
         description.widthAnchor.constraint(equalTo:stack.widthAnchor).isActive=true
         return stack
     }
@@ -182,18 +178,5 @@ import MacOSXCore
         let path=SketchPencil.outline(in:bounds.insetBy(dx:3,dy:3),radius:10)
         SketchPalette.blue.withAlphaComponent(0.12).setFill(); path.fill()
         SketchPencil.stroke(path,color:SketchPalette.blue.withAlphaComponent(0.8),width:2)
-    }
-}
-@MainActor private final class LayoutDiagram:NSView {
-    override func draw(_ dirtyRect:NSRect) {
-        let gap:CGFloat=20,width=(bounds.width-gap*2)/3
-        for i in 0..<3 {
-            let box=CGRect(x:CGFloat(i)*(width+gap),y:40,width:width,height:bounds.height-50)
-            SketchPencil.stroke(SketchPencil.outline(in:box,radius:8),color:SketchPalette.line,width:1)
-            let target=i == 2 ? box.insetBy(dx:6,dy:6) : CGRect(x:box.minX+6+CGFloat(i)*(box.width/2-3),y:box.minY+6,width:box.width/2-9,height:box.height-12)
-            SketchPalette.fill(SketchPencil.outline(in:target,radius:5),color:SketchPalette.blue.withAlphaComponent(0.3))
-            let text=["左半屏","右半屏","最大化"][i]
-            (text as NSString).draw(at:CGPoint(x:box.midX-24,y:10),withAttributes:[.font:SketchPalette.heading(16),.foregroundColor:SketchPalette.ink])
-        }
     }
 }
