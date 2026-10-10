@@ -202,7 +202,7 @@ final class SketchWindowHeader: SketchSurface {
     }
 }
 
-/// Three small bundled illustrations, lazily decoded and shared by home/catalog.
+/// Four small bundled illustrations, lazily decoded and shared by home/catalog.
 @MainActor
 enum SketchCardArt {
     // One approved contact sheet, decoded once. Source rectangles exclude its

@@ -82,10 +82,10 @@ import MacOSXCore
             try require(SketchCardArt.image(tool.symbol) != nil, "all four approved entry illustrations must load from the bundled atlas")
         }
         if let output {
-            let board = NSView(frame: CGRect(x: 0, y: 0, width: 780, height: 180))
+            let board = NSView(frame: CGRect(x: 0, y: 0, width: 840, height: 185))
             for (index, tool) in Tool.allCases.enumerated() {
                 let card = ToolCard(title: tool.title, symbol: tool.symbol) {}
-                card.frame = CGRect(x: CGFloat(index) * 200, y: 0, width: 180, height: 180)
+                card.frame = CGRect(x: CGFloat(index) * 216, y: 0, width: 192, height: 177)
                 board.addSubview(card)
             }
             board.layoutSubtreeIfNeeded()

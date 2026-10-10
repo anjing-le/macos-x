@@ -75,7 +75,7 @@ private final class CardGrid: NSView {
         let inset: CGFloat = width < 420 ? 24 : 36
         let gap: CGFloat = 16
         let cardWidth = min(200, max(100, width - inset * 2))
-        let cardHeight: CGFloat = 156
+        let cardHeight = cardWidth * 236 / 256
         let columns = max(1, Int((width - inset * 2 + gap) / (cardWidth + gap)))
         let rows = (cards.count + columns - 1) / columns
         let contentHeight = inset * 2 + CGFloat(rows) * (cardHeight + gap) - (rows > 0 ? gap : 0)

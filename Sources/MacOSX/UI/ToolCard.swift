@@ -13,6 +13,7 @@ final class ToolCard: NSControl {
     private var enabledChanged:((Bool)->Void)?
     private var moduleEnabled = true
     private var colorImage: NSImage?
+    private let hasArtwork: Bool
     private var monochromeImage: NSImage?
     private var removeButton: CardActionButton?
     private var removed: (() -> Void)?
@@ -94,6 +95,8 @@ final class ToolCard: NSControl {
     }
 
     init(title: String, symbol: String, action: @escaping () -> Void) {
+        let artwork = SketchCardArt.image(symbol)
+        hasArtwork = artwork != nil
         titleLabel = NSTextField(labelWithString: title)
         activate = action
         super.init(frame: NSRect(x: 0, y: 0, width: 180, height: 156))
@@ -107,7 +110,7 @@ final class ToolCard: NSControl {
         surface.layer?.shadowRadius = 8
         surface.layer?.masksToBounds = false
 
-        symbolView.image = SketchCardArt.image(symbol) ?? SketchIcons.image(symbol, size: 128)
+        symbolView.image = artwork ?? SketchIcons.image(symbol, size: 128)
         colorImage = symbolView.image
         symbolView.imageScaling = .scaleProportionallyUpOrDown
         symbolView.wantsLayer = true
@@ -131,12 +134,21 @@ final class ToolCard: NSControl {
             surface.bottomAnchor.constraint(equalTo: bottomAnchor),
             symbolView.centerXAnchor.constraint(equalTo: surface.centerXAnchor),
             symbolView.centerYAnchor.constraint(equalTo: surface.centerYAnchor),
-            symbolView.widthAnchor.constraint(equalToConstant: 128),
-            symbolView.heightAnchor.constraint(equalToConstant: 128),
             titleLabel.centerYAnchor.constraint(equalTo: surface.centerYAnchor),
             titleLabel.leadingAnchor.constraint(equalTo: surface.leadingAnchor, constant: 12),
             titleLabel.trailingAnchor.constraint(equalTo: surface.trailingAnchor, constant: -12),
         ])
+        if hasArtwork {
+            NSLayoutConstraint.activate([
+                symbolView.widthAnchor.constraint(equalTo: surface.widthAnchor, constant: -8),
+                symbolView.heightAnchor.constraint(equalTo: surface.heightAnchor, constant: -8)
+            ])
+        } else {
+            NSLayoutConstraint.activate([
+                symbolView.widthAnchor.constraint(equalToConstant: 128),
+                symbolView.heightAnchor.constraint(equalToConstant: 128)
+            ])
+        }
 
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
@@ -303,8 +315,8 @@ final class ToolCard: NSControl {
         let cardScale: CGFloat = reducedMotion ? 1 : (pressed ? 0.97 : (revealed ? 1.03 : 1))
         let iconScale: CGFloat = reducedMotion || !revealed ? 1 : 0.95
 
-        surface.fill = SketchPalette.paper
-        surface.edge = revealed ? (moduleEnabled ? SketchPalette.yellow : SketchPalette.ink.withAlphaComponent(0.6)) : SketchPalette.line.withAlphaComponent(0.6)
+        surface.fill = hasArtwork && !revealed ? .clear : SketchPalette.paper
+        surface.edge = revealed ? (moduleEnabled ? SketchPalette.yellow : SketchPalette.ink.withAlphaComponent(0.6)) : (hasArtwork ? nil : SketchPalette.line.withAlphaComponent(0.6))
         cardLayer.backgroundColor = NSColor.clear.cgColor
         cardLayer.borderColor = NSColor.clear.cgColor
         cardLayer.shadowColor = NSColor.black.cgColor
