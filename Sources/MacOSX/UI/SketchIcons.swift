@@ -57,8 +57,27 @@ enum SketchIcons {
             tile(NSRect(x: 10, y: 23, width: 29, height: 29), SketchPalette.green)
             tile(NSRect(x: 26, y: 10, width: 29, height: 29), SketchPalette.green)
         case .layout:
-            tile(NSRect(x:8,y:13,width:22,height:38),SketchPalette.blue)
-            tile(NSRect(x:34,y:13,width:22,height:38),SketchPalette.yellow)
+            // Three tiled windows share one screen, rather than floating independently.
+            let screen = SketchPencil.outline(in: NSRect(x: 4, y: 11, width: 56, height: 42), radius: 3)
+            SketchPalette.fill(screen, color: SketchPalette.paper)
+            SketchPencil.stroke(screen, color: SketchPalette.line, width: 1.2)
+            func window(_ rect: NSRect, _ color: NSColor) {
+                let outline = SketchPencil.outline(in: rect, radius: 1.5)
+                SketchPalette.fill(outline, color: color.withAlphaComponent(0.58))
+                SketchPencil.stroke(outline, color: SketchPalette.ink, width: 1.1)
+                let header = NSBezierPath()
+                header.move(to: CGPoint(x: rect.minX + 1, y: rect.maxY - 5))
+                header.line(to: CGPoint(x: rect.maxX - 1, y: rect.maxY - 5))
+                SketchPencil.stroke(header, color: SketchPalette.line, width: 0.6)
+                SketchPalette.ink.withAlphaComponent(0.55).setFill()
+                for offset: CGFloat in [3, 5.5, 8] {
+                    NSBezierPath(ovalIn: NSRect(x: rect.minX + offset, y: rect.maxY - 3.5, width: 1.2, height: 1.2)).fill()
+                }
+            }
+            window(NSRect(x: 6, y: 13, width: 25, height: 38), SketchPalette.blue)
+            window(NSRect(x: 33, y: 33, width: 25, height: 18), SketchPalette.green)
+            window(NSRect(x: 33, y: 13, width: 25, height: 18), SketchPalette.purple)
+            line([(26, 7), (38, 7)]); line([(32, 7), (32, 10)])
         case .prompt:
             let bubble = NSBezierPath()
             bubble.move(to: CGPoint(x: 14, y: 16)); bubble.line(to: CGPoint(x: 9, y: 8))

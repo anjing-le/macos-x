@@ -78,6 +78,15 @@ import MacOSXCore
             try require(SketchPencil.outline(in:rect,radius:8).isEmpty,"transient invalid drawing bounds are safe")
         }
         let output = ProcessInfo.processInfo.environment["MACOSX_SETTINGS_PREVIEW"]
+        if let output {
+            let card = ToolCard(title: "窗口布局", symbol: "rectangle.split.2x1") {}
+            card.frame = CGRect(x: 0, y: 0, width: 180, height: 180)
+            card.layoutSubtreeIfNeeded()
+            if let bitmap = card.bitmapImageRepForCachingDisplay(in: card.bounds) {
+                card.cacheDisplay(in: card.bounds, to: bitmap)
+                try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output).appendingPathComponent("layout-card.png"))
+            }
+        }
         for kind in ["capture", "windowSwitcher", "kaomoji"] {
             let guide = SettingsGuideView(kind: kind)
             guide.layoutSubtreeIfNeeded()
