@@ -34,6 +34,8 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     private var wheelRemainder: CGFloat = 0
     private var recognition: VNRecognizeTextRequest?
     private let editingPin: Bool
+    private let defaults: UserDefaults
+    private var colorIndex: Int
     var onApply: ((CGImage) -> Void)?
     private var annotations: [CaptureAnnotation] = []
     private var undo: [[CaptureAnnotation]] = [], redo: [[CaptureAnnotation]] = []
@@ -56,9 +58,19 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     var onReselect: (() -> Void)?
     var colorAtPointer: ((Bool) -> String?)?
 
-    init(image: CGImage, selectionFrame: CGRect? = nil, editingPin: Bool = false) {
+    init(image: CGImage, selectionFrame: CGRect? = nil, editingPin: Bool = false, defaults: UserDefaults = .standard) {
         self.editingPin = editingPin
+        self.defaults = defaults
+        let savedColor = (defaults.object(forKey: "capture.editor.color") as? NSNumber)?.intValue ?? 1
+        colorIndex = Self.colors.indices.contains(savedColor) ? savedColor : 1
         canvas = CaptureCanvas(image: image)
+        func restored(_ key: String, fallback: CGFloat, range: ClosedRange<CGFloat>) -> CGFloat {
+            guard let number = defaults.object(forKey: key) as? NSNumber,
+                  number.doubleValue.isFinite else { return fallback }
+            return min(range.upperBound, max(range.lowerBound, CGFloat(number.doubleValue)))
+        }
+        canvas.lineWidth = restored("capture.editor.line-width", fallback: 3, range: 1...12)
+        canvas.mosaicDiameter = restored("capture.editor.mosaic-diameter", fallback: 32, range: 8...160)
         canvas.imageInset = 0
         let available = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1200, height: 800)
         let scale = min(1, (available.width - 80) / CGFloat(image.width), (available.height - 100) / CGFloat(image.height))
@@ -92,7 +104,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         recognitionButton = CaptureToolButton(.recognition, title: "提取文字 · 6 / ⇧⌘C", target: self, action: #selector(copyRecognizedText))
         row.addArrangedSubview(recognitionButton)
         colorButton = CaptureToolButton(.color, title: "共用颜色 · 7", target: self, action: #selector(showColors))
-        colorButton.ink = SketchPalette.coral; canvas.ink = CaptureInk(colorButton.ink); row.addArrangedSubview(colorButton)
+        applyColor(colorIndex); row.addArrangedSubview(colorButton)
         status.font = .systemFont(ofSize: 10); status.textColor = NSColor(calibratedWhite: 0.3, alpha: 1)
         status.stringValue = ""; status.isHidden = true
         let stack = NSStackView(views: [row, status]); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 4
@@ -210,6 +222,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
             let diameter = max(8, min(160, canvas.mosaicDiameter + CGFloat(steps) * 4))
             guard diameter != canvas.mosaicDiameter else { return }
             canvas.mosaicDiameter = diameter
+            defaults.set(Double(diameter), forKey: "capture.editor.mosaic-diameter")
             status.stringValue = "笔刷 \(Int(diameter)) · 滚轮调节"; status.isHidden = false
             toolButtons.forEach { $0.setAccessibilityValue("笔刷直径 \(Int(diameter))") }
             if window.isVisible { positionToolbar() }
@@ -218,6 +231,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         let width = max(1, min(12, canvas.lineWidth + CGFloat(steps)))
         guard width != canvas.lineWidth else { return }
         canvas.lineWidth = width
+        defaults.set(Double(width), forKey: "capture.editor.line-width")
         status.stringValue = "粗细 \(Int(width)) · 滚轮调节"; status.isHidden = false
         toolButtons.forEach { $0.setAccessibilityValue("粗细 \(Int(width))") }
         if window.isVisible { positionToolbar() }
@@ -309,11 +323,19 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     }
     @objc private func chooseColor(_ sender: NSButton) {
         guard Self.colors.indices.contains(sender.tag) else { return }
-        let ink = Self.colors[sender.tag]; canvas.ink = CaptureInk(ink); colorButton.ink = ink
-        let description = "调色盘 · 当前：\(Self.colorNames[sender.tag]) · 7"
+        if colorIndex != sender.tag {
+            colorIndex = sender.tag
+            defaults.set(colorIndex, forKey: "capture.editor.color")
+        }
+        applyColor(colorIndex)
+        colorPopover?.close()
+        window.makeFirstResponder(canvas)
+    }
+    private func applyColor(_ index: Int) {
+        let ink = Self.colors[index]; canvas.ink = CaptureInk(ink); colorButton.ink = ink
+        let description = "调色盘 · 当前：\(Self.colorNames[index]) · 7"
         colorButton.toolTip = description; colorButton.setAccessibilityLabel(description)
         toolButtons.forEach { $0.ink = ink }
-        colorPopover?.close(); window.makeFirstResponder(canvas)
     }
     private func cancelCurrentOperation() {
         if exporting { close(); return }

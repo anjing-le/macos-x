@@ -3,6 +3,9 @@ import AppKit
 @main struct EditorRegression {
     @MainActor static func main() {
         _ = NSApplication.shared; NSApp.setActivationPolicy(.prohibited)
+        let domain = "cc.anjing.macos-x.editor-fixture.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: domain)!
+        defer { defaults.removePersistentDomain(forName: domain) }
         let context = CaptureRaster.context(width: 200, height: 160)!
         context.setFillColor(CGColor(gray: 1, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 200, height: 160))
         let image = context.makeImage()!
@@ -34,7 +37,7 @@ import AppKit
         precondition(pinEntry.window.frame == released, "Focus click still leaves the pin in place")
         pinEntry.dispose()
         let region = CGRect(x: 20, y: 40, width: 100, height: 80)
-        let editor = CaptureEditor(image: image, selectionFrame: region)
+        let editor = CaptureEditor(image: image, selectionFrame: region, defaults: defaults)
         var states = [Bool]()
         editor.onEditingChanged = { states.append($0) }
         func key(_ code: UInt16, _ character: String) -> NSEvent {
@@ -124,6 +127,16 @@ import AppKit
             precondition(canvas.ink.red == expected.red && canvas.ink.green == expected.green && canvas.ink.blue == expected.blue,
                          "Each graphical paint spot directly selects its corresponding colour")
         }
+        colourButtons.first { $0.tag == 5 }!.performClick(nil)
+        let rememberedWidth = canvas.lineWidth, rememberedDiameter = canvas.mosaicDiameter
+        let reopened = CaptureEditor(image: image, defaults: UserDefaults(suiteName: domain)!)
+        let restored = reopened.window.contentView as! CaptureCanvas
+        precondition(restored.lineWidth == rememberedWidth && restored.mosaicDiameter == rememberedDiameter,
+                     "A new editor restores thickness and separate brush size from saved preferences")
+        let blue = CaptureInk(SketchPalette.blue)
+        precondition(restored.ink.blue == blue.blue && restored.ink.red == blue.red && restored.tool == nil,
+                     "A new editor restores the selected colour while leaving the region adjustable")
+        reopened.close()
         if let output = ProcessInfo.processInfo.environment["MACOSX_PALETTE_PREVIEW"] {
             NSApp.appearance = NSAppearance(named: .aqua)
             let host = CaptureToolbarSurface(frame: CGRect(x: 0, y: 0, width: 290, height: 170))
@@ -143,12 +156,14 @@ import AppKit
         precondition(editor.selectionFrame == next && states.last == false, "Updated crop stays adjustable")
         precondition(!editor.window.isVisible, "Regression must not display windows")
         editor.close()
-        let pin = CaptureEditor(image: image, selectionFrame: region, editingPin: true)
+        let pin = CaptureEditor(image: image, selectionFrame: region, editingPin: true, defaults: defaults)
+        precondition((pin.window.contentView as! CaptureCanvas).ink.blue == blue.blue, "Pin editing shares the saved drawing style")
         pin.beginRegionAdjustment(); pin.replaceSelectionImage(image, at: next)
         precondition(pin.selectionFrame == region, "Pinned-image editing cannot recrop the desktop")
         pin.close()
-        let activeExport = CaptureEditor(image: image, selectionFrame: CGRect(x: 0, y: 0, width: 200, height: 160))
+        let activeExport = CaptureEditor(image: image, selectionFrame: CGRect(x: 0, y: 0, width: 200, height: 160), defaults: defaults)
         let activeCanvas = activeExport.window.contentView as! CaptureCanvas
+        activeCanvas.lineWidth = 3
         activeCanvas.tool = .pen
         func activeMouse(_ type: NSEvent.EventType, _ point: CGPoint) -> NSEvent {
             NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
@@ -165,6 +180,14 @@ import AppKit
         precondition(exported != nil, "F3 resolves without displaying windows")
         precondition(CapturePixelSampler(image: exported!)!.sample(x: 40, y: 119)?.hex != "#FFFFFF", "F3 while dragging exports the current visible stroke")
         activeExport.close()
+        defaults.set(99, forKey: "capture.editor.color")
+        defaults.set(100, forKey: "capture.editor.line-width")
+        defaults.set(0, forKey: "capture.editor.mosaic-diameter")
+        let bounded = CaptureEditor(image: image, defaults: defaults)
+        let boundedCanvas = bounded.window.contentView as! CaptureCanvas
+        precondition(boundedCanvas.lineWidth == 12 && boundedCanvas.mosaicDiameter == 8 && boundedCanvas.ink.red == CaptureInk(SketchPalette.coral).red,
+                     "Out-of-range preferences cannot create invalid brush styles")
+        bounded.close()
         print("PASS editor interaction: default adjustment, tool lock/toggle, Esc, pending crop, region replacement and pin isolation; no displayed windows, capture or clipboard writes")
     }
 }
