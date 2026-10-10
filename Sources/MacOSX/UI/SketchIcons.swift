@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 
 @MainActor
 enum SketchIcons {
@@ -204,19 +205,38 @@ final class SketchWindowHeader: SketchSurface {
 /// Three small bundled illustrations, lazily decoded and shared by home/catalog.
 @MainActor
 enum SketchCardArt {
-    private static var images: [String: NSImage] = [:]
-    static func image(_ symbol: String) -> NSImage? {
-        let name: String
-        switch symbol {
-        case "camera.viewfinder": name = "CardCapture"
-        case "macwindow.on.rectangle": name = "CardSwitcher"
-        case "text.bubble": name = "CardPrompts"
-        default: return nil
+    // One approved contact sheet, decoded once. Source rectangles exclude its
+    // decorative card borders and captions; real card controls remain native.
+    private static let images: [String: NSImage] = {
+        guard let url = Bundle.main.url(forResource: "CardArtwork", withExtension: "png"),
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              properties[kCGImagePropertyPixelWidth] as? Int == 2048,
+              properties[kCGImagePropertyPixelHeight] as? Int == 768,
+              let atlas = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return [:] }
+        let regions: [(String, CGFloat)] = [
+            ("camera.viewfinder", 70), ("macwindow.on.rectangle", 560),
+            ("text.bubble", 1063), ("rectangle.split.2x1", 1570)
+        ]
+        var result: [String: NSImage] = [:]
+        for (symbol, x) in regions {
+            guard let crop = atlas.cropping(to: CGRect(x: x, y: 137, width: 420, height: 386)) else { continue }
+            // Rasterize just the small display asset, so crops don't retain the
+            // full atlas and grayscale disabled cards stay bounded as well.
+            let size = CGSize(width: 256, height: 236)
+            guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 256, pixelsHigh: 236,
+                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+                let context = NSGraphicsContext(bitmapImageRep: bitmap) else { continue }
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context; context.imageInterpolation = .high
+            NSImage(cgImage: crop, size: size).draw(in: CGRect(origin: .zero, size: size))
+            NSGraphicsContext.restoreGraphicsState()
+            let image = NSImage(size: size); image.addRepresentation(bitmap); result[symbol] = image
         }
-        if let image = images[name] { return image }
-        guard let url = Bundle.main.url(forResource: name, withExtension: "png"),
-              let image = NSImage(contentsOf: url) else { return nil }
-        images[name] = image
-        return image
+        return result
+    }()
+    static func image(_ symbol: String) -> NSImage? {
+        images[symbol]
     }
 }

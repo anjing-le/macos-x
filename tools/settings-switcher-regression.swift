@@ -78,13 +78,20 @@ import MacOSXCore
             try require(SketchPencil.outline(in:rect,radius:8).isEmpty,"transient invalid drawing bounds are safe")
         }
         let output = ProcessInfo.processInfo.environment["MACOSX_SETTINGS_PREVIEW"]
+        for tool in Tool.allCases {
+            try require(SketchCardArt.image(tool.symbol) != nil, "all four approved entry illustrations must load from the bundled atlas")
+        }
         if let output {
-            let card = ToolCard(title: "窗口布局", symbol: "rectangle.split.2x1") {}
-            card.frame = CGRect(x: 0, y: 0, width: 180, height: 180)
-            card.layoutSubtreeIfNeeded()
-            if let bitmap = card.bitmapImageRepForCachingDisplay(in: card.bounds) {
-                card.cacheDisplay(in: card.bounds, to: bitmap)
-                try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output).appendingPathComponent("layout-card.png"))
+            let board = NSView(frame: CGRect(x: 0, y: 0, width: 780, height: 180))
+            for (index, tool) in Tool.allCases.enumerated() {
+                let card = ToolCard(title: tool.title, symbol: tool.symbol) {}
+                card.frame = CGRect(x: CGFloat(index) * 200, y: 0, width: 180, height: 180)
+                board.addSubview(card)
+            }
+            board.layoutSubtreeIfNeeded()
+            if let bitmap = board.bitmapImageRepForCachingDisplay(in: board.bounds) {
+                board.cacheDisplay(in: board.bounds, to: bitmap)
+                try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output).appendingPathComponent("entry-cards.png"))
             }
         }
         for kind in ["capture", "windowSwitcher", "kaomoji"] {

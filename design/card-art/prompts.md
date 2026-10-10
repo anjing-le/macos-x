@@ -1,6 +1,16 @@
 # 首页卡片插画
 
-内置 imagegen，透明背景；运行资源为 256×256 PNG，原图保留在本目录。
+## 当前版本 0.0.58
+
+运行资源为用户确认的 `Resources/CardArtwork.png` 图集。通过内置 imagegen 生成并迭代，最后一轮只将第三张改为“轮盘选中位置 → 放大的 prompt 卡片”，保留截图七个工具图标、两行窗口缩略图和拼屏布局。
+
+原生 `SketchCardArt` 使用固定源区域呈现四张插画，不把图集自带的卡片边框、中文标题烘焙进入口；真实标题、hover、开关和功能池操作保持原生。图集只读取一次，派生为小尺寸缓存，不保留整张解码图。
+
+提示词约束：near-white paper; thin irregular graphite outlines; light crayon blue/green/lavender; no characters, thick solid black border, camera lens or generic chat bubble. Capture shows crop handles and a seven-icon toolbar. Switching shows six thumbnail cards in two rows and one selected border. Prompt library shows one selected wheel segment connected to a enlarged note labeled exactly `prompt`. Layout shows three panes filling one monitor.
+
+## 历史版本
+
+以下为旧独立透明 PNG 的提示词，保留作设计参考，不再打包到客户端。
 
 ## CardCapture
 
