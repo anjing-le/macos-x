@@ -248,10 +248,7 @@ private final class PinEntry: NSObject, NSWindowDelegate {
                 self.editor = editor
                 editor.onApply = { [weak self] result in
                     guard let self, !self.closed else { return }
-                    self.image = result; self.view.image = result
-                    self.transform = CapturePinTransform(); self.view.transform = self.transform
-                    self.baseSize = self.window.frame.size; self.zoom = 1; self.thumbnail = false
-                    self.samplingTicket?.cancel(); self.view.sampler = nil; self.view.needsDisplay = true
+                    self.applyEdit(result)
                 }
                 editor.onClose = { [weak self] in
                     guard let self, !self.closed else { return }
@@ -261,6 +258,14 @@ private final class PinEntry: NSObject, NSWindowDelegate {
                 self.window.orderOut(nil)
             }
         }
+    }
+    private func applyEdit(_ result: CGImage) {
+        image = result; view.image = result
+        // Rotation is baked into the edited pixels, but magnification keeps its
+        // original reference size rather than becoming a new 100% baseline.
+        if transform.turns % 2 != 0 { baseSize = CGSize(width: baseSize.height, height: baseSize.width) }
+        transform = CapturePinTransform(); view.transform = transform
+        samplingTicket?.cancel(); view.sampler = nil; view.needsDisplay = true
     }
     @objc private func saveImage() {
         guard !closed, !exporting else { return }

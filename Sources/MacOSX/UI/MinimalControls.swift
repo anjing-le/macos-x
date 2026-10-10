@@ -140,7 +140,17 @@ final class MinimalPopUpButton: NSPopUpButton {
     }
     override func acceptsFirstMouse(for event:NSEvent?) -> Bool { isEnabled }
     override func keyDown(with event:NSEvent) {
-        if [36,49,125,126].contains(event.keyCode) { showChoices() } else if event.keyCode == 53 { dropdown?.dismiss() } else if event.keyCode == 48 { window?.selectNextKeyView(self) } else if event.characters?.isEmpty == false { showChoices() }
+        if [36,49,125,126].contains(event.keyCode) { showChoices() }
+        else if event.keyCode == 53 { dropdown?.dismiss() }
+        else if event.keyCode == 48 { navigate(backwards: event.modifierFlags.contains(.shift)) }
+        else if event.characters?.isEmpty == false { showChoices() }
+    }
+    private func navigate(backwards: Bool) {
+        guard isEnabled, !isHiddenOrHasHiddenAncestor, let window else { return }
+        window.makeKey()
+        window.makeFirstResponder(self)
+        if backwards { window.selectPreviousKeyView(self) }
+        else { window.selectNextKeyView(self) }
     }
     private func showChoices() {
         guard isEnabled, !isHiddenOrHasHiddenAncestor, window != nil else { return }
@@ -154,6 +164,7 @@ final class MinimalPopUpButton: NSPopUpButton {
             if let action=self.action { NSApp.sendAction(action,to:self.target,from:self) }
         }
         dropdown.onDismiss = { [weak self] in self?.dropdown=nil; self?.needsDisplay=true }
+        dropdown.onNavigate = { [weak self] backwards in self?.navigate(backwards: backwards) }
         self.dropdown=dropdown; dropdown.present(relativeTo:self)
     }
 
@@ -171,6 +182,8 @@ final class MinimalPopUpButton: NSPopUpButton {
     }
     convenience init() { self.init(frame: .zero, pullsDown: false) }
     required init?(coder: NSCoder) { nil }
+    // The custom border uses the full bounds, without a native bezel inset.
+    override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0) }
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool {
         isEnabled && !isHiddenOrHasHiddenAncestor && window?.canBecomeKey == true
@@ -251,6 +264,7 @@ private final class MinimalFocusObserver {
     struct Item { let title:String; let index:Int; var enabled=true }
     var onChoose:((Int)->Void)?
     var onDismiss:(()->Void)?
+    var onNavigate:((Bool)->Void)?
     private let items:[Item]
     private var rows:[Item]
     private let selected:Int
@@ -335,12 +349,23 @@ private final class MinimalFocusObserver {
         dismiss(); callback?(index)
     }
     @objc private func clicked() { commitSelection() }
+    @discardableResult func handleNavigationKey(_ event: NSEvent) -> Bool {
+        guard !finished, event.type == .keyDown, event.keyCode == 48 else { return false }
+        navigate(backwards: event.modifierFlags.contains(.shift)); return true
+    }
+    private func navigate(backwards: Bool) {
+        guard !finished else { return }
+        let callback = onNavigate
+        dismiss(); callback?(backwards)
+    }
     func control(_ control:NSControl,textView:NSTextView,doCommandBy selector:Selector)->Bool {
         switch selector {
         case #selector(NSResponder.moveDown(_:)): moveSelection(1)
         case #selector(NSResponder.moveUp(_:)): moveSelection(-1)
         case #selector(NSResponder.insertNewline(_:)): commitSelection()
         case #selector(NSResponder.cancelOperation(_:)): dismiss()
+        case #selector(NSResponder.insertTab(_:)): navigate(backwards: false)
+        case #selector(NSResponder.insertBacktab(_:)): navigate(backwards: true)
         default: return false
         }
         return true
@@ -360,8 +385,12 @@ private final class MinimalFocusObserver {
         self.panel=panel
         closeObserver=NotificationCenter.default.addObserver(forName:NSWindow.willCloseNotification,object:window,queue:.main) { [weak self] _ in MainActor.assumeIsolated { self?.dismiss() } }
         panel.makeKeyAndOrderFront(nil); panel.makeFirstResponder(search.superview == nil ? surface : search)
-        localMonitor=NSEvent.addLocalMonitorForEvents(matching:[.leftMouseDown,.rightMouseDown]) { [weak self] event in
-            if let self,event.window !== self.panel { self.dismiss() }; return event
+        localMonitor=NSEvent.addLocalMonitorForEvents(matching:[.leftMouseDown,.rightMouseDown,.keyDown]) { [weak self] event in
+            guard let self else { return event }
+            if event.type == .keyDown {
+                if event.window === self.panel, self.handleNavigationKey(event) { return nil }
+            } else if event.window !== self.panel { self.dismiss() }
+            return event
         }
         globalMonitor=NSEvent.addGlobalMonitorForEvents(matching:[.leftMouseDown,.rightMouseDown]) { [weak self] _ in MainActor.assumeIsolated { self?.dismiss() } }
         activeObserver=NotificationCenter.default.addObserver(forName:NSApplication.didResignActiveNotification,object:nil,queue:.main) { [weak self] _ in MainActor.assumeIsolated { self?.dismiss() } }
@@ -375,7 +404,7 @@ private final class MinimalFocusObserver {
         if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }; closeObserver=nil
         panel?.delegate=nil; panel?.onKey=nil; panel?.orderOut(nil); panel?.close(); panel=nil
         table.delegate=nil; table.dataSource=nil; search.delegate=nil
-        onChoose=nil; let callback=onDismiss; onDismiss=nil; callback?()
+        onChoose=nil; onNavigate=nil; let callback=onDismiss; onDismiss=nil; callback?()
     }
 }
 @MainActor final class SketchDropdownSurface:NSView {

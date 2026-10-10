@@ -120,19 +120,25 @@ final class ShortcutPicker: NSStackView {
     private let recorder = ShortcutRecorder()
     private let mode = MinimalPopUpButton()
     private let notice = NSTextField(labelWithString: "")
+    private let nameLabel = NSTextField(labelWithString: "")
+    private let allowsDoubleTap: Bool
     private var binding: ShortcutBinding
     private var editingChord = false
+    var onIssueChanged: ((String?) -> Void)?
+    var presentsIssueExternally = false { didSet { refresh() } }
+    var issueMessage: String? { notice.stringValue.isEmpty ? nil : notice.stringValue }
+    private var reportedIssue: String?
     private let accepts: (ShortcutBinding) -> String?
     private let didChange: (ShortcutBinding) -> Void
 
     init(title: String, binding: ShortcutBinding, allowsDoubleTap: Bool,
         recordingChanged: @escaping (Bool) -> Void,
         accepts: @escaping (ShortcutBinding) -> String?, didChange: @escaping (ShortcutBinding) -> Void) {
-        self.binding = binding; self.accepts = accepts; self.didChange = didChange
+        self.binding = binding; self.accepts = accepts; self.didChange = didChange; self.allowsDoubleTap=allowsDoubleTap
         super.init(frame: .zero)
         orientation = .vertical; alignment = .leading; spacing = 6
         let row = NSStackView(); row.orientation = .horizontal; row.spacing = 12
-        let label = NSTextField(labelWithString: title); label.font = SketchPalette.heading(16); label.textColor = .secondaryLabelColor
+        let label=nameLabel; label.stringValue=title; label.font = SketchPalette.heading(16); label.textColor = .secondaryLabelColor
         if !title.isEmpty {
             label.widthAnchor.constraint(equalToConstant: 88).isActive = true
             row.addArrangedSubview(label)
@@ -163,13 +169,21 @@ final class ShortcutPicker: NSStackView {
     required init?(coder: NSCoder) { nil }
 
     private func refresh() {
+        // A board already groups this under its module title. Keeping the
+        // duplicate name beside both the trigger mode and chord crowds a narrow page.
+        nameLabel.isHidden=presentsIssueExternally && allowsDoubleTap
         recorder.title = editingChord ? "设置快捷键…" : binding.displayName
         recorder.toolTip = "\(binding.displayName) · 点击修改；功能键可能需要同时按 Fn，Escape 取消"
         recorder.isHidden = binding.kind == .doubleModifier && !editingChord
         if binding.kind == .doubleModifier && !editingChord {
             mode.selectItem(at: [UInt16(61), 58].firstIndex(of: binding.keyCode) ?? 0)
         } else { mode.selectItem(at: 2) }
-        notice.isHidden = notice.stringValue.isEmpty
+        notice.isHidden = presentsIssueExternally || notice.stringValue.isEmpty
+        recorder.contentTintColor = issueMessage == nil ? SketchPalette.ink : SketchPalette.coral
+        if reportedIssue != issueMessage {
+            reportedIssue = issueMessage
+            onIssueChanged?(issueMessage)
+        }
     }
     private func propose(_ value: ShortcutBinding) {
         if let issue = accepts(value) { notice.stringValue = issue; refresh(); return }

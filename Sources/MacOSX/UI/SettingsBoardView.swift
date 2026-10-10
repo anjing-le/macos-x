@@ -68,6 +68,14 @@ import AppKit
     }
     required init?(coder: NSCoder) { nil }
     override var intrinsicContentSize: NSSize { NSSize(width: 190, height: 156) }
+    var titleGeometry: CGRect {
+        let size = (title as NSString).size(withAttributes: [.font: SketchPalette.heading(15)])
+        return bounds.height < 70 ? CGRect(x:42,y:(bounds.height-size.height)/2,width:max(0,bounds.width-48),height:size.height)
+            : CGRect(x:12,y:10,width:max(0,bounds.width-24),height:size.height)
+    }
+    var selectionMarkGeometry: CGRect {
+        CGRect(x:bounds.width-25,y:bounds.height < 70 ? bounds.height-14 : 15,width:11,height:9)
+    }
     override func draw(_ dirtyRect: NSRect) {
         if let glow=pinGlow { drawOutlineChoice(glow); return }
         if backdropOnly {
@@ -110,11 +118,13 @@ import AppKit
                        respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
         }
         let attributes: [NSAttributedString.Key: Any] = [.font: SketchPalette.heading(15), .foregroundColor: SketchPalette.ink]
-        let size = (title as NSString).size(withAttributes: attributes)
-        (title as NSString).draw(at: NSPoint(x: bounds.height < 70 ? 42 : (bounds.width-size.width)/2, y: bounds.height < 70 ? (bounds.height-size.height)/2 : 10), withAttributes: attributes)
+        let paragraph = NSMutableParagraphStyle(); paragraph.alignment = bounds.height < 70 ? .left : .center; paragraph.lineBreakMode = .byTruncatingTail
+        var boundedAttributes = attributes; boundedAttributes[.paragraphStyle] = paragraph
+        (title as NSString).draw(in:titleGeometry,withAttributes:boundedAttributes)
         if state == .on {
-            let check = NSBezierPath(); check.move(to: NSPoint(x: bounds.width-25,y:20))
-            check.line(to:NSPoint(x:bounds.width-21,y:24)); check.line(to:NSPoint(x:bounds.width-14,y:15))
+            let mark=selectionMarkGeometry
+            let check = NSBezierPath(); check.move(to: NSPoint(x:mark.minX,y:mark.minY+5))
+            check.line(to:NSPoint(x:mark.minX+4,y:mark.maxY)); check.line(to:NSPoint(x:mark.maxX,y:mark.minY))
             SketchPalette.ink.setStroke(); check.lineWidth = 1.8; check.stroke()
         }
         if window?.firstResponder === self { NSFocusRingPlacement.only.set(); border.stroke() }
@@ -159,6 +169,12 @@ import AppKit
     private var sourceMode: NSPopUpButton?
     private let backdrop: NSImage?
     private let captureHints = [NSTextField(labelWithString:"按上方快捷键开始截图"),NSTextField(labelWithString:"框选后 Enter 开始录屏")]
+    private let shortcutIssue = NSTextField(wrappingLabelWithString: "")
+    private var shortcutIssues: [Int:String] = [:]
+    private var issueHeight: CGFloat {
+        guard !shortcutIssue.isHidden else { return 0 }
+        return ceil(shortcutIssue.attributedStringValue.boundingRect(with:CGSize(width:max(1,bounds.width-20),height:CGFloat.greatestFiniteMagnitude),options:[.usesLineFragmentOrigin,.usesFontLeading]).height)+20
+    }
     var usesBackdrop: Bool { backdrop != nil && !compact }
     func slot(_ rect: CGRect) -> CGRect { CGRect(x:rect.minX*bounds.width,y:rect.minY*(usesBackdrop ? backdropHeight : bounds.height),width:rect.width*bounds.width,height:rect.height*(usesBackdrop ? backdropHeight : bounds.height)) }
     static let captureKeySlots = [CGRect(x:0.148,y:0.13,width:0.07,height:0.09),CGRect(x:0.465,y:0.13,width:0.07,height:0.09),CGRect(x:0.39,y:0.73,width:0.068,height:0.074),CGRect(x:0.783,y:0.13,width:0.09,height:0.09)]
@@ -168,7 +184,12 @@ import AppKit
     private var lastSettingsHeight: CGFloat = 0
     private var compact: Bool { bounds.width < 740 }
     override var isFlipped: Bool { true }
-    override var intrinsicContentSize: NSSize { if kind == "windowLayout" { return NSSize(width:840,height:max(380,layoutFooterY+settings.fittingSize.height)) }; if usesBackdrop { return NSSize(width:840,height:kind == "capture" ? max(backdropHeight,backdropHeight*0.838+settings.fittingSize.height) : backdropHeight) }; return NSSize(width:840,height:kind == "kaomoji" ? (compact ? 848 : 470) : (kind == "capture" ? max(compact ? 864 : 440,(compact ? 664 : 352)+settings.fittingSize.height) : (compact ? 550 : 410))) }
+    private var bodyHeight: CGFloat {
+        if kind == "windowLayout" { return max(380,layoutFooterY+settings.fittingSize.height) }
+        if usesBackdrop { return kind == "capture" ? max(backdropHeight,backdropHeight*0.838+settings.fittingSize.height) : backdropHeight }
+        return kind == "kaomoji" ? max(compact ? 848 : 490,50+settings.fittingSize.height) : (kind == "capture" ? max(compact ? 864 : 440,(compact ? 664 : 352)+settings.fittingSize.height) : (compact ? 550 : 410))
+    }
+    override var intrinsicContentSize: NSSize { NSSize(width:840,height:bodyHeight+issueHeight) }
     init(kind: String, settings: NSView, shortcuts: [NSView]) {
         self.kind=kind; self.settings=settings; self.shortcuts=shortcuts.map(ShortcutSettingsRow.init)
         backdrop = kind == "capture" ? IllustratedSettingChoice.artwork("SettingsCaptureBoard") : (kind == "windowSwitcher" ? IllustratedSettingChoice.artwork("SettingsSwitcherBoard") : nil)
@@ -177,6 +198,20 @@ import AppKit
         super.init(frame: CGRect(x:0,y:0,width:840,height:410))
         settingsWidth.isActive=true
         addSubview(settings); for shortcut in self.shortcuts { addSubview(shortcut) }
+        shortcutIssue.font = .systemFont(ofSize:13); shortcutIssue.textColor=SketchPalette.ink
+        shortcutIssue.isSelectable=true; shortcutIssue.maximumNumberOfLines=0; shortcutIssue.isHidden=true
+        shortcutIssue.identifier = .init("shortcut-board-issue"); addSubview(shortcutIssue)
+        for (index, control) in shortcuts.enumerated() {
+            guard let picker=control as? ShortcutPicker else { continue }
+            picker.presentsIssueExternally=true
+            picker.onIssueChanged = { [weak self] issue in
+                guard let self else { return }
+                self.shortcutIssues[index]=issue
+                self.refreshShortcutIssues()
+            }
+            shortcutIssues[index]=picker.issueMessage
+        }
+        refreshShortcutIssues()
         if kind == "windowLayout" {
             let sheet = IllustratedSettingChoice.artwork("SettingsLayoutBoard")
             for (index, title) in ["左半屏", "右半屏", "上半屏", "下半屏"].enumerated() {
@@ -241,19 +276,40 @@ import AppKit
             button.state=selected ? .on : .off; button.needsDisplay=true
         }
     }
+    private func refreshShortcutIssues() {
+        let names:[String]
+        switch kind {
+        case "capture": names=["截图","贴图","显示／隐藏贴图","录屏"]
+        case "windowLayout": names=["左半屏","右半屏","上半屏","下半屏"]
+        case "windowSwitcher": names=["窗口切换"]
+        case "kaomoji": names=["提示词"]
+        default: names=[]
+        }
+        let text=shortcutIssues.keys.sorted().map { "\(names.indices.contains($0) ? names[$0] : "快捷键")：\(shortcutIssues[$0]!)" }.joined(separator:"\n")
+        let paragraph=NSMutableParagraphStyle(); paragraph.lineSpacing=3
+        shortcutIssue.attributedStringValue=NSAttributedString(string:text,attributes:[.font:NSFont.systemFont(ofSize:13),.foregroundColor:SketchPalette.ink,.paragraphStyle:paragraph])
+        shortcutIssue.isHidden=shortcutIssues.isEmpty
+        invalidateIntrinsicContentSize(); needsLayout=true; needsDisplay=true
+    }
+    private func layoutShortcutIssue() {
+        shortcutIssue.frame=CGRect(x:10,y:bodyHeight+8,width:max(1,bounds.width-20),height:max(0,issueHeight-16))
+    }
     override func draw(_ dirtyRect: NSRect) {
         SketchPalette.paper.setFill(); dirtyRect.fill()
         if kind == "windowLayout" {
-            for shortcut in shortcuts {
+            for (index,shortcut) in shortcuts.enumerated() {
                 let cap = SketchPencil.outline(in: shortcut.frame.insetBy(dx: 4, dy: 2), radius: 7)
                 SketchPalette.fill(cap, color: SketchPalette.paper)
-                SketchPencil.stroke(cap, color: SketchPalette.line, width: 1)
+                SketchPencil.stroke(cap, color: shortcutIssues[index] == nil ? SketchPalette.line : SketchPalette.coral, width: 1)
             }
             return
         }
         guard usesBackdrop, let backdrop else { return }
         let source = kind == "capture" ? CGRect(origin:.zero,size:backdrop.size) : CGRect(x:0,y:67,width:1774,height:635)
         backdrop.draw(in:CGRect(x:0,y:0,width:bounds.width,height:backdropHeight),from:source,operation:.sourceOver,fraction:1,respectFlipped:true,hints:[.interpolation:NSImageInterpolation.high])
+        for (index,shortcut) in shortcuts.enumerated() where shortcutIssues[index] != nil {
+            SketchPencil.stroke(SketchPencil.outline(in:shortcut.frame.insetBy(dx:1,dy:1),radius:7),color:SketchPalette.coral,width:1.5)
+        }
     }
     private func configureFooter(_ view:NSView) {
         if let footer=view as? RecordingSettingsFooter { footer.usesArtwork=usesBackdrop }
@@ -305,13 +361,13 @@ import AppKit
             }
             if abs(lastLayoutWidth-w)>0.5 { lastLayoutWidth=w; invalidateIntrinsicContentSize() }
             settings.frame=CGRect(x:0,y:layoutFooterY,width:w,height:settings.fittingSize.height); settingsWidth.constant=w
-            settings.layoutSubtreeIfNeeded(); updateSettingsHeight(); return
+            settings.layoutSubtreeIfNeeded(); updateSettingsHeight(); layoutShortcutIssue(); return
         }
         let w=bounds.width
         if abs(lastLayoutWidth-w) > 0.5 { lastLayoutWidth=w; invalidateIntrinsicContentSize() }
         configureFooter(settings)
         if wasCompact != compact { wasCompact=compact; invalidateIntrinsicContentSize() }
-        if usesBackdrop { layoutBackdrop(); needsDisplay=true; return }
+        if usesBackdrop { layoutBackdrop(); layoutShortcutIssue(); needsDisplay=true; return }
         for view in art { view.isHidden=false }
         for choice in selectors { choice.backdropOnly=false }
         for hint in captureHints { hint.isHidden=true }
@@ -346,11 +402,14 @@ import AppKit
             settings.frame=CGRect(x:0,y:230,width:w,height:settings.fittingSize.height)
         } else {
             shortcuts.first?.frame=CGRect(x:0,y:0,width:w,height:46)
-            settings.frame=CGRect(x:0,y:50,width:w,height:compact ? 798 : 420)
+            settings.frame=CGRect(x:0,y:50,width:w,height:settings.frame.height)
+            let preferred=settings.intrinsicContentSize.height
+            settings.frame.size.height=max(0,preferred >= 0 ? preferred : settings.fittingSize.height)
         }
         settingsWidth.constant=settings.frame.width
         settings.layoutSubtreeIfNeeded()
         updateSettingsHeight()
+        layoutShortcutIssue()
     }
 }
 

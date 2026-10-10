@@ -24,6 +24,10 @@ import MacOSXCore
         func require(_ condition: Bool, _ message: String) throws {
             if !condition { throw NSError(domain: message, code: 1) }
         }
+        func descendants(_ view:NSView)->[NSView] { view.subviews.flatMap { [$0]+descendants($0) } }
+        func key(_ code:UInt16, flags:NSEvent.ModifierFlags=[])->NSEvent {
+            NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:flags,timestamp:0,windowNumber:0,context:nil,characters:"",charactersIgnoringModifiers:"",isARepeat:false,keyCode:code)!
+        }
         let registrySuite="cc.anjing.macos-x.registry-fixture.\(UUID().uuidString)"
         let registryDefaults=UserDefaults(suiteName:registrySuite)!
         defer { registryDefaults.removePersistentDomain(forName:registrySuite) }
@@ -83,7 +87,7 @@ import MacOSXCore
         try require(layoutActions.map(\.title) == ["左半屏", "右半屏", "上半屏", "下半屏"], "shortcut names match four directional halves")
         let layoutKeys: [NSView] = layoutActions.map {
             ShortcutPicker(title: "", binding: $0.defaultBinding, allowsDoubleTap: false,
-                recordingChanged: { _ in }, accepts: { _ in nil }, didChange: { _ in })
+                recordingChanged: { _ in }, accepts: { $0.keyCode == 122 ? "与“截图”重复，请选择其他快捷键" : nil }, didChange: { _ in })
         }
         let layoutBoard = SettingsBoardView(kind: "windowLayout", settings: layoutModule.settingsView, shortcuts: layoutKeys)
         for width: CGFloat in [840, 600] {
@@ -104,7 +108,33 @@ import MacOSXCore
                 try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output).appendingPathComponent("window-layout-board.png"))
             }
         }
+        let errorRecorder=descendants(layoutKeys[0]).compactMap { $0 as? NSButton }.first!
+        for width:CGFloat in [912,312] {
+            layoutBoard.frame.size.width=width
+            errorRecorder.performClick(nil); errorRecorder.keyDown(with:key(122))
+            layoutBoard.frame.size.height=layoutBoard.intrinsicContentSize.height
+            layoutBoard.needsLayout=true; layoutBoard.layoutSubtreeIfNeeded()
+            let error=layoutBoard.subviews.compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "shortcut-board-issue" }!
+            try require(!error.isHidden && error.frame.height > 15 && error.stringValue.contains("左半屏：与“截图”重复"),"real rejected keystroke has a visible full-width explanation")
+            try require(layoutBoard.bounds.contains(error.frame),"shortcut conflict explanation stays inside wide and narrow boards")
+            try require(descendants(layoutKeys[0]).compactMap { $0 as? NSTextField }.allSatisfy(\.isHidden),"illustrated keycap does not retain a zero-height internal error")
+            if let output,let bitmap=layoutBoard.bitmapImageRepForCachingDisplay(in:layoutBoard.bounds) {
+                layoutBoard.cacheDisplay(in:layoutBoard.bounds,to:bitmap)
+                try bitmap.representation(using:.png,properties:[:])?.write(to:URL(fileURLWithPath:output).appendingPathComponent(width == 912 ? "shortcut-conflict-wide.png" : "shortcut-conflict-narrow.png"))
+            }
+            errorRecorder.performClick(nil); errorRecorder.keyDown(with:key(120))
+            try require(error.isHidden && layoutKeys[0] is ShortcutPicker,"accepted replacement clears the stale conflict explanation")
+        }
         layoutModule.stop()
+        let promptKey=ShortcutPicker(title:"唤起",binding:ShortcutAction.capture.defaultBinding,allowsDoubleTap:true,recordingChanged:{ _ in },accepts:{ _ in "与“截图”重复" },didChange:{ _ in })
+        let promptBoard=SettingsBoardView(kind:"kaomoji",settings:NSView(),shortcuts:[promptKey])
+        promptBoard.frame.size=CGSize(width:312,height:848); promptBoard.layoutSubtreeIfNeeded()
+        let promptRecorder=descendants(promptKey).compactMap { $0 as? NSButton }.first { !($0 is NSPopUpButton) }!
+        promptRecorder.performClick(nil); promptRecorder.keyDown(with:key(120))
+        promptBoard.frame.size.height=promptBoard.intrinsicContentSize.height; promptBoard.layoutSubtreeIfNeeded()
+        let promptIssue=promptBoard.subviews.compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "shortcut-board-issue" }!
+        try require(!promptIssue.isHidden && promptIssue.stringValue.hasPrefix("提示词：") && promptBoard.bounds.contains(promptIssue.frame),"prompt shortcut conflict uses the correct module name and a visible external explanation")
+        try require(descendants(promptKey).compactMap { $0 as? NSButton }.filter { !$0.isHiddenOrHasHiddenAncestor }.allSatisfy { promptKey.bounds.contains($0.convert($0.bounds,to:promptKey)) },"prompt trigger mode and chord fit a narrow board without a duplicate title")
         for tool in Tool.allCases {
             try require(SketchCardArt.image(tool.symbol) != nil, "all four approved entry illustrations must load from the bundled atlas")
         }
@@ -241,6 +271,37 @@ import MacOSXCore
         cancelled.commitSelection()
         try require(cancelled.table.numberOfRows == 0,"empty dropdown result does not commit")
         cancelled.dismiss()
+        for backwards in [false,true] {
+            let navigation=SketchDropdown(items:Array(options.prefix(3)),selected:0,width:240)
+            var direction:Bool?, closes=0, commits=0
+            navigation.onNavigate={ direction=$0 }; navigation.onDismiss={ closes += 1 }; navigation.onChoose={ _ in commits += 1 }
+            try require(navigation.handleNavigationKey(key(48,flags:backwards ? .shift : [])),"open custom dropdown consumes Tab as navigation")
+            navigation.dismiss()
+            try require(direction == backwards && closes == 1 && commits == 0,"Tab closes once without committing and preserves navigation direction")
+        }
+        let focusWindow=CardFocusFixtureWindow(contentRect:CGRect(x:0,y:0,width:360,height:200),styleMask:.borderless,backing:.buffered,defer:false)
+        let before=MinimalButton(title:"之前",target:nil,action:nil,style:.quiet), popup=MinimalPopUpButton(), after=MinimalButton(title:"之后",target:nil,action:nil,style:.quiet)
+        popup.addItems(withTitles:["轮盘","清单"])
+        let focusRoot=NSView(frame:CGRect(x:0,y:0,width:360,height:200)); [before,popup,after].enumerated().forEach { index,view in view.frame=CGRect(x:CGFloat(index)*110,y:30,width:100,height:32); focusRoot.addSubview(view) }
+        focusWindow.contentView=focusRoot
+        before.nextKeyView=popup; popup.nextKeyView=after; after.nextKeyView=before
+        _ = focusWindow.makeFirstResponder(popup); popup.keyDown(with:key(48))
+        try require(focusWindow.firstResponder === after,"closed popup Tab advances to the next setting")
+        _ = focusWindow.makeFirstResponder(popup); popup.keyDown(with:key(48,flags:.shift))
+        try require(focusWindow.firstResponder === before,"closed popup Shift-Tab returns to the previous setting")
+        focusWindow.contentView=nil
+        let header=SketchWindowHeader(frame:CGRect(x:0,y:0,width:360,height:56)); header.back.isHidden=false
+        for title in Tool.allCases.map(\.title) {
+            header.title=title; header.needsLayout=true; header.layoutSubtreeIfNeeded()
+            let label=header.subviews.compactMap { $0 as? NSTextField }.first!
+            let textWidth=(title as NSString).size(withAttributes:[.font:label.font!]).width
+            try require(label.frame.width >= ceil(textWidth),"narrow header retains complete module title")
+            try require(!label.frame.intersects(header.back.frame) && !label.frame.intersects(header.update.frame),"narrow title never overlaps navigation")
+        }
+        for card in catalog.subviews.compactMap({ $0 as? ModuleCatalogCard }) {
+            try require(!card.artworkFrame.intersects(card.titleFrame),"catalog artwork remains separate from title")
+            try require(abs(card.artworkFrame.width/card.artworkFrame.height-256.0/236.0)<0.001,"catalog artwork keeps the approved aspect ratio")
+        }
         let receiver=BoardReceiver()
         let toggle=MinimalToggle(title:"贴图白光边缘",target:receiver,action:#selector(BoardReceiver.changed(_:)))
         toggle.identifier = .init("capture-pin-outline")
@@ -271,7 +332,7 @@ import MacOSXCore
                 let keys: [NSView]
                 if kind == "capture" {
                     keys = [ShortcutAction.capture,.pin,.togglePins,.recording].map {
-                        ShortcutPicker(title:"",binding:$0.defaultBinding,allowsDoubleTap:false,recordingChanged:{ _ in },accepts:{ _ in nil },didChange:{ _ in })
+                        ShortcutPicker(title:"",binding:$0.defaultBinding,allowsDoubleTap:false,recordingChanged:{ _ in },accepts:{ $0.keyCode == 120 ? "与“贴图”重复，请选择其他快捷键" : nil },didChange:{ _ in })
                     }
                 } else { let key=NSTextField(labelWithString:"⌘ Tab"); key.alignment = .center; key.font = .systemFont(ofSize:16); keys = [key] }
                 let board=SettingsBoardView(kind:kind,settings:settings,shortcuts:keys)
@@ -317,6 +378,23 @@ import MacOSXCore
                     try bitmap.representation(using:.png,properties:[:])?.write(to:URL(fileURLWithPath:output).appendingPathComponent(kind+"-board.png"))
                 }
                 if kind == "capture" {
+                    if pass == 0 {
+                        let recorder=descendants(keys[0]).compactMap { $0 as? NSButton }.first!
+                        for width:CGFloat in [912,312] {
+                            rootWidth.constant=width; root.frame.size.width=width
+                            recorder.performClick(nil); recorder.keyDown(with:key(120))
+                            root.needsLayout=true; root.layoutSubtreeIfNeeded()
+                            root.frame.size.height=root.fittingSize.height; root.layoutSubtreeIfNeeded(); board.layoutSubtreeIfNeeded()
+                            let error=board.subviews.compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "shortcut-board-issue" }!
+                            try require(!error.isHidden && error.frame.height > 15 && board.bounds.contains(error.frame),"capture conflict is visible outside its illustrated keycap in both layouts")
+                            if let output,let bitmap=board.bitmapImageRepForCachingDisplay(in:board.bounds) {
+                                board.cacheDisplay(in:board.bounds,to:bitmap)
+                                try bitmap.representation(using:.png,properties:[:])?.write(to:URL(fileURLWithPath:output).appendingPathComponent(width == 912 ? "capture-conflict-wide.png" : "capture-conflict-narrow.png"))
+                            }
+                            recorder.performClick(nil); recorder.keyDown(with:key(118))
+                            try require(error.isHidden,"capture accepted shortcut clears conflict")
+                        }
+                    }
                     rootWidth.constant=312; root.frame.size.width=312; root.needsLayout=true; root.layoutSubtreeIfNeeded()
                     root.frame.size.height=root.fittingSize.height; root.layoutSubtreeIfNeeded()
                     board.layoutSubtreeIfNeeded()

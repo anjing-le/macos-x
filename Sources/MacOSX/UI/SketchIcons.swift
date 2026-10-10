@@ -117,7 +117,7 @@ final class SketchWindowHeader: SketchSurface {
     var onBack: (() -> Void)?
     var onUpdate: (() -> Void)?
     var compact = false { didSet { close.showsGlyph = compact; needsLayout = true } }
-    var title: String { get { titleLabel.stringValue } set { titleLabel.stringValue = newValue } }
+    var title: String { get { titleLabel.stringValue } set { titleLabel.stringValue = newValue; needsLayout = true } }
     override init(frame: NSRect) {
         super.init(frame: frame)
         edge = nil; radius = 0
@@ -143,7 +143,12 @@ final class SketchWindowHeader: SketchSurface {
         expand.frame = NSRect(x: 76, y: y, width: 20, height: 20)
         back.frame = NSRect(x: 116, y: (bounds.height - 30) / 2, width: 30, height: 30)
         update.frame = NSRect(x: bounds.width - 58, y: (bounds.height - 38) / 2, width: 38, height: 38)
-        titleLabel.frame = NSRect(x: compact ? 48 : 158, y: y - 2, width: max(0, bounds.width - (compact ? 72 : 316)), height: 24)
+        let leading = compact ? close.frame.maxX + 8 : [close, minimize, expand, back]
+            .filter { !$0.isHidden }.map { $0.frame.maxX }.max().map { $0 + 12 } ?? 20
+        let trailing = compact || update.isHidden ? bounds.width - 24 : update.frame.minX - 12
+        let width = min(max(0, trailing - leading), ceil(titleLabel.intrinsicContentSize.width) + 12)
+        let x = min(max(leading, bounds.midX - width / 2), trailing - width)
+        titleLabel.frame = NSRect(x: x, y: y - 2, width: width, height: 24)
     }
     override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); refreshActions() }
     func refreshActions() {

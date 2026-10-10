@@ -53,6 +53,9 @@ final class CaptureToolButton: NSButton {
             : glyph == .swatch ? SketchPalette.ink
             : selected ? ink
             : glyph == .arrow ? SketchPalette.coral : glyph == .rectangle ? SketchPalette.blue : NSColor(calibratedWhite: hovered || cell?.isHighlighted == true ? 0.23 : 0.32, alpha: 1)
+        let rgb = glyphColor.usingColorSpace(.deviceRGB) ?? glyphColor
+        let lightness = rgb.redComponent * 0.2126 + rgb.greenComponent * 0.7152 + rgb.blueComponent * 0.0722
+        let needsContrast = selected && isEnabled && glyph != .swatch && lightness > 0.82
         glyphColor.setStroke()
         let path = NSBezierPath(); path.lineWidth = selected ? 2.7 : 1.65
         path.lineCapStyle = .round; path.lineJoinStyle = .round
@@ -80,7 +83,7 @@ final class CaptureToolButton: NSButton {
                 let block = NSBezierPath(rect: tile)
                 glyphColor.withAlphaComponent((x + y) % 2 == 0 ? 0.8 : 0.32).setFill(); block.fill()
                 SketchPencil.fibers(in: block)
-                SketchPencil.stroke(block, color: glyphColor, width: selected ? 1 : 0.55)
+                SketchPencil.stroke(block, color: needsContrast ? SketchPalette.line : glyphColor, width: selected ? 1 : 0.55)
             }}
             NSGraphicsContext.restoreGraphicsState()
         case .recognition:
@@ -103,6 +106,8 @@ final class CaptureToolButton: NSButton {
             SketchPalette.fill(paint, color: ink); path.append(paint)
 
         }
+        // Keep pale paint colours visible without adding a selected background.
+        if needsContrast { SketchPencil.stroke(path, color: SketchPalette.line, width: 4.2) }
         SketchPencil.stroke(path, color: glyphColor, width: selected ? 2.7 : 1.65)
         if glyph == .swatch, selected {
             let rgb = ink.usingColorSpace(.deviceRGB) ?? ink
@@ -112,7 +117,7 @@ final class CaptureToolButton: NSButton {
             SketchPencil.stroke(check, color: lightness > 0.6 ? SketchPalette.ink : .white, width: 1.8)
         }
         if window?.firstResponder === self {
-            glyphColor.setStroke()
+            (needsContrast ? SketchPalette.line : glyphColor).setStroke()
             let focus = NSBezierPath(); focus.move(to: CGPoint(x: 13, y: 4)); focus.line(to: CGPoint(x: 21, y: 4))
             focus.lineWidth = 1; focus.stroke()
         }

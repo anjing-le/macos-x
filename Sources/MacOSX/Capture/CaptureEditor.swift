@@ -241,7 +241,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         guard !editingPin, !closed, !exporting, !adjustingRegion else { return }
         regionWasVisible = window.isVisible
         adjustingRegion = true
-        recognition?.cancel(); recognition = nil; recognitionButton.isEnabled = true
+        cancelRecognition()
         revision &+= 1; preview?.cancel()
         window.orderOut(nil); toolbar.orderOut(nil)
     }
@@ -444,7 +444,9 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         }
     }
     private func cancelRecognition() {
+        let wasRecognizing = recognition != nil
         recognition?.cancel(); recognition = nil; recognitionButton.isEnabled = true
+        if wasRecognizing, status.stringValue == "正在提取文字…" { showStatus("") }
     }
     private func render(ticket: CaptureImageService.Ticket? = nil, onFailure: (() -> Void)? = nil,
                         _ completion: @escaping (CGImage) -> Void) {
@@ -498,7 +500,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     }
     private func beginExport() -> Bool {
         guard !closed, !exporting, !adjustingRegion else { return false }
-        recognition?.cancel(); recognition = nil; recognitionButton.isEnabled = true
+        cancelRecognition()
         finishText(commit: true)
         canvas.commitDraft()
         exporting = true; canvas.inputEnabled = false; onEditingChanged?(true); return true

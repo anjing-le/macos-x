@@ -36,12 +36,15 @@ private final class UpdatePanelContent: SketchSurface {
     let header = SketchWindowHeader(frame: .zero)
     let titleLabel = NSTextField(labelWithString: "")
     let detailLabel = NSTextField(wrappingLabelWithString: "")
+    let detailScroll = SketchScrollView()
+    let detailText = NSTextView()
     let progress = NSProgressIndicator()
     let primary = UpdatePanelButton(title: "", target: nil, action: nil, style: .primary)
     let secondary = UpdatePanelButton(title: "", target: nil, action: nil, style: .quiet)
     let buttons = NSView()
     private let iconPlate = NSView()
     private let labels = NSStackView()
+    private var detailHeight: NSLayoutConstraint!
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -72,6 +75,16 @@ private final class UpdatePanelContent: SketchSurface {
         detailLabel.textColor = .secondaryLabelColor
         detailLabel.maximumNumberOfLines = 2
         detailLabel.preferredMaxLayoutWidth = 306
+        detailText.isEditable=false; detailText.isSelectable=true; detailText.drawsBackground=false
+        detailText.font = .systemFont(ofSize:14); detailText.textColor=SketchPalette.ink
+        detailText.textContainerInset=NSSize(width:10,height:8)
+        detailText.isVerticallyResizable=true; detailText.isHorizontallyResizable=false
+        detailText.autoresizingMask=[.width]; detailText.textContainer?.widthTracksTextView=true
+        detailScroll.drawsBackground=false; detailScroll.hasVerticalScroller=true; detailScroll.autohidesScrollers=true
+        detailScroll.scrollerStyle = .overlay; detailScroll.documentView=detailText
+        detailScroll.setAccessibilityLabel("更新详情，长内容可滚动并复制")
+        detailScroll.translatesAutoresizingMaskIntoConstraints=false
+        detailHeight=detailScroll.heightAnchor.constraint(equalToConstant:64); detailHeight.isActive=true
         for label in [titleLabel, detailLabel] {
             label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         }
@@ -111,7 +124,7 @@ private final class UpdatePanelContent: SketchSurface {
         buttons.addSubview(actions)
         actions.translatesAutoresizingMaskIntoConstraints = false
 
-        let stack = NSStackView(views: [header, progress, buttons])
+        let stack = NSStackView(views: [header, detailScroll, progress, buttons])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 18
@@ -134,6 +147,7 @@ private final class UpdatePanelContent: SketchSurface {
             icon.bottomAnchor.constraint(equalTo: iconPlate.bottomAnchor, constant: -5),
             titleLabel.widthAnchor.constraint(equalTo: labels.widthAnchor),
             detailLabel.widthAnchor.constraint(equalTo: labels.widthAnchor),
+            detailScroll.widthAnchor.constraint(equalTo:stack.widthAnchor),
             progress.widthAnchor.constraint(equalTo: stack.widthAnchor),
             progress.heightAnchor.constraint(equalToConstant: 4),
             buttons.widthAnchor.constraint(equalTo: stack.widthAnchor),
@@ -143,6 +157,7 @@ private final class UpdatePanelContent: SketchSurface {
             actions.centerYAnchor.constraint(equalTo: buttons.centerYAnchor),
         ])
         detailLabel.isHidden = true
+        detailScroll.isHidden = true
         progress.isHidden = true
         primary.isHidden = true
         secondary.isHidden = true
@@ -155,7 +170,31 @@ private final class UpdatePanelContent: SketchSurface {
     var preferredHeight: CGFloat {
         let headingHeight = max(76, labels.fittingSize.height)
         return 48 + headingHeight + (progress.isHidden ? 0 : 22)
-            + (buttons.isHidden ? 0 : 66) + 24
+            + (detailScroll.isHidden ? 0 : detailHeight.constant+18) + (buttons.isHidden ? 0 : 66) + 24
+    }
+
+    func setDetail(_ text: String) {
+        detailLabel.stringValue=text
+        let measured=(text as NSString).boundingRect(with:NSSize(width:306,height:CGFloat.greatestFiniteMagnitude),options:[.usesLineFragmentOrigin,.usesFontLeading],attributes:[.font:SketchPalette.heading(20)])
+        let expanded=measured.height > 48 || text.contains("\n")
+        detailLabel.isHidden=text.isEmpty || expanded
+        detailScroll.isHidden=text.isEmpty || !expanded
+        detailText.string=expanded ? text : ""
+        guard expanded else { return }
+        let paragraph=NSMutableParagraphStyle(); paragraph.lineSpacing=3
+        detailText.defaultParagraphStyle=paragraph
+        let body=NSAttributedString(string:text,attributes:[.font:NSFont.systemFont(ofSize:14),.foregroundColor:SketchPalette.ink,.paragraphStyle:paragraph])
+        detailText.textStorage?.setAttributedString(body)
+        // The dialog is 460 points wide: 404 inside its margins, minus text
+        // insets and line-fragment padding. Measure independently of first layout.
+        let height=ceil(body.boundingRect(with:NSSize(width:374,height:CGFloat.greatestFiniteMagnitude),options:[.usesLineFragmentOrigin,.usesFontLeading]).height)+16
+        detailHeight.constant=min(224,max(64,height))
+        // Keep the document's autoresizing margin at zero before the scroll view
+        // receives its first nonzero layout width; otherwise AppKit adds that
+        // width to a pre-sized document and leaves long lines clipped.
+        detailText.frame=CGRect(x:0,y:0,width:detailScroll.contentSize.width,height:max(detailHeight.constant,height))
+        detailText.textContainer?.containerSize=NSSize(width:384,height:CGFloat.greatestFiniteMagnitude)
+        detailScroll.contentView.scroll(to:.zero); detailScroll.reflectScrolledClipView(detailScroll.contentView)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -304,7 +343,6 @@ final class UpdatePanel: NSWindowController, NSWindowDelegate {
 
     private func updateDetail(_ detail: String?) {
         let text = detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        content.detailLabel.stringValue = text
-        content.detailLabel.isHidden = text.isEmpty
+        content.setDetail(text)
     }
 }

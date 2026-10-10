@@ -125,7 +125,7 @@ import MacOSXCore
     private let status = NSTextField(wrappingLabelWithString: "")
     private let artwork = IllustratedSettingChoice.artwork("SettingsPromptsBoard")
     private var compact: Bool { bounds.width < 740 }
-    override var intrinsicContentSize: NSSize { NSSize(width: 760, height: compact ? 798 : 420) }
+    override var intrinsicContentSize: NSSize { NSSize(width: 760, height: compact ? 798 : 440) }
     init(collection: PromptCollection, presentation: PromptPresentation) {
         self.presentation = presentation
         self.collection = collection; encodedSize = (try? JSONEncoder().encode(collection).count) ?? 0
@@ -176,33 +176,42 @@ import MacOSXCore
     }
     required init?(coder: NSCoder) { nil }
     override func draw(_ dirtyRect: NSRect) {
-        guard !compact, let artwork else { return }
-        artwork.draw(in:bounds,from:.zero,operation:.sourceOver,fraction:1,respectFlipped:false,hints:[.interpolation:NSImageInterpolation.high])
-    }
-    private func illustratedSlot(_ rect:CGRect) -> CGRect {
-        CGRect(x:rect.minX*bounds.width,y:(1-rect.maxY)*bounds.height,width:rect.width*bounds.width,height:rect.height*bounds.height)
+        SketchPalette.paper.setFill(); bounds.fill()
+        guard let artwork else { return }
+        // Keep the approved illustration choices, with space reserved for the live editor.
+        for (index,button) in styleButtons.enumerated() {
+            let source=CGRect(x:(index == 0 ? 0.028 : 0.175)*artwork.size.width,y:0.771*artwork.size.height,width:0.135*artwork.size.width,height:0.19*artwork.size.height)
+            let pictureHeight=min(42,button.frame.height-22), pictureWidth=pictureHeight*source.width/source.height
+            let picture=CGRect(x:button.frame.midX-pictureWidth/2,y:button.frame.minY+20,width:pictureWidth,height:pictureHeight)
+            artwork.draw(in:picture,from:source,operation:.sourceOver,fraction:1,respectFlipped:false,hints:[.interpolation:NSImageInterpolation.high])
+            let attributes:[NSAttributedString.Key:Any]=[.font:SketchPalette.heading(13),.foregroundColor:SketchPalette.ink]
+            let size=(button.title as NSString).size(withAttributes:attributes)
+            (button.title as NSString).draw(at:CGPoint(x:button.frame.midX-size.width/2,y:button.frame.minY+3),withAttributes:attributes)
+        }
     }
     private func layoutArtwork() {
         for (index,button) in styleButtons.enumerated() {
             button.backdropOnly=true
-            button.frame=illustratedSlot(CGRect(x:index == 0 ? 0.028 : 0.175,y:0.038,width:0.135,height:0.245))
+            button.frame=CGRect(x:16+CGFloat(index)*116,y:bounds.height-66,width:110,height:64)
         }
-        editorHeading.frame=illustratedSlot(CGRect(x:0.49,y:0.055,width:0.47,height:0.065))
-        editorHint.frame=illustratedSlot(CGRect(x:0.49,y:0.14,width:0.47,height:0.08))
-        let countX=bounds.width*0.34
+        let editorX=bounds.width*0.49, editorWidth=bounds.width-editorX-16
+        editorHeading.frame=CGRect(x:editorX,y:bounds.height-32,width:editorWidth,height:26)
+        editorHint.frame=CGRect(x:editorX,y:bounds.height-74,width:editorWidth,height:32)
+        let countX:CGFloat=250
         ringCountLabel.frame=CGRect(x:countX,y:bounds.height-30,width:52,height:20)
         ringCount.frame=CGRect(x:countX+54,y:bounds.height-34,width:58,height:28)
         listCountLabel.frame=CGRect(x:countX,y:bounds.height-66,width:52,height:20)
         listCount.frame=CGRect(x:countX+54,y:bounds.height-70,width:58,height:28)
-        wheelTab.frame=illustratedSlot(CGRect(x:0.02,y:0.30,width:0.065,height:0.065))
-        libraryTab.frame=illustratedSlot(CGRect(x:0.09,y:0.30,width:0.065,height:0.065))
-        add.frame=illustratedSlot(CGRect(x:0.40,y:0.30,width:0.035,height:0.065))
-        presentationHost.frame=illustratedSlot(CGRect(x:0.02,y:0.355,width:0.42,height:0.49)); layoutPreview()
-        search.frame=illustratedSlot(CGRect(x:0.02,y:0.38,width:0.42,height:0.065))
-        listScroll.frame=illustratedSlot(CGRect(x:0.02,y:0.46,width:0.42,height:0.38))
-        picker.frame=illustratedSlot(CGRect(x:0.49,y:0.27,width:0.48,height:0.065)); placement.frame=picker.frame
-        titleField.frame=illustratedSlot(CGRect(x:0.49,y:0.362,width:0.47,height:0.065))
-        scroll.frame=illustratedSlot(CGRect(x:0.49,y:0.49,width:0.47,height:0.34))
+        let leftWidth=editorX-32, tabY=bounds.height-96
+        wheelTab.frame=CGRect(x:16,y:tabY,width:54,height:28)
+        libraryTab.frame=CGRect(x:74,y:tabY,width:54,height:28)
+        add.frame=CGRect(x:136,y:tabY,width:28,height:28)
+        presentationHost.frame=CGRect(x:16,y:62,width:leftWidth,height:tabY-70); layoutPreview()
+        search.frame=CGRect(x:16,y:tabY-40,width:leftWidth,height:30)
+        listScroll.frame=CGRect(x:16,y:66,width:leftWidth,height:tabY-114)
+        picker.frame=CGRect(x:editorX,y:bounds.height-124,width:editorWidth,height:28); placement.frame=picker.frame
+        titleField.frame=CGRect(x:editorX,y:bounds.height-168,width:editorWidth,height:32)
+        scroll.frame=CGRect(x:editorX,y:66,width:editorWidth,height:bounds.height-248)
         scroll.layer?.backgroundColor=NSColor.clear.cgColor
         body.frame.size.width=scroll.contentSize.width
         importer.frame=CGRect(x:16,y:28,width:110,height:28)
@@ -214,17 +223,17 @@ import MacOSXCore
     override func layout() {
         super.layout()
         editorHeading.isHidden=compact || artwork == nil; editorHint.isHidden=editorHeading.isHidden
-        titleField.usesArtwork = !compact && artwork != nil
-        scroll.usesArtwork = !compact && artwork != nil
+        titleField.usesArtwork = false
+        scroll.usesArtwork = false
         if !compact && artwork != nil {
             layoutArtwork()
             if wasCompact { wasCompact=false; invalidateIntrinsicContentSize() }
             needsDisplay=true
             return
         }
-        for button in styleButtons { button.backdropOnly=false }
+        for button in styleButtons { button.backdropOnly=artwork != nil }
         displayStyle.frame = CGRect(x:0,y:bounds.height-32,width:100,height:28)
-        for (i,button) in styleButtons.enumerated() { button.frame=CGRect(x:CGFloat(i)*90,y:bounds.height-60,width:84,height:58) }
+        for (i,button) in styleButtons.enumerated() { button.frame=CGRect(x:CGFloat(i)*116,y:bounds.height-60,width:110,height:58) }
         ringCountLabel.frame = CGRect(x:192,y:bounds.height-26,width:32,height:18)
         ringCount.frame = CGRect(x:224,y:bounds.height-32,width:58,height:28)
         listCountLabel.frame = CGRect(x:290,y:bounds.height-26,width:32,height:18)
@@ -262,7 +271,7 @@ import MacOSXCore
         wheelTab.state = libraryMode ? .off : .on; libraryTab.state = libraryMode ? .on : .off
         picker.isHidden = libraryMode; placement.isHidden = !libraryMode
         picker.removeAllItems(); picker.addItem(withTitle:"空位")
-        for p in collection.prompts { picker.addItem(withTitle:p.title.isEmpty ? "未命名" : p.title) }
+        for p in collection.prompts { picker.addItem(withTitle:p.title.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty ? "未命名" : p.title) }
         picker.selectItem(at: selected.map { $0+1 } ?? 0)
         placement.removeAllItems(); placement.addItem(withTitle:"仅搜索")
         for i in 0..<10 { placement.addItem(withTitle:"位置 \(i+1)") }
@@ -273,7 +282,7 @@ import MacOSXCore
     private func rebuildPreview() {
         presentationPreview?.finish(); presentationPreview?.removeFromSuperview()
         let view = PromptWheelView(size:CGSize(width:360,height:360),collection:collection,
-                                   presentation:presentation,editing:true,selectedPrompt:selected)
+                                   presentation:presentation,editing:true,selectedPrompt:selected,selectedSlot:selectedSlot)
         view.onEditSlot = { [weak self] slot in self?.selectSlot(slot) }
         view.onEditPrompt = { [weak self] index in
             guard let self else { return }
@@ -289,10 +298,9 @@ import MacOSXCore
     private func layoutPreview() {
         guard let view = presentationPreview else { return }
         let size = view.preferredSize
-        let scale=min(1,min(presentationHost.bounds.width/size.width,presentationHost.bounds.height/size.height))
-        let fitted=CGSize(width:size.width*scale,height:size.height*scale)
+        let fitted=CGSize(width:min(size.width,presentationHost.bounds.width),height:min(size.height,presentationHost.bounds.height))
         view.frame=CGRect(x:(presentationHost.bounds.width-fitted.width)/2,y:(presentationHost.bounds.height-fitted.height)/2,width:fitted.width,height:fitted.height)
-        view.bounds=CGRect(origin:.zero,size:size)
+        view.bounds=CGRect(origin:.zero,size:fitted)
         view.needsLayout = true
     }
     private func loadEntry() {
@@ -374,7 +382,8 @@ import MacOSXCore
     func numberOfRows(in tableView:NSTableView)->Int { rows.count }
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { SketchTableRow() }
     func tableView(_ tableView:NSTableView,viewFor tableColumn:NSTableColumn?,row:Int)->NSView? {
-        let label = NSTextField(labelWithString:collection.prompts[rows[row]].title.isEmpty ? "未命名" : collection.prompts[rows[row]].title)
+        let title=collection.prompts[rows[row]].title
+        let label = NSTextField(labelWithString:title.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty ? "未命名" : title)
         label.font = .systemFont(ofSize:14); label.lineBreakMode = .byTruncatingTail; return label
     }
     func tableViewSelectionDidChange(_ notification:Notification) {

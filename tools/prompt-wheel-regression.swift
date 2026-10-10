@@ -70,13 +70,18 @@ final class CountingPromptDefaults: UserDefaults {
                 let actual = PhraseWheelPanel(anchor:CGPoint(x:450,y:450),screen:CGRect(x:0,y:0,width:900,height:900),collection:collection,
                                               presentation:.init(style:styleIndex == 0 ? .ring : .list,wheelCount:count,listCount:count))
                 let actualView = actual.contentView!; actualView.layoutSubtreeIfNeeded()
-                precondition(abs(preview.bounds.width-actualView.bounds.width)<0.001 && abs(preview.bounds.height-actualView.bounds.height)<0.001, "style=\(styleIndex) count=\(count) preview=\(preview.bounds) actual=\(actualView.bounds)")
+                precondition(preview.bounds.size == preview.frame.size, "The settings preview keeps native readable text instead of scaling its coordinate system")
+                precondition(host.bounds.contains(preview.frame))
                 let left = visibleButtons(preview), right = visibleButtons(actualView)
                 precondition(left.count == right.count)
-                for (lhs,rhs) in zip(left,right) { precondition(lhs.0 == rhs.0 && abs(lhs.1.minX-rhs.1.minX)<0.001 && abs(lhs.1.minY-rhs.1.minY)<0.001 && abs(lhs.1.width-rhs.1.width)<0.001 && abs(lhs.1.height-rhs.1.height)<0.001) }
+                for (lhs,rhs) in zip(left,right) {
+                    let title=styleIndex == 1 ? lhs.0.replacingOccurrences(of:"^\\d+ · ",with:"",options:.regularExpression) : lhs.0
+                    precondition(title == rhs.0 && preview.bounds.contains(lhs.1) && actualView.bounds.contains(rhs.1))
+                }
                 let previewSearch = preview.subviews.compactMap { $0 as? NSSearchField }.first!
                 let actualSearch = actualView.subviews.compactMap { $0 as? NSSearchField }.first!
-                precondition(abs(previewSearch.frame.minX-actualSearch.frame.minX)<0.001 && abs(previewSearch.frame.minY-actualSearch.frame.minY)<0.001 && abs(previewSearch.frame.width-actualSearch.frame.width)<0.001)
+                precondition(previewSearch.font!.pointSize >= 12 && actualSearch.font!.pointSize >= 12)
+                if count == 0 { precondition(abs(previewSearch.frame.midY-preview.bounds.midY)<1 && abs(actualSearch.frame.midY-actualView.bounds.midY)<1) }
                 actual.dismiss()
             }
         }
@@ -88,7 +93,7 @@ final class CountingPromptDefaults: UserDefaults {
         precondition(restored.first { $0.identifier?.rawValue == "prompt-list-count" }!.indexOfSelectedItem == 6)
         precondition(defaults.data(forKey:"promptLibrary.collection.v1") == data)
         let promptSettings=module.settingsView
-        promptSettings.frame.size=NSSize(width:840,height:420); promptSettings.layoutSubtreeIfNeeded()
+        promptSettings.frame.size=NSSize(width:840,height:440); promptSettings.layoutSubtreeIfNeeded()
         let styleButtons=promptSettings.subviews.compactMap { $0 as? IllustratedSettingChoice }
         precondition(styleButtons.count == 2)
         precondition(IllustratedSettingChoice.artwork("SettingsPromptsBoard") != nil)
@@ -107,6 +112,57 @@ final class CountingPromptDefaults: UserDefaults {
         }
         promptSettings.frame.size=NSSize(width:300,height:798); promptSettings.layoutSubtreeIfNeeded()
         precondition(promptSettings.subviews.filter { !$0.isHidden }.allSatisfy { promptSettings.bounds.contains($0.frame) })
+        for button in styleButtons {
+            precondition(!button.titleGeometry.intersects(button.selectionMarkGeometry), "Compact style labels and selected marks occupy separate regions")
+        }
+        if let output=ProcessInfo.processInfo.environment["MACOSX_SETTINGS_PREVIEW"],let bitmap=promptSettings.bitmapImageRepForCachingDisplay(in:promptSettings.bounds) {
+            promptSettings.cacheDisplay(in:promptSettings.bounds,to:bitmap)
+            try bitmap.representation(using:.png,properties:[:])?.write(to:URL(fileURLWithPath:output).appendingPathComponent("prompts-compact.png"))
+        }
+        let board=SettingsBoardView(kind:"kaomoji",settings:promptSettings,shortcuts:[NSTextField(labelWithString:"双击 Option")])
+        board.frame.size=CGSize(width:912,height:490); board.layoutSubtreeIfNeeded()
+        precondition(board.bounds.contains(promptSettings.frame) && promptSettings.frame.height == 440, "The default page gives the prompt editor its complete readable canvas")
+        precondition(56+48+30+12+board.frame.height <= 640, "Header, padding, enable row and board fit the default window")
+        for styleIndex in 0...1 {
+            styleControl.selectItem(at:styleIndex); ringControl.selectItem(at:10); listControl.selectItem(at:10)
+            precondition(NSApp.sendAction(styleControl.action!,to:styleControl.target,from:styleControl))
+            board.layoutSubtreeIfNeeded(); promptSettings.layoutSubtreeIfNeeded()
+            let host=promptSettings.subviews.first { $0.identifier?.rawValue == "prompt-presentation-preview" }!
+            let preview=host.subviews.first as! PromptWheelView; preview.layoutSubtreeIfNeeded()
+            precondition(visibleButtons(preview).count == 10 && preview.bounds.size == preview.frame.size)
+            for (_,rect) in visibleButtons(preview) { precondition(preview.bounds.contains(rect)) }
+            if let output=ProcessInfo.processInfo.environment["MACOSX_SETTINGS_PREVIEW"],let bitmap=promptSettings.bitmapImageRepForCachingDisplay(in:promptSettings.bounds) {
+                promptSettings.cacheDisplay(in:promptSettings.bounds,to:bitmap)
+                try bitmap.representation(using:.png,properties:[:])?.write(to:URL(fileURLWithPath:output).appendingPathComponent(styleIndex == 0 ? "prompts-ring-board.png" : "prompts-list-board.png"))
+            }
+        }
+        var drafts=PromptCollection(legacy:[])
+        drafts.prompts=[LibraryPrompt(id:"draft",title:"标题草稿",content:""),LibraryPrompt(id:"untitled",title:"",content:"有正文")]
+        drafts.assign("draft",to:1); drafts.assign("untitled",to:2)
+        let editorList=PromptWheelView(size:CGSize(width:320,height:360),collection:drafts,presentation:.init(style:.list,wheelCount:4,listCount:4),editing:true,selectedSlot:0)
+        editorList.frame.size=editorList.preferredSize; editorList.layoutSubtreeIfNeeded()
+        let editableRows=editorList.subviews.compactMap { $0 as? NSButton }.filter { !$0.isHidden && $0.title.contains(" · ") }
+        precondition(editableRows.count == 4 && editableRows[0].title.contains("空位置") && editableRows[1].title.contains("标题草稿") && editableRows[2].title.contains("未命名"))
+        var editedSlots=[Int]()
+        editorList.onEditSlot={ editedSlots.append($0) }
+        editableRows[0].performClick(nil); editableRows[1].performClick(nil)
+        precondition(editedSlots == [0,1], "Empty slots and title-only drafts are editable by direct list click")
+        let editorText=NSTextView()
+        precondition(editorList.control(editorList.search,textView:editorText,doCommandBy:#selector(NSResponder.moveDown(_:))))
+        precondition(editorList.control(editorList.search,textView:editorText,doCommandBy:#selector(NSResponder.insertNewline(_:))))
+        precondition(editedSlots == [0,1,1], "Keyboard can select an unfinished preset without copying")
+        editorList.finish()
+        for style in [PromptPresentation.Style.ring,.list] {
+            let untitled=PromptWheelView(size:CGSize(width:360,height:360),collection:drafts,presentation:.init(style:style,wheelCount:4,listCount:4))
+            untitled.frame.size=untitled.preferredSize; untitled.layoutSubtreeIfNeeded()
+            precondition(visibleButtons(untitled).contains { $0.0 == "未命名" })
+            var copied=[Int](); untitled.onChoose={ copied.append($0) }
+            if style == .list {
+                let rows=untitled.subviews.compactMap { $0 as? NSButton }.filter { !$0.isHidden && $0.title == "未命名" }
+                precondition(rows.count == 1); rows[0].performClick(nil); precondition(copied == [1])
+            }
+            untitled.finish()
+        }
         var searchable = collection
         for index in 11...23 { searchable.prompts.append(LibraryPrompt(id:"search-\(index)",title:"办公 \(index)",content:"正文 \(index)")) }
         let panel = PhraseWheelPanel(anchor: .zero, screen: CGRect(x:0,y:0,width:900,height:900), collection: searchable)
@@ -167,6 +223,6 @@ final class CountingPromptDefaults: UserDefaults {
         precondition(flushed.prompts.contains { $0.title == "修改后保留" } && defaults.collectionWrites == savedWrites + 1, "Stop flushes a real edit before its debounce completes")
         module.stop()
         precondition(defaults.collectionWrites == savedWrites + 1, "Repeated stop after flush does not rewrite")
-        print("PASS: settings/runtime shared layout equality for 0–10 both styles; text centring, bounded rows/cards, isolated preference persistence and preservation; centre placement, blank placeholder, search list, cross-page arrows, empty-result Enter, clear search, wrap, one-shot choice; isolated UI, no clipboard/preferences")
+        print("PASS: settings/runtime shared view and stable positions for 0–10 both styles; native readable text, bounded rows/cards, isolated preference persistence and preservation; centre placement, blank placeholder, search list, cross-page arrows, empty-result Enter, clear search, wrap, one-shot choice; isolated UI, no clipboard/preferences")
     }
 }

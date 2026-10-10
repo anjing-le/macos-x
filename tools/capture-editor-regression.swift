@@ -1,5 +1,24 @@
 import AppKit
 
+// Compiled alongside the real editor/pin source; these helpers only exist in
+// this isolated executable, with no Vision execution or clipboard writes.
+@MainActor private extension CaptureEditor {
+    func beginPendingRecognitionFixture() {
+        toolbarVisible = false
+        recognition = VNRecognizeTextRequest(); recognitionButton.isEnabled = false
+        showStatus("正在提取文字…")
+    }
+    var recognitionWasCancelled: Bool { recognition == nil && recognitionButton.isEnabled && status.isHidden && status.stringValue.isEmpty }
+    func showFixtureStatus(_ value: String) { toolbarVisible = false; showStatus(value) }
+    var fixtureStatus: String { status.stringValue }
+}
+
+@MainActor private extension PinEntry {
+    func performFixture(_ command: PinCommand) { perform(command) }
+    func applyRenderedEditFixture() { applyEdit(transform.render(image)!) }
+    var fixtureZoom: CGFloat { zoom }
+}
+
 @main struct EditorRegression {
     @MainActor static func main() {
         _ = NSApplication.shared; NSApp.setActivationPolicy(.prohibited)
@@ -35,6 +54,21 @@ import AppKit
         pinView.mouseDown(with: pinMouse(.leftMouseDown, returned))
         pinView.mouseUp(with: pinMouse(.leftMouseUp, returned))
         precondition(pinEntry.window.frame == released, "Focus click still leaves the pin in place")
+        pinEntry.performFixture(.zoom(2))
+        pinEntry.applyRenderedEditFixture()
+        precondition(pinEntry.fixtureZoom == 2, "Applying an edit preserves the original zoom percentage")
+        pinEntry.performFixture(.zoom(1.25))
+        precondition(pinEntry.window.frame.size == CGSize(width: 500, height: 400), "Zoom after an edit remains relative to the initial 200x160 size")
+        pinEntry.performFixture(.rotate(true))
+        pinEntry.applyRenderedEditFixture()
+        pinEntry.performFixture(.zoom(0.8))
+        precondition(pinEntry.fixtureZoom == 2 && pinEntry.window.frame.size == CGSize(width: 320, height: 400), "Baked rotation preserves zoom and rotated dimensions")
+        pinEntry.performFixture(.thumbnail)
+        let thumbnailFrame = pinEntry.window.frame
+        pinEntry.applyRenderedEditFixture()
+        precondition(pinEntry.window.frame == thumbnailFrame && pinEntry.fixtureZoom == 2, "Editing a thumbnail preserves its display size and original zoom")
+        pinEntry.performFixture(.thumbnail)
+        precondition(pinEntry.window.frame.size == CGSize(width: 320, height: 400), "Leaving thumbnail mode after editing restores the original magnified size")
         pinEntry.dispose()
         let region = CGRect(x: 20, y: 40, width: 100, height: 80)
         let editor = CaptureEditor(image: image, selectionFrame: region, defaults: defaults)
@@ -55,6 +89,16 @@ import AppKit
         precondition(editor.handleSelectionKey(key(53, "\u{1b}")))
         precondition(states.last == false && editor.window.ignoresMouseEvents, "Leaving annotation restores draggable selection rather than closing")
         let canvas = editor.window.contentView as! CaptureCanvas
+        editor.beginPendingRecognitionFixture()
+        canvas.onDraftBegan?()
+        precondition(editor.recognitionWasCancelled, "A new draft clears pending OCR feedback and re-enables recognition")
+        editor.showFixtureStatus("粗细 3 · 滚轮调节")
+        canvas.onDraftBegan?()
+        precondition(editor.fixtureStatus == "粗细 3 · 滚轮调节", "Cancelling an absent request preserves unrelated feedback")
+        editor.beginPendingRecognitionFixture()
+        editor.showFixtureStatus("粗细 4 · 滚轮调节")
+        canvas.onDraftBegan?()
+        precondition(editor.fixtureStatus == "粗细 4 · 滚轮调节", "Cancelling OCR does not erase newer tool feedback")
         func wheel(_ delta: Int32) -> NSEvent {
             NSEvent(cgEvent: CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: delta, wheel2: 0, wheel3: 0)!)!
         }
@@ -127,6 +171,31 @@ import AppKit
             precondition(canvas.ink.red == expected.red && canvas.ink.green == expected.green && canvas.ink.blue == expected.blue,
                          "Each graphical paint spot directly selects its corresponding colour")
         }
+        let glyphHost = CaptureToolbarSurface(frame: CGRect(x: 0, y: 0, width: 218, height: 46))
+        let glyphs: [CaptureToolButton.Glyph] = [.rectangle, .arrow, .pen, .text, .mosaic]
+        for (index, glyph) in glyphs.enumerated() {
+            let button = CaptureToolButton(glyph, title: "白色工具", target: editor, action: NSSelectorFromString("copy:"))
+            button.ink = .white; button.state = .on
+            button.frame = CGRect(x: 6 + index * 42, y: 6, width: 34, height: 34)
+            glyphHost.addSubview(button)
+        }
+        let glyphBitmap = glyphHost.bitmapImageRepForCachingDisplay(in: glyphHost.bounds)!
+        glyphHost.cacheDisplay(in: glyphHost.bounds, to: glyphBitmap)
+        let pixelScale = CGFloat(glyphBitmap.pixelsWide) / glyphHost.bounds.width
+        for index in glyphs.indices {
+            let rect = CGRect(x: 10 + index * 42, y: 10, width: 26, height: 26)
+            var visiblePixels = 0
+            for y in Int(rect.minY * pixelScale)..<Int(rect.maxY * pixelScale) {
+                for x in Int(rect.minX * pixelScale)..<Int(rect.maxX * pixelScale) {
+                    if let color = glyphBitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                       min(color.redComponent, color.greenComponent, color.blueComponent) < 0.8 { visiblePixels += 1 }
+                }
+            }
+            precondition(visiblePixels > 20, "Each selected white glyph must remain visible on a white toolbar")
+        }
+        if let output = ProcessInfo.processInfo.environment["MACOSX_WHITE_TOOLS_PREVIEW"] {
+            try! glyphBitmap.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: output))
+        }
         colourButtons.first { $0.tag == 5 }!.performClick(nil)
         let rememberedWidth = canvas.lineWidth, rememberedDiameter = canvas.mosaicDiameter
         let reopened = CaptureEditor(image: image, defaults: UserDefaults(suiteName: domain)!)
@@ -149,7 +218,9 @@ import AppKit
             }
         }
         let before = editor.selectionFrame
+        editor.beginPendingRecognitionFixture()
         editor.beginRegionAdjustment(); editor.beginRegionAdjustment()
+        precondition(editor.recognitionWasCancelled, "Resizing a selection clears pending OCR feedback")
         precondition(!editor.handleSelectionKey(key(18, "1")), "Pending crop cannot start a drawing tool")
         let next = before.offsetBy(dx: 20, dy: 10)
         editor.replaceSelectionImage(image, at: next)
@@ -173,7 +244,9 @@ import AppKit
         activeCanvas.mouseDragged(with: activeMouse(.leftMouseDragged, CGPoint(x: 100, y: 40)))
         var exported: CGImage?
         activeExport.onPin = { exported = $0 }
+        activeExport.beginPendingRecognitionFixture()
         activeExport.pinCurrentImage()
+        precondition(activeExport.recognitionWasCancelled, "Export clears pending OCR feedback")
         precondition(!activeCanvas.inputEnabled, "Export locks canvas edits until completion")
         let deadline = Date().addingTimeInterval(4)
         while exported == nil && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }

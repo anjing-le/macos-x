@@ -124,14 +124,23 @@ import AppKit
         previous.frame = CGRect(x: 8, y: 8, width: 26, height: 28)
         next.frame = CGRect(x: bounds.width - 34, y: 8, width: 26, height: 28)
     }
+    var titleFrame: CGRect { CGRect(x: 4, y: 40, width: max(0, bounds.width - 8), height: 24) }
+    var artworkFrame: CGRect {
+        guard let art, art.size.width > 0, art.size.height > 0 else { return .zero }
+        let area = CGRect(x: 12, y: titleFrame.maxY + 6, width: max(0, bounds.width - 24),
+                          height: max(0, bounds.height - titleFrame.maxY - 16))
+        let scale = min(area.width / art.size.width, area.height / art.size.height)
+        let size = CGSize(width: art.size.width * scale, height: art.size.height * scale)
+        return CGRect(x: area.midX - size.width / 2, y: area.midY - size.height / 2, width: size.width, height: size.height)
+    }
     override func draw(_ dirtyRect: NSRect) {
         let path = SketchPencil.outline(in: bounds.insetBy(dx: 1, dy: 1), radius: 12)
         SketchPalette.fill(path, color: SketchPalette.paper)
         let highlighted = dropHighlighted || window?.firstResponder === self
         SketchPencil.stroke(path, color: highlighted ? SketchPalette.yellow : SketchPalette.line, width: highlighted ? 2 : 1)
-        art?.draw(in: CGRect(x: bounds.midX - 46, y: 56, width: 92, height: 92), from: .zero, operation: .sourceOver, fraction: 1)
+        art?.draw(in: artworkFrame, from: .zero, operation: .sourceOver, fraction: 1)
         let style = NSMutableParagraphStyle(); style.alignment = .center
-        (tool.title as NSString).draw(in: CGRect(x: 4, y: 38, width: bounds.width - 8, height: 24), withAttributes: [.font: SketchPalette.heading(16), .foregroundColor: SketchPalette.ink, .paragraphStyle: style])
+        (tool.title as NSString).draw(in: titleFrame, withAttributes: [.font: SketchPalette.heading(16), .foregroundColor: SketchPalette.ink, .paragraphStyle: style])
     }
     override func mouseDown(with event: NSEvent) { window?.makeFirstResponder(self); down = convert(event.locationInWindow, from: nil); dragging = false }
     override func mouseDragged(with event: NSEvent) {
