@@ -278,15 +278,10 @@ final class ModuleSettingsHeader: NSStackView {
         self.tool = tool; self.module = module
         super.init(frame: .zero)
         orientation = .vertical; alignment = tool == .capture ? .trailing : .leading; spacing = 8
-        let enabled = NSStackView(); enabled.orientation = .horizontal; enabled.spacing = 12
-        let label = NSTextField(labelWithString: "启用"); label.font = SketchPalette.heading(16)
-        label.textColor = .secondaryLabelColor
-        label.widthAnchor.constraint(equalToConstant: 88).isActive = true
-        enabled.addArrangedSubview(label); enabled.addArrangedSubview(toggle)
         toggle.widthAnchor.constraint(equalToConstant:68).isActive=true
         toggle.heightAnchor.constraint(equalToConstant:30).isActive=true
         toggle.target = self; toggle.action = #selector(changeEnabled); toggle.setAccessibilityLabel("启用\(tool.title)")
-        addArrangedSubview(enabled)
+        addArrangedSubview(toggle)
         for button in [accessibility, screenCapture] { button.target = self; addArrangedSubview(button) }
         accessibility.action = #selector(allowAccessibility); screenCapture.action = #selector(allowScreenCapture)
         issue.font = .systemFont(ofSize: 11); issue.textColor = .secondaryLabelColor; issue.maximumNumberOfLines = 2
