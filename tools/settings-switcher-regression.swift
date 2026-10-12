@@ -136,10 +136,10 @@ import MacOSXCore
         try require(!promptIssue.isHidden && promptIssue.stringValue.hasPrefix("提示词：") && promptBoard.bounds.contains(promptIssue.frame),"prompt shortcut conflict uses the correct module name and a visible external explanation")
         try require(descendants(promptKey).compactMap { $0 as? NSButton }.filter { !$0.isHiddenOrHasHiddenAncestor }.allSatisfy { promptKey.bounds.contains($0.convert($0.bounds,to:promptKey)) },"prompt trigger mode and chord fit a narrow board without a duplicate title")
         for tool in Tool.allCases {
-            try require(SketchCardArt.image(tool.symbol) != nil, "all four approved entry illustrations must load from the bundled atlas")
+            try require(SketchCardArt.image(tool.symbol) != nil, "every module entry illustration must load from its bundled resource")
         }
         if let output {
-            let board = NSView(frame: CGRect(x: 0, y: 0, width: 840, height: 185))
+            let board = NSView(frame: CGRect(x: 0, y: 0, width: CGFloat(Tool.allCases.count) * 216, height: 185))
             for (index, tool) in Tool.allCases.enumerated() {
                 let card = ToolCard(title: tool.title, symbol: tool.symbol) {}
                 card.frame = CGRect(x: CGFloat(index) * 216, y: 0, width: 192, height: 177)

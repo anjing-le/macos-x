@@ -207,7 +207,7 @@ final class SketchWindowHeader: SketchSurface {
     }
 }
 
-/// Four small bundled illustrations, lazily decoded and shared by home/catalog.
+/// Small bundled illustrations, lazily decoded and shared by home/catalog.
 @MainActor
 enum SketchCardArt {
     // One approved contact sheet, decoded once. Source rectangles exclude its
@@ -241,7 +241,34 @@ enum SketchCardArt {
         }
         return result
     }()
+    private static let systemStatusImage: NSImage? = {
+        guard let url = Bundle.main.url(forResource: "CardSystemStatus", withExtension: "png"),
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 256
+              ] as CFDictionary) else { return nil }
+        // Match the entry-card canvas, cropping only the source's paper margin.
+        // Aspect-fill keeps the monitor proportional and avoids a second frame.
+        let size = CGSize(width: 256, height: 236)
+        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 256, pixelsHigh: 236,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+            let context = NSGraphicsContext(bitmapImageRep: bitmap) else { return nil }
+        let scale = max(size.width / CGFloat(thumbnail.width), size.height / CGFloat(thumbnail.height))
+        let drawn = CGSize(width: CGFloat(thumbnail.width) * scale, height: CGFloat(thumbnail.height) * scale)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context; context.imageInterpolation = .high
+        NSImage(cgImage: thumbnail, size: drawn).draw(in: CGRect(
+            x: (size.width - drawn.width) / 2, y: (size.height - drawn.height) / 2,
+            width: drawn.width, height: drawn.height))
+        NSGraphicsContext.restoreGraphicsState()
+        let image = NSImage(size: size); image.addRepresentation(bitmap)
+        return image
+    }()
     static func image(_ symbol: String) -> NSImage? {
-        images[symbol]
+        if symbol == "chart.xyaxis.line" { return systemStatusImage }
+        return images[symbol]
     }
 }

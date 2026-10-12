@@ -6,6 +6,7 @@ import MacOSXCore
 final class ModuleCoordinator {
     var onStateChanged: ((Tool) -> Void)?
     var onScreenCapturePermissionNeeded: (() -> Void)?
+    var onShowSystemStatus: (() -> Void)?
     private let defaults: UserDefaults
     let shortcuts: ShortcutStore
     private let input = GlobalInput()
@@ -15,6 +16,7 @@ final class ModuleCoordinator {
     private var finishingCaptures: [UUID: CaptureModule] = [:]
     private var switcher: WindowSwitcherModule?
     private var layout:WindowLayoutModule?
+    private var systemStatus: SystemStatusModule?
     private var issues: [ShortcutAction: String] = [:]
     private var tapIssue: String?
     private var activeObserver: NSObjectProtocol?
@@ -84,6 +86,13 @@ final class ModuleCoordinator {
 
     private func ensure(_ tool: Tool) {
         switch tool {
+        case .systemStatus:
+            if systemStatus == nil {
+                let module = SystemStatusModule()
+                module.onOpenDashboard = { [weak self] in self?.onShowSystemStatus?() }
+                module.onStatusChange = { [weak self] in self?.onStateChanged?(.systemStatus) }
+                systemStatus = module
+            }
         case .windowLayout:
             if layout == nil { layout=WindowLayoutModule(); layout?.onStatusChange={ [weak self] in self?.onStateChanged?(.windowLayout) } }
         case .kaomoji: if wheel == nil { wheel = PhraseWheelModule(defaults: defaults) }
@@ -107,10 +116,11 @@ final class ModuleCoordinator {
 
     private func start(_ tool: Tool) {
         ensure(tool)
-        switch tool { case .kaomoji: wheel?.start(); case .capture: capture?.start(); case .windowSwitcher: switcher?.start();case .windowLayout:layout?.start(); layout?.refreshPermission() }
+        switch tool { case .kaomoji: wheel?.start(); case .capture: capture?.start(); case .windowSwitcher: switcher?.start();case .windowLayout:layout?.start(); layout?.refreshPermission(); case .systemStatus: systemStatus?.start() }
     }
     private func stop(_ tool: Tool, remove: Bool) {
         switch tool {
+        case .systemStatus: systemStatus?.stop(); if remove { systemStatus = nil }
         case .kaomoji: wheel?.stop(); if remove { wheel = nil }
         case .capture:
             capture?.stop()
@@ -158,8 +168,11 @@ final class ModuleCoordinator {
         case .capture: return capture!.settingsView
         case .windowSwitcher: return switcher!.settingsView
         case .windowLayout:return layout!.settingsView
+        case .systemStatus:return systemStatus!.makeDashboard()
         }
     }
+
+    func refreshSystemStatusDisplay() { systemStatus?.refreshDashboard() }
 
     func shortcutPicker(_ action: ShortcutAction, showsTitle: Bool = true) -> NSView {
         let label=action == .wheel ? "唤起" : action.title
@@ -197,6 +210,7 @@ final class ModuleCoordinator {
     }
     func issue(for tool: Tool) -> String? {
         if !isEnabled(tool) { return nil }
+        if tool == .systemStatus { return systemStatus?.issue }
         if tool == .kaomoji {
             let usesTap = shortcuts.binding(for: .wheel).kind == .doubleModifier
             return issues[.wheel] ?? (usesTap && !needsAccessibility(tool) ? tapIssue : nil)
@@ -238,7 +252,7 @@ final class ModuleCoordinator {
         terminating = true
         if let activeObserver { NotificationCenter.default.removeObserver(activeObserver); self.activeObserver = nil }
         input.stop()
-        wheel?.stop(); switcher?.stop(); layout?.stop()
+        wheel?.stop(); switcher?.stop(); layout?.stop(); systemStatus?.stop()
         let captures = Array(finishingCaptures.values) + (capture.map { [$0] } ?? [])
         guard !captures.isEmpty else { DispatchQueue.main.async { completion() }; return }
         var outstanding = captures.count

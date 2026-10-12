@@ -5,6 +5,7 @@ enum Tool: String, CaseIterable, Hashable {
     case windowSwitcher
     case kaomoji
     case windowLayout
+    case systemStatus
 
     var title: String {
         switch self {
@@ -12,6 +13,7 @@ enum Tool: String, CaseIterable, Hashable {
         case .windowSwitcher: return "窗口切换"
         case .kaomoji: return "提示词库"
         case .windowLayout:return "窗口布局"
+        case .systemStatus:return "系统状态"
         }
     }
 
@@ -21,6 +23,7 @@ enum Tool: String, CaseIterable, Hashable {
         case .windowSwitcher: return "macwindow.on.rectangle"
         case .kaomoji: return "text.bubble"
         case .windowLayout:return "rectangle.split.2x1"
+        case .systemStatus:return "chart.xyaxis.line"
         }
     }
 }
@@ -157,7 +160,7 @@ private final class ToolboxContent: NSView {
         scroll.documentView = detailDocument
         views.forEach { view in
             detail.addArrangedSubview(view)
-            if view is SettingsBoardView || view is ModuleSettingsHeader || view is ModuleCatalogView {
+            if view is SettingsBoardView || view is ModuleSettingsHeader || view is ModuleCatalogView || view is SystemStatusDashboardView {
                 view.widthAnchor.constraint(equalTo: detail.widthAnchor).isActive = true
             }
         }
@@ -183,7 +186,7 @@ private final class ToolboxContent: NSView {
         } else {
             let inset: CGFloat = 24
             let preferredWidth = max(480, detail.arrangedSubviews.map { $0.intrinsicContentSize.width }.max() ?? 480)
-            let fillsPage = detail.arrangedSubviews.contains { $0 is SettingsBoardView || $0 is ModuleCatalogView }
+            let fillsPage = detail.arrangedSubviews.contains { $0 is SettingsBoardView || $0 is ModuleCatalogView || $0 is SystemStatusDashboardView }
             let contentWidth = max(220, fillsPage ? width - inset * 2 : min(preferredWidth, width - inset * 2))
             detailWidth.constant = contentWidth
             detail.frame = NSRect(x: inset, y: inset, width: contentWidth, height: max(0, detail.fittingSize.height))
@@ -254,6 +257,11 @@ final class ToolboxWindowController: NSWindowController {
             self.showSettings(.capture)
             self.present()
         }
+        modules.onShowSystemStatus = { [weak self] in
+            guard let self, self.added.tools.contains(.systemStatus) else { return }
+            self.showSettings(.systemStatus)
+            self.present()
+        }
         modules.reconcile(added.tools)
         showHome()
     }
@@ -266,6 +274,7 @@ final class ToolboxWindowController: NSWindowController {
         window?.deminiaturize(nil)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
+        modules.refreshSystemStatusDisplay()
     }
 
     private func navigate(_ page: Page, title: String) {
@@ -317,6 +326,10 @@ final class ToolboxWindowController: NSWindowController {
         navigate(.settings(tool), title: tool.title)
         let header = ModuleSettingsHeader(tool: tool, module: modules)
         settingsHeader = header
+        if tool == .systemStatus {
+            content.showDetail([header, modules.settingsView(for: tool)])
+            return
+        }
         let shortcuts: [NSView]
         switch tool {
         case .kaomoji: shortcuts = [modules.shortcutPicker(.wheel)]
@@ -327,6 +340,7 @@ final class ToolboxWindowController: NSWindowController {
             label.font = .systemFont(ofSize:16); label.textColor = SketchPalette.ink; label.alignment = .center
             label.toolTip = "Tab 选择 · Shift 反向 · 松开 Command 确认"
             shortcuts = [label]
+        case .systemStatus: shortcuts = []
         }
         let board = SettingsBoardView(kind: tool.rawValue, settings: modules.settingsView(for: tool), shortcuts: shortcuts)
         content.showDetail([header, board])
