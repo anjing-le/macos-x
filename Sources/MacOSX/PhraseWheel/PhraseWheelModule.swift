@@ -62,6 +62,7 @@ import MacOSXCore
     }
     func start() { enabled = true }
     func stop() {
+        settings?.endInteraction()
         enabled = false; revision += 1; saveWork?.cancel(); saveWork = nil
         if needsSave, let data = try? JSONEncoder().encode(collection), data.count <= PromptCollection.byteLimit {
             defaults.set(data, forKey: Self.key); needsSave = false
@@ -86,6 +87,11 @@ import MacOSXCore
     private func dismissWheel() { let old = panel; panel = nil; old?.dismiss() }
 }
 
+@MainActor private final class PromptEditingTextView: NSTextView {
+    private let history: UndoManager = { let value = UndoManager(); value.levelsOfUndo = 32; return value }()
+    override var undoManager: UndoManager? { history }
+}
+
 @MainActor private final class PromptSettingsView: NSView, NSSearchFieldDelegate, NSTextViewDelegate, NSTableViewDataSource, NSTableViewDelegate {
     var onChange: ((PromptCollection) -> Void)?
     var onPreview: (() -> Void)?
@@ -103,11 +109,21 @@ import MacOSXCore
     private let editorHint=NSTextField(wrappingLabelWithString:"点左侧常用位置进行编辑；全部提示词可搜索、分配到常用位置。")
     private var loading = false
     private var wasCompact = false
+    private let dragContext = PromptDragContext()
+    private var draggingLibrary = false
+    private var lastDeleted: PromptCollection.DeletedPrompt?
+    private var interactionRevision = 0
+    private var exportTask: Task<Void, Never>?
+    private var exportPanel: NSSavePanel?
+    private var closeObserver: NSObjectProtocol?
     private let presentationHost = NSView()
     private var presentationPreview: PromptWheelView?
     private let wheelTab = MinimalButton(title: "常用", target: nil, action: nil, style: .quiet)
     private let libraryTab = MinimalButton(title: "全部", target: nil, action: nil, style: .quiet)
     private let add = MinimalButton(title: "+", target: nil, action: nil, style: .quiet)
+    private let delete = MinimalButton(title: "删除", target: nil, action: nil, style: .quiet)
+    private let undoDelete = MinimalButton(title: "撤销删除", target: nil, action: nil, style: .quiet)
+    private let exporter = MinimalButton(title: "导出 JSON", target: nil, action: nil, style: .quiet)
     private let importer = MinimalButton(title: "导入 JSON", target: nil, action: nil, style: .quiet)
     private let cancelImport = MinimalButton(title: "取消", target: nil, action: nil, style: .quiet)
     private let format = MinimalButton(title: "格式", target: nil, action: nil, style: .quiet)
@@ -120,7 +136,7 @@ import MacOSXCore
     private let picker = MinimalPopUpButton()
     private let placement = MinimalPopUpButton()
     private let titleField = SketchTextField()
-    private let body = NSTextView(), table = NSTableView(), search = SketchSearchField()
+    private let body = PromptEditingTextView(), table = NSTableView(), search = SketchSearchField()
     private let scroll = SketchScrollView(), listScroll = SketchScrollView()
     private let status = NSTextField(wrappingLabelWithString: "")
     private let artwork = IllustratedSettingChoice.artwork("SettingsPromptsBoard")
@@ -130,7 +146,14 @@ import MacOSXCore
         self.presentation = presentation
         self.collection = collection; encodedSize = (try? JSONEncoder().encode(collection).count) ?? 0
         super.init(frame: NSRect(x:0,y:0,width:760,height:508))
-        for (button, action) in [(wheelTab,#selector(showWheel)),(libraryTab,#selector(showLibrary)),(add,#selector(addPrompt)),(importer,#selector(importPressed)),(format,#selector(copyFormat)),(cancelImport,#selector(cancelPendingImport)),(preview,#selector(previewPressed))] { button.target = self; button.action = action; addSubview(button) }
+        for (button, action) in [(wheelTab,#selector(showWheel)),(libraryTab,#selector(showLibrary)),(add,#selector(addPrompt)),(delete,#selector(deletePrompt)),(undoDelete,#selector(restorePrompt)),(exporter,#selector(exportPressed)),(importer,#selector(importPressed)),(format,#selector(copyFormat)),(cancelImport,#selector(cancelPendingImport)),(preview,#selector(previewPressed))] { button.target = self; button.action = action; addSubview(button) }
+        dragContext.owner = self
+        dragContext.onEnd = { [weak self] in self?.finishLibraryDrag() }
+        delete.setAccessibilityLabel("从提示词库删除选中内容"); delete.toolTip = "删除内容及常用位置；可撤销最近一次删除"
+        undoDelete.setAccessibilityLabel("撤销最近一次删除"); exporter.setAccessibilityLabel("导出完整提示词库 JSON")
+        undoDelete.toolTip = "撤销最近一次删除（非输入文字时可按 ⌘Z）"
+        exporter.toolTip = "导出完整库、常用位置和草稿；JSON 上限 4 MB"
+        delete.identifier = .init("prompt-delete"); undoDelete.identifier = .init("prompt-undo-delete"); exporter.identifier = .init("prompt-export")
         displayStyle.identifier = .init("prompt-presentation")
         ringCount.identifier = .init("prompt-ring-count"); listCount.identifier = .init("prompt-list-count")
         displayStyle.addItems(withTitles: ["轮盘", "清单"])
@@ -157,7 +180,7 @@ import MacOSXCore
         placement.target = self; placement.action = #selector(changePlacement); placement.setAccessibilityLabel("转盘位置")
         titleField.placeholderString = "标题"; titleField.delegate = self; titleField.isBezeled = false; titleField.drawsBackground = false
         titleField.font = .systemFont(ofSize:16,weight:.medium); titleField.focusRingType = .none; titleField.setAccessibilityLabel("提示词标题")
-        body.isRichText = false; body.isAutomaticQuoteSubstitutionEnabled = false; body.isAutomaticDashSubstitutionEnabled = false
+        body.isRichText = false; body.allowsUndo = true; body.isAutomaticQuoteSubstitutionEnabled = false; body.isAutomaticDashSubstitutionEnabled = false
         body.font = .systemFont(ofSize:15); body.textColor = SketchPalette.ink; body.delegate = self; body.drawsBackground = false; body.textContainerInset = NSSize(width:10,height:10)
         body.isHorizontallyResizable = false; body.autoresizingMask = [.width]; body.textContainer?.widthTracksTextView = true; body.setAccessibilityLabel("提示词内容")
         scroll.documentView = body; scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.drawsBackground = false
@@ -166,6 +189,8 @@ import MacOSXCore
         let column = NSTableColumn(identifier: .init("title")); table.addTableColumn(column); table.headerView = nil
         table.dataSource = self; table.delegate = self; table.rowHeight = 32; table.selectionHighlightStyle = .regular; table.backgroundColor = .clear
         table.setAccessibilityLabel("全部提示词")
+        table.setDraggingSourceOperationMask(.move, forLocal: true)
+        table.setDraggingSourceOperationMask([], forLocal: false)
         listScroll.documentView = table; listScroll.hasVerticalScroller = true; listScroll.autohidesScrollers = true; listScroll.drawsBackground = false
         status.font = .systemFont(ofSize:11); status.textColor = .secondaryLabelColor; status.maximumNumberOfLines = 2
         for view in [picker,placement,titleField,scroll,search,listScroll,status] { addSubview(view) }
@@ -205,7 +230,9 @@ import MacOSXCore
         let leftWidth=editorX-32, tabY=bounds.height-96
         wheelTab.frame=CGRect(x:16,y:tabY,width:54,height:28)
         libraryTab.frame=CGRect(x:74,y:tabY,width:54,height:28)
-        add.frame=CGRect(x:136,y:tabY,width:28,height:28)
+        add.frame=CGRect(x:132,y:tabY,width:28,height:28)
+        delete.frame=CGRect(x:166,y:tabY,width:54,height:28)
+        undoDelete.frame=CGRect(x:226,y:tabY,width:72,height:28)
         presentationHost.frame=CGRect(x:16,y:62,width:leftWidth,height:tabY-70); layoutPreview()
         search.frame=CGRect(x:16,y:tabY-40,width:leftWidth,height:30)
         listScroll.frame=CGRect(x:16,y:66,width:leftWidth,height:tabY-114)
@@ -214,8 +241,9 @@ import MacOSXCore
         scroll.frame=CGRect(x:editorX,y:66,width:editorWidth,height:bounds.height-248)
         scroll.layer?.backgroundColor=NSColor.clear.cgColor
         body.frame.size.width=scroll.contentSize.width
-        importer.frame=CGRect(x:16,y:28,width:110,height:28)
-        format.frame=CGRect(x:132,y:28,width:48,height:28); cancelImport.frame=format.frame
+        importer.frame=CGRect(x:16,y:28,width:100,height:28)
+        format.frame=CGRect(x:122,y:28,width:42,height:28); cancelImport.frame=format.frame
+        exporter.frame=CGRect(x:170,y:28,width:86,height:28)
         preview.frame=CGRect(x:bounds.width-76,y:28,width:60,height:28)
         status.frame=CGRect(x:16,y:0,width:bounds.width-32,height:26)
         table.tableColumns.first?.width=max(80,listScroll.contentSize.width)
@@ -246,7 +274,9 @@ import MacOSXCore
         }
         let top = bounds.height-(compact ? 142 : 80), left = compact ? bounds.width : 360
         wheelTab.frame = NSRect(x:0,y:top,width:54,height:28); libraryTab.frame = NSRect(x:58,y:top,width:54,height:28)
-        add.frame = NSRect(x:left-32,y:top,width:28,height:28)
+        add.frame = NSRect(x:116,y:top,width:28,height:28)
+        delete.frame=CGRect(x:150,y:top,width:54,height:28)
+        undoDelete.frame=CGRect(x:210,y:top,width:72,height:28)
         let ringSize = min(compact ? 360 : 268,left)
         presentationHost.frame = NSRect(x:0,y:top-ringSize-12,width:ringSize,height:ringSize)
         layoutPreview()
@@ -258,7 +288,8 @@ import MacOSXCore
         titleField.frame = NSRect(x:x+10,y:editTop-42,width:width-20,height:28)
         scroll.frame = NSRect(x:x,y:66,width:width,height:max(100,editTop-112))
         body.frame.size.width = scroll.contentSize.width; scroll.layer?.backgroundColor = SketchPalette.paper.cgColor
-        importer.frame = NSRect(x:0,y:28,width:110,height:28); format.frame = NSRect(x:116,y:28,width:48,height:28)
+        importer.frame = NSRect(x:0,y:28,width:100,height:28); format.frame = NSRect(x:106,y:28,width:42,height:28)
+        exporter.frame=CGRect(x:154,y:28,width:82,height:28)
         cancelImport.frame = format.frame
         preview.frame = NSRect(x:bounds.width-60,y:28,width:60,height:28)
         status.frame = NSRect(x:0,y:0,width:bounds.width,height:26)
@@ -267,7 +298,9 @@ import MacOSXCore
     }
     private func refresh() {
         rebuildPreview()
-        presentationHost.isHidden = libraryMode; listScroll.isHidden = !libraryMode; search.isHidden = !libraryMode
+        updateModeVisibility()
+        delete.isEnabled = selected != nil; undoDelete.isEnabled = lastDeleted != nil
+        editorHint.stringValue = "拖动条目放入常用位置；拖动已有位置互换。也可用位置菜单调整。"
         wheelTab.state = libraryMode ? .off : .on; libraryTab.state = libraryMode ? .on : .off
         picker.isHidden = libraryMode; placement.isHidden = !libraryMode
         picker.removeAllItems(); picker.addItem(withTitle:"空位")
@@ -283,6 +316,7 @@ import MacOSXCore
         presentationPreview?.finish(); presentationPreview?.removeFromSuperview()
         let view = PromptWheelView(size:CGSize(width:360,height:360),collection:collection,
                                    presentation:presentation,editing:true,selectedPrompt:selected,selectedSlot:selectedSlot)
+        view.configureDragging(context: dragContext) { [weak self] payload, slot in self?.dropPrompt(payload, to: slot) ?? false }
         view.onEditSlot = { [weak self] slot in self?.selectSlot(slot) }
         view.onEditPrompt = { [weak self] index in
             guard let self else { return }
@@ -305,19 +339,82 @@ import MacOSXCore
     }
     private func loadEntry() {
         loading = true; titleField.stringValue = selected.map { collection.prompts[$0].title } ?? ""
-        body.string = selected.map { collection.prompts[$0].content } ?? ""; loading = false
+        body.string = selected.map { collection.prompts[$0].content } ?? ""; body.undoManager?.removeAllActions(); loading = false
     }
     private func selectSlot(_ slot:Int) {
         window?.makeFirstResponder(nil); selectedSlot = slot
         selected = collection.slots[slot].flatMap { id in collection.prompts.firstIndex(where: { $0.id==id }) }
         loadEntry(); refresh()
     }
+    private func updateModeVisibility() {
+        presentationHost.isHidden = libraryMode && !draggingLibrary
+        listScroll.isHidden = !libraryMode || draggingLibrary; search.isHidden = !libraryMode || draggingLibrary
+    }
+    func endInteraction() {
+        interactionRevision += 1; exportTask?.cancel(); exportTask = nil; exporter.isEnabled = true
+        exportPanel?.cancel(nil); exportPanel = nil
+        dragContext.end(); importDropdown?.dismiss(); importDropdown = nil
+    }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }; closeObserver = nil
+        endInteraction()
+        if let window {
+            closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.endInteraction() }
+            }
+        }
+    }
+    deinit { if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) } }
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if event.keyCode == 6, !event.isARepeat, flags == .command, lastDeleted != nil, !(window?.firstResponder is NSTextView) {
+            restorePrompt(); return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+    private func finishLibraryDrag() {
+        guard draggingLibrary else { return }; draggingLibrary = false; updateModeVisibility()
+    }
+    private func dropPrompt(_ payload: PromptDragContext.Payload, to slot: Int) -> Bool {
+        if let window, !window.makeFirstResponder(nil) { return false }
+        guard !body.hasMarkedText(), (titleField.currentEditor() as? NSTextView)?.hasMarkedText() != true else {
+            status.stringValue = "先完成文字输入，再调整位置"; return false
+        }
+        changed()
+        var candidate = collection
+        let id: String
+        switch payload {
+        case let .preset(source, sourceID):
+            guard collection.slots.indices.contains(source), collection.slots[source] == sourceID,
+                  candidate.swapSlots(source, slot) else { return false }; id = sourceID
+        case let .library(sourceID):
+            guard candidate.place(sourceID, to: slot) else { return false }; id = sourceID
+        }
+        guard applySlots(candidate.slots) else { return false }
+        selectedSlot = slot; selected = collection.prompts.firstIndex { $0.id == id }
+        loadEntry(); refresh(); onChange?(collection)
+        status.stringValue = "已放到位置 \(slot+1)"; return true
+    }
+    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
+        guard libraryMode, presentation.count > 0, rows.indices.contains(row) else { return nil }
+        return dragContext.begin(source: table, payload: .library(id: collection.prompts[rows[row]].id))
+    }
+    func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint, forRowIndexes rowIndexes: IndexSet) {
+        beginLibraryDrag()
+    }
+    private func beginLibraryDrag() {
+        window?.makeFirstResponder(nil); draggingLibrary = true; updateModeVisibility()
+        status.stringValue = "拖到常用位置；松开完成，Esc 取消"
+    }
+    func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) { dragContext.end() }
     @objc private func showWheel() { window?.makeFirstResponder(nil); libraryMode = false; selectSlot(selectedSlot); invalidateIntrinsicContentSize() }
     @objc private func showLibrary() { window?.makeFirstResponder(nil); libraryMode = true; refresh(); invalidateIntrinsicContentSize() }
     @objc private func pickExisting() {
         window?.makeFirstResponder(nil); selected = picker.indexOfSelectedItem == 0 ? nil : picker.indexOfSelectedItem-1
         var nextSlots = collection
-        nextSlots.assign(selected.map { collection.prompts[$0].id }, to:selectedSlot)
+        if let selected { _ = nextSlots.place(collection.prompts[selected].id, to: selectedSlot) }
+        else { nextSlots.assign(nil, to: selectedSlot) }
         guard applySlots(nextSlots.slots) else { selectSlot(selectedSlot); return }
         loadEntry(); refresh(); onChange?(collection)
     }
@@ -326,7 +423,7 @@ import MacOSXCore
         let item = placement.indexOfSelectedItem, id = collection.prompts[selected].id
         var candidate = collection
         if item == 0 { for i in candidate.slots.indices where candidate.slots[i]==id { candidate.slots[i] = nil } }
-        else { candidate.assign(id,to:item-1) }
+        else { _ = candidate.place(id,to:item-1) }
         guard applySlots(candidate.slots) else { refresh(); return }
         if item > 0 { selectedSlot = item-1 }
         refresh(); onChange?(collection)
@@ -348,12 +445,41 @@ import MacOSXCore
         selected = collection.prompts.count-1; libraryMode = true; loadEntry(); refresh(); invalidateIntrinsicContentSize()
         onChange?(collection); window?.makeFirstResponder(titleField)
     }
+    @objc private func deletePrompt() {
+        window?.makeFirstResponder(nil)
+        guard let selected, collection.prompts.indices.contains(selected) else { return }
+        let oldSlots = collection.slots, count = collection.prompts.count
+        guard let deleted = collection.remove(id: collection.prompts[selected].id) else { return }
+        encodedSize -= ((try? JSONEncoder().encode(deleted.prompt).count) ?? 0) + (count > 1 ? 1 : 0)
+        encodedSize += ((try? JSONEncoder().encode(collection.slots).count) ?? 0) - ((try? JSONEncoder().encode(oldSlots).count) ?? 0)
+        lastDeleted = deleted; self.selected = nil; loadEntry(); refresh(); onChange?(collection)
+        status.stringValue = "已删除；可撤销最近一次删除"
+    }
+    @objc private func restorePrompt() {
+        window?.makeFirstResponder(nil)
+        guard let deleted = lastDeleted else { return }
+        do {
+            let oldSlots = collection.slots, count = collection.prompts.count
+            try collection.restore(deleted)
+            encodedSize += ((try? JSONEncoder().encode(deleted.prompt).count) ?? 0) + (count > 0 ? 1 : 0)
+            encodedSize += ((try? JSONEncoder().encode(collection.slots).count) ?? 0) - ((try? JSONEncoder().encode(oldSlots).count) ?? 0)
+            lastDeleted = nil; selected = collection.prompts.firstIndex { $0.id == deleted.prompt.id }
+            let restoredSlot = collection.slots.firstIndex(of: deleted.prompt.id)
+            if let restoredSlot { selectedSlot = restoredSlot } else { libraryMode = true }
+            loadEntry(); refresh(); onChange?(collection)
+            status.stringValue = restoredSlot == nil ? "已恢复到库中；常用位置保持当前内容" : "已恢复内容与原位置"
+        } catch { status.stringValue = error.localizedDescription }
+    }
     func controlTextDidChange(_ notification:Notification) {
         if notification.object as? NSSearchField === search { filterRows() } else { changed() }
     }
+    func controlTextDidEndEditing(_ notification: Notification) { if notification.object as? NSSearchField !== search { changed() } }
     func textDidChange(_ notification:Notification) { changed() }
+    func textDidEndEditing(_ notification: Notification) { changed() }
     private func changed() {
         guard !loading, (titleField.currentEditor() as? NSTextView)?.hasMarkedText() != true, !body.hasMarkedText() else { return }
+        if let selected, collection.prompts[selected].title == titleField.stringValue, collection.prompts[selected].content == body.string { return }
+        if selected == nil && titleField.stringValue.isEmpty && body.string.isEmpty { return }
         var candidate = collection
         let index = selected ?? candidate.prompts.count
         let creating = selected == nil
@@ -403,6 +529,36 @@ import MacOSXCore
         onPresentationChange?(presentation)
     }
     @objc private func previewPressed() { window?.makeFirstResponder(nil); onPreview?() }
+    @objc private func exportPressed() {
+        window?.makeFirstResponder(nil)
+        guard let window else { return }; let snapshot = collection, expected = interactionRevision
+        exporter.isEnabled = false
+        exportTask = Task { @MainActor [weak self, weak window] in
+            let result = await Task.detached(priority: .userInitiated) { Result { try snapshot.exportJSON() } }.value
+            guard !Task.isCancelled, let self, self.interactionRevision == expected,
+                  let window, self.window === window else { return }
+            self.exportTask = nil; self.exporter.isEnabled = true
+            do {
+                let data = try result.get()
+                let panel = NSSavePanel(); panel.allowedContentTypes = [.json]; panel.nameFieldStringValue = "提示词.json"; panel.prompt = "导出"
+                self.exportPanel = panel
+                panel.beginSheetModal(for: window) { [weak self] response in
+                    self?.exportPanel = nil
+                    guard response == .OK, let url = panel.url else { return }
+                    self?.exporter.isEnabled = false
+                    Task { @MainActor [weak self] in
+                        let written = await Task.detached(priority: .userInitiated) { Result {
+                            let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
+                            try data.write(to: url, options: .atomic)
+                        } }.value
+                        guard let self, self.interactionRevision == expected else { return }; self.exporter.isEnabled = true
+                        switch written { case .success: self.status.stringValue = "已导出 \(snapshot.prompts.count) 条，包含常用位置和草稿"
+                        case .failure: self.status.stringValue = "无法保存 JSON 文件" }
+                    }
+                }
+            } catch { self.status.stringValue = error.localizedDescription }
+        }
+    }
     @objc private func copyFormat() { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(PromptImport.aiInstructions,forType:.string); status.stringValue = "AI 导入格式已复制" }
     @objc private func importPressed() {
         window?.makeFirstResponder(nil)

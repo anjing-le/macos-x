@@ -74,4 +74,135 @@ final class PromptCollectionTests: XCTestCase {
         let imported = try document("{\"version\":1,\"prompts\":[{\"title\":\"a\",\"content\":\"b\\u0000c\"}]}")
         XCTAssertEqual(try base.merging(imported).prompts.count,2)
     }
+    func testSlotSwapPreservesBothPromptsAndHiddenPositions() throws {
+        var value = PromptCollection(legacy:[.init(title:"一",content:"正文一"),.init(title:"二",content:"正文二")])
+        value.assign("legacy-2",to:9)
+        let originalPrompts = value.prompts
+        XCTAssertTrue(value.swapSlots(0,9))
+        XCTAssertEqual(value.slots[0],"legacy-2")
+        XCTAssertEqual(value.slots[9],"legacy-1")
+        XCTAssertEqual(value.prompts,originalPrompts)
+        XCTAssertTrue(value.swapSlots(9,4))
+        XCTAssertNil(value.slots[9]); XCTAssertEqual(value.slots[4],"legacy-1")
+        try value.validate()
+    }
+    func testDroppingAssignedLibraryPromptSwapsButUnassignedPromptRetainsDisplacedEntry() throws {
+        var value = PromptCollection(legacy:[.init(title:"一",content:"正文一"),.init(title:"二",content:"正文二")])
+        XCTAssertTrue(value.place("legacy-1",to:1))
+        XCTAssertEqual(Array(value.slots.prefix(2)),["legacy-2","legacy-1"])
+        value.prompts.append(.init(id:"unplaced",title:"搜索",content:"完整正文"))
+        XCTAssertTrue(value.place("unplaced",to:0))
+        XCTAssertEqual(value.slots[0],"unplaced")
+        XCTAssertEqual(value.prompts.first(where: { $0.id == "legacy-2" })?.content,"正文二")
+        let before = value
+        XCTAssertFalse(value.place("unplaced",to:0))
+        XCTAssertFalse(value.place("missing",to:0))
+        XCTAssertFalse(value.place("legacy-1",to:-1))
+        XCTAssertFalse(value.swapSlots(0,10))
+        XCTAssertFalse(value.swapSlots(5,6))
+        XCTAssertEqual(value,before)
+        try value.validate()
+    }
+    func testDeleteAndUndoRestoreOrderBodyAndFormerEmptySlot() throws {
+        var value = PromptCollection(legacy:[.init(title:"一",content:"正文一"),.init(title:"二",content:"正文二")])
+        let before = value
+        let deleted = try XCTUnwrap(value.remove(id:"legacy-1"))
+        XCTAssertNil(value.slots[0]); XCTAssertEqual(value.prompts.map(\.id),["legacy-2"])
+        XCTAssertNil(value.remove(id:"missing"))
+        try value.restore(deleted)
+        XCTAssertEqual(value,before)
+    }
+    func testUndoDoesNotOverwriteInterveningEditsOrOccupiedFormerSlot() throws {
+        var value = PromptCollection(legacy:[.init(title:"一",content:"正文一"),.init(title:"二",content:"正文二")])
+        let deleted = try XCTUnwrap(value.remove(id:"legacy-1"))
+        value.prompts[0].content = "删除后的编辑"
+        value.place("legacy-2",to:0)
+        value.prompts.append(.init(id:"new",title:"新",content:"之后新增"))
+        try value.restore(deleted)
+        XCTAssertEqual(value.prompts.map(\.id),["legacy-1","legacy-2","new"])
+        XCTAssertEqual(value.prompts[1].content,"删除后的编辑")
+        XCTAssertEqual(value.slots[0],"legacy-2")
+        XCTAssertFalse(value.slots.contains("legacy-1"))
+        try value.validate()
+    }
+    func testUndoCollisionAndCapacityFailureAreAtomic() throws {
+        var value = PromptCollection(legacy:[.init(title:"一",content:"正文一")])
+        let deleted = try XCTUnwrap(value.remove(id:"legacy-1"))
+        value.prompts.append(.init(id:"legacy-1",title:"新版本",content:"更新过"))
+        var before = value
+        XCTAssertThrowsError(try value.restore(deleted))
+        XCTAssertEqual(value,before)
+        value.prompts = (0..<500).map { .init(id:"p\($0)",title:"\($0)",content:"正文") }
+        before = value
+        XCTAssertThrowsError(try value.restore(deleted))
+        XCTAssertEqual(value,before)
+    }
+    func testExportImportRoundTripKeepsUnicodeEscapesDraftsAndAllPositions() throws {
+        var value = PromptCollection(legacy:[])
+        value.prompts = [
+            .init(id:"full",title:"标题 / \"引号\"",content:"第一行\n第二行\\\" 🥚\t\u{0}末尾"),
+            .init(id:"empty-title",title:"",content:"尚未命名的正文"),
+            .init(id:"empty-body",title:"待补全",content:""),
+            .init(id:"empty-both",title:"",content:""),
+            .init(id:"whitespace-title",title:" \n",content:"内容"),
+            .init(id:"unplaced",title:"搜索",content:"不在常用位置")
+        ]
+        value.assign("full",to:0); value.assign("empty-title",to:9); value.assign("empty-body",to:4); value.assign("empty-both",to:6)
+        let exported = try value.exportJSON()
+        let imported = try PromptImport.parse(exported)
+        XCTAssertNil(imported.prompts[0].draft)
+        XCTAssertEqual(imported.prompts[1].draft,true)
+        XCTAssertEqual(imported.prompts[2].draft,true)
+        XCTAssertEqual(imported.prompts[4].draft,true)
+        XCTAssertEqual(imported.prompts[1].slot,10)
+        XCTAssertNil(imported.prompts[5].slot)
+        XCTAssertEqual(try PromptCollection(legacy:[]).merging(imported),value)
+        XCTAssertEqual(try value.merging(imported),value)
+    }
+    func testEmptyLibraryExportIsValidAndImportDoesNotDeleteExistingPrompts() throws {
+        let empty = PromptCollection(legacy:[])
+        let imported = try PromptImport.parse(empty.exportJSON())
+        XCTAssertTrue(imported.prompts.isEmpty)
+        XCTAssertEqual(try empty.merging(imported),empty)
+        let existing = PromptCollection(legacy:[.init(title:"保留",content:"正文")])
+        XCTAssertEqual(try existing.merging(imported),existing)
+    }
+    func testNormalImportsStillRejectUnfinishedPromptsWithoutExplicitStableDraft() throws {
+        for json in [
+            "{\"version\":1,\"prompts\":[{\"title\":\"\",\"content\":\"正文\"}]}",
+            "{\"version\":1,\"prompts\":[{\"id\":\"a\",\"title\":\"标题\",\"content\":\"\"}]}",
+            "{\"version\":1,\"prompts\":[{\"title\":\"\",\"content\":\"\",\"draft\":true}]}",
+            "{\"version\":1,\"prompts\":[{\"id\":\"a\",\"title\":\"\",\"content\":\"\",\"draft\":false}]}",
+            "{\"version\":1,\"prompts\":[{\"id\":\"\",\"title\":\"\",\"content\":\"\",\"draft\":true}]}"
+        ] { XCTAssertThrowsError(try document(json)) }
+        XCTAssertEqual(try document("{\"version\":1,\"prompts\":[{\"id\":\"draft\",\"title\":\"\",\"content\":\"\",\"draft\":true}]}").prompts.count,1)
+    }
+    func testExportFallsBackToCompactJSONNearFourMegabyteLimit() throws {
+        var value = PromptCollection(legacy:[])
+        value.prompts = (0..<500).map { .init(id:"p\($0)",title:"\($0)",content:"") }
+        let overhead = try JSONEncoder().encode(value).count
+        let body = String(repeating:"a",count:(PromptCollection.byteLimit - overhead - 1000) / 500)
+        for index in value.prompts.indices { value.prompts[index].content = body }
+        try value.validate()
+        let exported = try value.exportJSON()
+        XCTAssertLessThanOrEqual(exported.count,PromptCollection.byteLimit)
+        XCTAssertFalse(exported.contains(10),"Compact export should omit pretty-print newlines to remain within the import limit")
+        XCTAssertEqual(try PromptCollection(legacy:[]).merging(PromptImport.parse(exported)),value)
+    }
+    func testDraftMetadataBeyondTransportLimitFailsWithoutDroppingRecords() throws {
+        var value = PromptCollection(legacy:[])
+        value.prompts = (0..<500).map { .init(id:"draft\($0)",title:"",content:"") }
+        let overhead = try JSONEncoder().encode(value).count
+        let body = String(repeating:"a",count:(PromptCollection.byteLimit - overhead - 1000) / 500)
+        for index in value.prompts.indices { value.prompts[index].content = body }
+        value.assign("draft499",to:9)
+        try value.validate()
+        let before = value
+        XCTAssertThrowsError(try value.exportJSON()) { error in
+            XCTAssertEqual(error.localizedDescription,"导出 JSON 超过 4 MB")
+        }
+        XCTAssertEqual(value,before)
+        XCTAssertEqual(value.prompts.count,500)
+        XCTAssertEqual(value.slots[9],"draft499")
+    }
 }

@@ -14,20 +14,23 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
 }
 
 @MainActor final class PromptRingView: NSView {
-    private final class Card: NSButton {
+    private final class Card: PromptDraggableButton {
         override var isFlipped: Bool { false }
         var onHover: (() -> Void)?
         var sector = NSBezierPath()
         var labelCenter = CGPoint.zero
         var labelWidth: CGFloat = 72
         private var tracking: NSTrackingArea?
+        override var dragHitPoint: CGPoint { labelCenter }
+        override func containsClick(_ point: CGPoint) -> Bool { sector.contains(point) }
         override func hitTest(_ point: NSPoint) -> NSView? {
             guard !isHidden, sector.contains(convert(point, from: superview)) else { return nil }
             return self
         }
         override func mouseDown(with event:NSEvent) {
             guard isEnabled, sector.contains(convert(event.locationInWindow,from:nil)) else { return }
-            if let action { NSApp.sendAction(action,to:target,from:self) }
+            if dragContext != nil { super.mouseDown(with: event) }
+            else if let action { NSApp.sendAction(action,to:target,from:self) }
         }
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
@@ -40,9 +43,9 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
             if isEnabled, sector.contains(convert(event.locationInWindow, from: nil)) { onHover?() }
         }
         override func draw(_ dirtyRect: NSRect) {
-            let active = state == .on
-            SketchPalette.fill(sector, color: active ? SketchPalette.purple.withAlphaComponent(0.20) : SketchPalette.paper)
-            SketchPencil.stroke(sector, color: active ? SketchPalette.purple : SketchPalette.line.withAlphaComponent(0.72), width: active ? 1.05 : 0.8)
+            let active = state == .on || dropHighlighted
+            SketchPalette.fill(sector, color: active ? SketchPalette.purple.withAlphaComponent(0.24) : SketchPalette.paper)
+            SketchPencil.stroke(sector, color: active ? SketchPalette.purple : SketchPalette.line.withAlphaComponent(0.72), width: active ? 1.5 : 0.8)
             let text = NSAttributedString(string: title, attributes: [.font: NSFont.systemFont(ofSize: 12, weight: active ? .semibold : .medium), .foregroundColor: isEnabled ? (active ? SketchPalette.purple : SketchPalette.ink) : SketchPalette.muted])
             let paragraph = NSMutableParagraphStyle(); paragraph.alignment = .center; paragraph.lineBreakMode = .byTruncatingTail
             let styled = NSMutableAttributedString(attributedString: text); styled.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: styled.length))
@@ -59,6 +62,16 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
     private var outline = NSBezierPath()
     private var geometryBounds = CGRect.null
     private var geometryCount = -1
+    func configureDragging(context: PromptDragContext?, slots: [String?]) {
+        for (index, card) in cards.enumerated() {
+            card.dragContext = context
+            card.dragPayload = slots.indices.contains(index) ? slots[index].map { .preset(slot: index, id: $0) } : nil
+        }
+    }
+    func slot(at point: CGPoint) -> Int? {
+        cards.first { !$0.isHidden && $0.sector.contains(point) }?.tag
+    }
+    func highlightDrop(_ slot: Int?) { for card in cards { card.dropHighlighted = card.tag == slot } }
     init(size: CGSize) {
         super.init(frame: CGRect(origin: .zero, size: size))
         for i in 0..<10 {
@@ -182,7 +195,7 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
 }
 
 /// Small title-only rows inside the wheel; selection uses the shared pencil palette.
-@MainActor private final class PromptSearchResult: NSButton {
+@MainActor private final class PromptSearchResult: PromptDraggableButton {
     var onHover: (() -> Void)?
     private var tracking: NSTrackingArea?
     override func updateTrackingAreas() {
@@ -193,10 +206,11 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
     }
     override func mouseEntered(with event: NSEvent) { onHover?() }
     override func draw(_ dirtyRect: NSRect) {
-        let active = state == .on
+        let active = state == .on || dropHighlighted
         if active {
             let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 5, yRadius: 5)
-            SketchPalette.fill(path, color: SketchPalette.purple.withAlphaComponent(0.12))
+            SketchPalette.fill(path, color: SketchPalette.purple.withAlphaComponent(0.14))
+            SketchPencil.stroke(path, color: SketchPalette.purple.withAlphaComponent(0.72), width: 1)
         }
         let paragraph = NSMutableParagraphStyle(); paragraph.lineBreakMode = .byTruncatingTail
         let text = NSAttributedString(string: title, attributes: [
@@ -205,6 +219,13 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
             .paragraphStyle: paragraph
         ])
         text.draw(in: CGRect(x: 8, y: (bounds.height - 15)/2, width: bounds.width - 16, height: 15))
+    }
+}
+
+@MainActor private final class PromptPreviewSeparator: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        let line = NSBezierPath(); line.move(to:CGPoint(x:0,y:bounds.midY)); line.line(to:CGPoint(x:bounds.maxX,y:bounds.midY))
+        SketchPencil.stroke(line,color:SketchPalette.line.withAlphaComponent(0.45),width:0.7)
     }
 }
 
@@ -224,18 +245,59 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
     private let surface = SketchSurface()
     private let ring: PromptRingView
     private var displayed: [Int] = []
-    private let resultsPerPage = 10
+    private var resultsPerPage: Int {
+        min(10, max(1, Int((maximum.height - 64 - previewFooterHeight) / 21)))
+    }
     private var results: [PromptSearchResult] = []
     private var page = 0
     private let previous = MinimalButton(title: "‹", target: nil, action: nil, style: .quiet)
     private let next = MinimalButton(title: "›", target: nil, action: nil, style: .quiet)
     private let pageLabel = NSTextField(labelWithString: "")
     private let preview = NSTextField(wrappingLabelWithString: "")
+    private let previewHeading = NSTextField(labelWithString: "")
+    private let previewHint = NSTextField(labelWithString: "Enter 复制")
+    private let previewSeparator = PromptPreviewSeparator()
     private let empty = NSTextField(labelWithString: "无匹配")
     private var matches: [Int] = []
     private var selected: Int?
     private var searching = false
     private var finished = false
+    private weak var dragContext: PromptDragContext?
+    private var onDrop: ((PromptDragContext.Payload, Int) -> Bool)?
+    func configureDragging(context: PromptDragContext, onDrop: @escaping (PromptDragContext.Payload, Int) -> Bool) {
+        guard editing else { return }
+        dragContext = context; self.onDrop = onDrop
+        registerForDraggedTypes([PromptDragContext.pasteboardType]); refreshRing()
+    }
+    private func dropTarget(_ sender: NSDraggingInfo) -> (PromptDragContext.Payload, Int)? {
+        guard editing, !finished, !searching, let payload = dragContext?.acceptedPayload(from: sender) else { return nil }
+        let point = convert(sender.draggingLocation, from: nil)
+        let slot: Int?
+        if showsEditableSlots { slot = results.first { !$0.isHidden && $0.frame.contains(point) }.map { page * resultsPerPage + $0.tag } }
+        else { slot = ring.isHidden ? nil : ring.slot(at: ring.convert(point, from: self)) }
+        guard let slot else { return nil }
+        switch payload {
+        case let .preset(source, id):
+            guard source != slot, collection.slots.indices.contains(source), collection.slots[source] == id else { return nil }
+        case let .library(id):
+            guard collection.prompts.contains(where: { $0.id == id }), collection.slots[slot] != id else { return nil }
+        }
+        return (payload, slot)
+    }
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { draggingUpdated(sender) }
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let target = dropTarget(sender)
+        ring.highlightDrop(target?.1)
+        for row in results { row.dropHighlighted = showsEditableSlots && page * resultsPerPage + row.tag == target?.1 }
+        return target == nil ? [] : .move
+    }
+    override func draggingExited(_ sender: NSDraggingInfo?) { clearDropHighlight() }
+    private func clearDropHighlight() { ring.highlightDrop(nil); results.forEach { $0.dropHighlighted = false } }
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool { dropTarget(sender) != nil }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let (payload, slot) = dropTarget(sender) else { clearDropHighlight(); return false }
+        clearDropHighlight(); return onDrop?(payload, slot) ?? false
+    }
     init(size: CGSize, collection: PromptCollection, presentation: PromptPresentation, editing: Bool = false, selectedPrompt: Int? = nil, selectedSlot: Int? = nil) {
         self.editing = editing; self.editingSelection = selectedPrompt
         self.selectedSlot = selectedSlot
@@ -247,9 +309,16 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
         search.setAccessibilityLabel("搜索提示词标题")
         surface.radius = 16; surface.edge = SketchPalette.line.withAlphaComponent(0.6)
         addSubview(surface); addSubview(search)
-        preview.font = .systemFont(ofSize: 12); preview.textColor = .secondaryLabelColor
-        preview.maximumNumberOfLines = 2; preview.lineBreakMode = .byTruncatingTail
+        preview.font = .systemFont(ofSize: 11.5); preview.textColor = SketchPalette.ink.withAlphaComponent(0.8)
+        preview.maximumNumberOfLines = 3; preview.lineBreakMode = .byTruncatingTail
+        preview.identifier = .init("prompt-body-preview")
         preview.setAccessibilityLabel("提示词内容预览"); addSubview(preview)
+        previewHeading.font = .systemFont(ofSize: 11.5, weight: .semibold); previewHeading.textColor = SketchPalette.purple
+        previewHeading.lineBreakMode = .byTruncatingTail; previewHeading.identifier = .init("prompt-preview-heading")
+        previewHeading.setAccessibilityLabel("已选提示词"); addSubview(previewHeading)
+        previewHint.font = .systemFont(ofSize: 10.5); previewHint.textColor = SketchPalette.muted; previewHint.alignment = .right
+        previewHint.identifier = .init("prompt-preview-hint"); addSubview(previewHint)
+        addSubview(previewSeparator)
         empty.font = .systemFont(ofSize: 12); empty.textColor = .tertiaryLabelColor; addSubview(empty)
         ring.visibleCount = presentation.count
         addSubview(ring, positioned: .below, relativeTo: search)
@@ -258,13 +327,13 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
             if self.editing { self.onEditSlot?(slot) } else { self.choose(self.displayed[slot]) }
         }
         ring.onHover = { [weak self] slot in guard let self, !self.searching, self.displayed.indices.contains(slot), self.displayed[slot] >= 0 else { return }; self.highlight(self.displayed[slot]) }
-        for row in 0..<resultsPerPage {
+        for row in 0..<10 {
             let result = PromptSearchResult(title: "", target: self, action: #selector(pickedResult(_:)))
             result.isBordered = false; result.focusRingType = .none
             result.tag = row
             result.onHover = { [weak self] in
                 guard let self, self.showsList, self.matches.indices.contains(self.page * self.resultsPerPage + row) else { return }
-                if self.showsEditableSlots { self.highlightSlot(row) }
+                if self.showsEditableSlots { self.highlightSlot(self.page * self.resultsPerPage + row) }
                 else { self.highlight(self.matches[self.page * self.resultsPerPage + row]) }
             }
             addSubview(result); results.append(result)
@@ -276,14 +345,17 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
         refreshSearch()
     }
     required init?(coder: NSCoder) { nil }
-    func finish() { finished = true; onChoose = nil; onCancel = nil; search.delegate = nil; ring.onHover = nil; ring.onChoose = nil; onResize = nil; onEditSlot = nil; onEditPrompt = nil }
+    func finish() { finished = true; onChoose = nil; onCancel = nil; search.delegate = nil; ring.onHover = nil; ring.onChoose = nil; onResize = nil; onEditSlot = nil; onEditPrompt = nil; onDrop = nil; dragContext = nil; unregisterDraggedTypes(); ring.configureDragging(context: nil, slots: []); results.forEach { $0.dragContext = nil; $0.dragPayload = nil }; clearDropHighlight() }
     private var showsList: Bool { searching || presentation.style == .list || presentation.count == 0 }
     private var showsEditableSlots: Bool { editing && !searching && presentation.style == .list && presentation.count > 0 }
+    private var hasListPreview: Bool { !editing && showsList && !matches.isEmpty && maximum.height >= 176 && maximum.width >= 160 }
+    private var previewFooterHeight: CGFloat { hasListPreview ? 86 : 0 }
+    private var hasSelection: Bool { selected.map { collection.prompts.indices.contains($0) } == true }
     var preferredSize: CGSize {
         if !showsList { return maximum }
         let rows = min(resultsPerPage, matches.count)
-        let height = min(maximum.height,max(100,64+CGFloat(rows)*21))
-        return CGSize(width:min(320,maximum.width),height:ceil(height/2)*2)
+        let height = min(maximum.height,max(hasListPreview ? 184 : 100,64+CGFloat(rows)*21+previewFooterHeight))
+        return CGSize(width:min(320,maximum.width),height:min(maximum.height,ceil(height/2)*2))
     }
     override func layout() {
         super.layout(); ring.frame = bounds; surface.frame = bounds.insetBy(dx:8,dy:8)
@@ -292,18 +364,33 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
         // The search and rows stay at their native readable size on both surfaces.
         let top = bounds.maxY-16
         let searchWidth=min(132,max(72,(min(bounds.width,bounds.height)/2-12)*1.06-16))
-        let paging=searching && matches.count > resultsPerPage
-        search.frame = showsList && (searching || !matches.isEmpty) ? CGRect(x:28,y:top-30,width:bounds.width-56-(paging ? 94 : 0),height:30)
+        let paging=showsList && matches.count > resultsPerPage
+        let narrow = bounds.width < 240
+        let inset:CGFloat = narrow ? 16 : 28
+        let pagingWidth:CGFloat = narrow ? 56 : 94
+        search.frame = showsList && (searching || !matches.isEmpty) ? CGRect(x:inset,y:top-30,width:bounds.width-2*inset-(paging ? pagingWidth : 0),height:30)
                                 : CGRect(x:center.x-searchWidth/2,y:center.y-15,width:searchWidth,height:30)
-        preview.frame = CGRect(x:center.x-56,y:center.y-54,width:112,height:32)
-        preview.isHidden = editing || showsList || selected == nil || min(bounds.width,bounds.height) < 280
-        empty.frame = CGRect(x:28,y:search.frame.minY-32,width:bounds.width-56,height:22)
+        let inner = max(20, (min(bounds.width,bounds.height)/2-12)*0.53)
+        let ringPreviewHeight = min(43, max(28, inner-42))
+        let ringPreviewWidth = min(128, max(0, 2*sqrt(max(0, inner*inner-pow(22+ringPreviewHeight,2)))-8))
+        preview.frame = showsList ? CGRect(x:inset,y:20,width:bounds.width-2*inset,height:42)
+                                 : CGRect(x:center.x-ringPreviewWidth/2,y:center.y-22-ringPreviewHeight,width:ringPreviewWidth,height:ringPreviewHeight)
+        preview.maximumNumberOfLines = showsList || ringPreviewHeight >= 41 ? 3 : 2
+        preview.alignment = showsList ? .left : .center
+        preview.isHidden = editing || !hasSelection || (showsList ? !hasListPreview || bounds.height < 171 : min(bounds.width,bounds.height) < 280)
+        previewHeading.frame = CGRect(x:inset,y:68,width:max(0,bounds.width-2*inset-88),height:16)
+        previewHint.frame = CGRect(x:bounds.maxX-inset-84,y:68,width:84,height:16)
+        previewHeading.isHidden = preview.isHidden || !showsList; previewHint.isHidden = previewHeading.isHidden
+        previewSeparator.frame = CGRect(x:inset,y:90,width:bounds.width-2*inset,height:2)
+        previewSeparator.isHidden = previewHeading.isHidden
+        empty.frame = CGRect(x:inset,y:search.frame.minY-32,width:bounds.width-2*inset,height:22)
         for (row, result) in results.enumerated() {
-            result.frame = CGRect(x:28,y:search.frame.minY-6-CGFloat(row+1)*rowHeight,width:bounds.width-56,height:rowHeight)
+            result.frame = CGRect(x:inset,y:search.frame.minY-6-CGFloat(row+1)*rowHeight,width:bounds.width-2*inset,height:rowHeight)
         }
-        previous.frame = CGRect(x:bounds.maxX-112,y:search.frame.minY+3,width:24,height:24)
-        next.frame = CGRect(x:bounds.maxX-48,y:search.frame.minY+3,width:24,height:24)
+        previous.frame = CGRect(x:bounds.maxX-inset-(narrow ? 52 : 84),y:search.frame.minY+3,width:24,height:24)
+        next.frame = CGRect(x:bounds.maxX-inset-24,y:search.frame.minY+3,width:24,height:24)
         pageLabel.frame = CGRect(x:bounds.maxX-86,y:search.frame.minY+6,width:36,height:18)
+        pageLabel.isHidden = !paging || narrow
     }
     func controlTextDidChange(_ notification: Notification) {
         guard (search.currentEditor() as? NSTextView)?.hasMarkedText() != true else { return }
@@ -335,7 +422,7 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
         displayed = collection.slots.map { id in id.flatMap { key in collection.prompts.firstIndex(where: { $0.id == key }) } ?? -1 }
         for (row, result) in results.enumerated() {
             let position = page * resultsPerPage + row
-            result.isHidden = !showsList || !matches.indices.contains(position)
+            result.isHidden = !showsList || row >= resultsPerPage || !matches.indices.contains(position)
             guard !result.isHidden else { continue }
             let index=matches[position]
             let prompt=collection.prompts.indices.contains(index) ? collection.prompts[index] : nil
@@ -352,12 +439,19 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
         }
         ring.isHidden = showsList; surface.isHidden = !showsList
         ring.update(entries, selected: searching ? nil : (editing ? selectedSlot : selected.flatMap { displayed.firstIndex(of:$0) }), editing: editing)
+        ring.configureDragging(context: editing ? dragContext : nil, slots: collection.slots)
+        for (row, result) in results.enumerated() {
+            result.dragContext = editing && showsEditableSlots ? dragContext : nil
+            let position = page * resultsPerPage + row
+            result.dragPayload = editing && showsEditableSlots && collection.slots.indices.contains(position) ? collection.slots[position].map { .preset(slot: position, id: $0) } : nil
+        }
         empty.isHidden = !searching || !matches.isEmpty
         let pages = max(1,(matches.count + resultsPerPage - 1)/resultsPerPage)
-        previous.isHidden = !searching || pages<2; next.isHidden = previous.isHidden; pageLabel.isHidden = previous.isHidden
+        previous.isHidden = !showsList || pages<2; next.isHidden = previous.isHidden; pageLabel.isHidden = previous.isHidden || bounds.width < 240
         pageLabel.stringValue = "\(page+1)/\(pages)"
-        preview.isHidden = editing || showsList || selected == nil || min(bounds.width,bounds.height) < 280
         preview.stringValue = selected.flatMap { collection.prompts.indices.contains($0) ? String(collection.prompts[$0].content.prefix(400)) : nil } ?? ""
+        previewHeading.stringValue = selected.flatMap { collection.prompts.indices.contains($0) ? promptTitle(collection.prompts[$0].title,occupied:true) : nil } ?? ""
+        needsLayout = true; needsDisplay = true
     }
     @objc private func pickedResult(_ sender: NSButton) {
         let position = page * resultsPerPage + sender.tag
@@ -367,7 +461,7 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
     }
     private func highlightSlot(_ slot:Int) {
         guard !finished, matches.indices.contains(slot), selectedSlot != slot else { return }
-        selectedSlot=slot; selected=matches[slot] >= 0 ? matches[slot] : nil; refreshRing()
+        selectedSlot=slot; selected=matches[slot] >= 0 ? matches[slot] : nil; page = slot/resultsPerPage; refreshRing()
     }
     private func highlight(_ index: Int) {
         guard !finished, selected != index, collection.prompts.indices.contains(index), !collection.prompts[index].content.isEmpty else { return }

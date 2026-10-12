@@ -10,6 +10,8 @@ final class CountingPromptDefaults: UserDefaults {
 @main struct Check {
     @MainActor static func main() throws {
         _ = NSApplication.shared
+        try checkPromptPreviews()
+        try checkPromptManagement()
         let collection = PromptCollection(legacy: (1...10).map { PromptEntry(title: "办公 \($0)", content: "正文 \($0)") })
         // Exercise every display count with real, non-presented AppKit views.
         for style in [PromptPresentation.Style.ring, .list] {
@@ -87,7 +89,8 @@ final class CountingPromptDefaults: UserDefaults {
         }
         styleControl.selectItem(at:1); ringControl.selectItem(at:0); listControl.selectItem(at:6)
         precondition(NSApp.sendAction(styleControl.action!,to:styleControl.target,from:styleControl))
-        let restored = PhraseWheelModule(defaults:defaults).settingsView.subviews.compactMap { $0 as? NSPopUpButton }
+        let restoredModule = PhraseWheelModule(defaults:defaults)
+        let restored = restoredModule.settingsView.subviews.compactMap { $0 as? NSPopUpButton }
         precondition(restored.first { $0.identifier?.rawValue == "prompt-presentation" }!.indexOfSelectedItem == 1)
         precondition(restored.first { $0.identifier?.rawValue == "prompt-ring-count" }!.indexOfSelectedItem == 0)
         precondition(restored.first { $0.identifier?.rawValue == "prompt-list-count" }!.indexOfSelectedItem == 6)

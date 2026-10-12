@@ -12,6 +12,7 @@ public struct PromptImport: Codable, Sendable {
         public var title: String
         public var content: String
         public var slot: Int?
+        public var draft: Bool? = nil
     }
     public var version: Int
     public var prompts: [Item]
@@ -21,11 +22,12 @@ public struct PromptImport: Codable, Sendable {
         do { value = try JSONDecoder().decode(Self.self, from: data) }
         catch { throw PromptCollection.Failure("需要 version: 1 和 prompts 数组，每项包含 title、content") }
         guard value.version == 1 else { throw PromptCollection.Failure("仅支持 version: 1") }
-        guard !value.prompts.isEmpty, value.prompts.count <= PromptCollection.limit else { throw PromptCollection.Failure("每次导入 1–500 条") }
+        guard value.prompts.count <= PromptCollection.limit else { throw PromptCollection.Failure("每次导入最多 500 条") }
         var ids = Set<String>(), slots = Set<Int>()
         for item in value.prompts {
             try PromptCollection.check(title: item.title, content: item.content)
-            guard !item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !item.content.isEmpty else { throw PromptCollection.Failure("标题和内容不能为空") }
+            let unfinished = item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || item.content.isEmpty
+            guard !unfinished || (item.draft == true && item.id != nil) else { throw PromptCollection.Failure("标题和内容不能为空；导出的草稿须保留 id 和 draft: true") }
             if let id = item.id {
                 guard !id.isEmpty, id.utf8.count <= 64, ids.insert(id).inserted else { throw PromptCollection.Failure("id 不能为空、重复或超过 64 字节") }
             }
@@ -48,6 +50,11 @@ public struct PromptImport: Codable, Sendable {
 public struct PromptCollection: Codable, Equatable, Sendable {
     public static let limit = 500, byteLimit = 4_000_000
     public struct Failure: LocalizedError { public var errorDescription: String?; public init(_ message: String) { errorDescription = message } }
+    public struct DeletedPrompt: Equatable, Sendable {
+        public let prompt: LibraryPrompt
+        public let index: Int
+        public let previousSlot: Int?
+    }
     public var prompts: [LibraryPrompt]
     public var slots: [String?]
     public init(legacy: [PromptEntry]) {
@@ -80,6 +87,48 @@ public struct PromptCollection: Codable, Equatable, Sendable {
         guard slots.indices.contains(slot), id == nil || prompts.contains(where: { $0.id == id }) else { return }
         if let id { for i in slots.indices where slots[i] == id { slots[i] = nil } }
         slots[slot] = id
+    }
+    @discardableResult public mutating func swapSlots(_ source: Int, _ destination: Int) -> Bool {
+        guard slots.indices.contains(source), slots.indices.contains(destination), source != destination, slots[source] != slots[destination] else { return false }
+        slots.swapAt(source, destination)
+        return true
+    }
+    @discardableResult public mutating func place(_ id: String, to slot: Int) -> Bool {
+        guard slots.indices.contains(slot), prompts.contains(where: { $0.id == id }) else { return false }
+        if let source = slots.firstIndex(where: { $0 == id }) { return swapSlots(source, slot) }
+        assign(id, to: slot)
+        return true
+    }
+    @discardableResult public mutating func remove(id: String) -> DeletedPrompt? {
+        guard let index = prompts.firstIndex(where: { $0.id == id }) else { return nil }
+        let deleted = DeletedPrompt(prompt: prompts[index], index: index, previousSlot: slots.firstIndex(where: { $0 == id }))
+        prompts.remove(at: index)
+        for slot in slots.indices where slots[slot] == id { slots[slot] = nil }
+        return deleted
+    }
+    public mutating func restore(_ deleted: DeletedPrompt) throws {
+        guard !prompts.contains(where: { $0.id == deleted.prompt.id }) else { throw Failure("相同 id 的提示词已存在，不能覆盖") }
+        var copy = self
+        copy.prompts.insert(deleted.prompt, at: min(deleted.index, copy.prompts.count))
+        if let slot = deleted.previousSlot, copy.slots.indices.contains(slot), copy.slots[slot] == nil { copy.slots[slot] = deleted.prompt.id }
+        try copy.validate()
+        self = copy
+    }
+    public func exportJSON() throws -> Data {
+        try validate()
+        let document = PromptImport(version: 1, prompts: prompts.map { prompt in
+            let unfinished = prompt.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || prompt.content.isEmpty
+            return .init(id: prompt.id, title: prompt.title, content: prompt.content, slot: slots.firstIndex(where: { $0 == prompt.id }).map { $0 + 1 }, draft: unfinished ? true : nil)
+        })
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes]
+        var data = try encoder.encode(document)
+        if data.count > Self.byteLimit {
+            encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+            data = try encoder.encode(document)
+        }
+        guard data.count <= Self.byteLimit else { throw Failure("导出 JSON 超过 4 MB") }
+        return data
     }
     public func merging(_ document: PromptImport) throws -> Self {
         var copy = self

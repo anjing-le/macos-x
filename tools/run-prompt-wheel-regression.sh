@@ -14,9 +14,10 @@ import sys
 root, out = map(Path, sys.argv[1:])
 source = (root / 'Sources/MacOSX/Shared/GlobalInput.swift').read_text()
 (out / 'ShortcutTypes.swift').write_text(source[:source.index('private enum InputAction')] + source[source.index('extension ShortcutBinding'):])
+(out / 'PromptModuleAndFixture.swift').write_text((root / 'Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift').read_text() + '\n' + (root / 'tools/prompt-management-regression.swift').read_text() + '\n' + (root / 'tools/prompt-wheel-regression.swift').read_text())
 PY
 xcrun swiftc -I "$wheel_bin/Modules" "$wheel_bin"/MacOSXCore.build/*.swift.o \
   Sources/MacOSX/UI/SketchTheme.swift Sources/MacOSX/UI/SketchIcons.swift \
-  Sources/MacOSX/UI/MinimalControls.swift Sources/MacOSX/UI/SettingsBoardView.swift Sources/MacOSX/Shared/ShortcutSettings.swift "$wheel_dir/ShortcutTypes.swift" Sources/MacOSX/Capture/RecordingPresentation.swift Sources/MacOSX/PhraseWheel/PhraseWheelPanel.swift Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift \
-  tools/prompt-wheel-regression.swift -o "$wheel_dir/Preview.app/Contents/MacOS/prompt-wheel-regression"
+  Sources/MacOSX/UI/MinimalControls.swift Sources/MacOSX/UI/SettingsBoardView.swift Sources/MacOSX/Shared/ShortcutSettings.swift "$wheel_dir/ShortcutTypes.swift" Sources/MacOSX/Capture/RecordingPresentation.swift Sources/MacOSX/PhraseWheel/PromptDrag.swift Sources/MacOSX/PhraseWheel/PhraseWheelPanel.swift \
+  tools/prompt-preview-regression.swift "$wheel_dir/PromptModuleAndFixture.swift" -o "$wheel_dir/Preview.app/Contents/MacOS/prompt-wheel-regression"
 "$wheel_dir/Preview.app/Contents/MacOS/prompt-wheel-regression" "$wheel_dir"
