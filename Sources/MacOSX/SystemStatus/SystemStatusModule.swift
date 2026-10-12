@@ -1,23 +1,19 @@
 import AppKit
 import MacOSXCore
 
-/// This opt-in module owns its single sampler, bounded history and status item.
+/// This opt-in module owns its sampler and bounded history; values stay in its dashboard.
 @MainActor
 final class SystemStatusModule: NSObject {
-    var onOpenDashboard: (() -> Void)?
     var onStatusChange: (() -> Void)?
     private let sampler: SystemStatusSampler
-    private let makeStatusItem: () -> NSStatusItem?
-    private var item: NSStatusItem?
     private var active = false
     private var latest: SystemStatusSnapshot?
     private var history: [SystemStatusSnapshot] = []
     private var dashboards: [WeakDashboard] = []
     private(set) var issue: String?
 
-    init(sampler: SystemStatusSampler? = nil, makeStatusItem: (() -> NSStatusItem?)? = nil) {
+    init(sampler: SystemStatusSampler? = nil) {
         self.sampler = sampler ?? SystemStatusSampler()
-        self.makeStatusItem = makeStatusItem ?? { NSStatusBar.system.statusItem(withLength: 74) }
         super.init()
         self.sampler.onUpdate = { [weak self] snapshot in self?.receive(snapshot) }
     }
@@ -25,15 +21,6 @@ final class SystemStatusModule: NSObject {
     func start() {
         guard !active else { return }
         active = true
-        let item = makeStatusItem()
-        self.item = item
-        if let button = item?.button {
-            button.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
-            button.title = "CPU —"
-            button.target = self
-            button.action = #selector(openDashboard)
-            button.setAccessibilityLabel("系统状态 · 点击查看实时监控")
-        }
         updateDashboards(includeHidden: true)
         sampler.start()
     }
@@ -42,8 +29,6 @@ final class SystemStatusModule: NSObject {
         guard active else { return }
         active = false
         sampler.stop()
-        if let item { NSStatusBar.system.removeStatusItem(item) }
-        item = nil
         latest = nil
         history.removeAll(keepingCapacity: false)
         issue = nil
@@ -70,10 +55,6 @@ final class SystemStatusModule: NSObject {
         history = Array(history.filter { snapshot.timestamp - $0.timestamp <= 60 }.suffix(31))
         let nextIssue = snapshot.issues.first
         if issue != nextIssue { issue = nextIssue; onStatusChange?() }
-        let percent = snapshot.cpuPercent.flatMap { $0.isFinite && (0...100).contains($0) ? $0 : nil }
-        let title = percent.map { "CPU \(Int($0.rounded()))%" } ?? "CPU —"
-        if item?.button?.title != title { item?.button?.title = title }
-        item?.button?.toolTip = "系统状态 · \(title) · 点击查看内存、网速与最近一分钟趋势"
         updateDashboards()
     }
 
@@ -87,8 +68,6 @@ final class SystemStatusModule: NSObject {
             view.update(snapshot: latest, history: history, isEnabled: active)
         }
     }
-
-    @objc private func openDashboard() { guard active else { return }; onOpenDashboard?() }
 
     private final class WeakDashboard {
         weak var view: SystemStatusDashboardView?

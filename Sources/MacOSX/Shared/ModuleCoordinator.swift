@@ -6,7 +6,6 @@ import MacOSXCore
 final class ModuleCoordinator {
     var onStateChanged: ((Tool) -> Void)?
     var onScreenCapturePermissionNeeded: (() -> Void)?
-    var onShowSystemStatus: (() -> Void)?
     private let defaults: UserDefaults
     let shortcuts: ShortcutStore
     private let input = GlobalInput()
@@ -89,7 +88,6 @@ final class ModuleCoordinator {
         case .systemStatus:
             if systemStatus == nil {
                 let module = SystemStatusModule()
-                module.onOpenDashboard = { [weak self] in self?.onShowSystemStatus?() }
                 module.onStatusChange = { [weak self] in self?.onStateChanged?(.systemStatus) }
                 systemStatus = module
             }

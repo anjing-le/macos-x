@@ -42,7 +42,6 @@ private final class StatusFixtureReader: @unchecked Sendable {
 extension SystemStatusModule {
     fileprivate var fixtureHistory: [SystemStatusSnapshot] { history }
     fileprivate var fixtureLatest: SystemStatusSnapshot? { latest }
-    fileprivate func fixtureOpenDashboard() { openDashboard() }
 }
 
 @main struct SystemStatusRegression {
@@ -198,17 +197,10 @@ extension SystemStatusModule {
     @MainActor private static func moduleLifecycle() async throws {
         let reader = StatusFixtureReader()
         let sampler = SystemStatusSampler(interval: 0.01, read: { reader.read() }, notificationCenter: NotificationCenter())
-        var itemCreations = 0, opened = 0
-        let module = SystemStatusModule(sampler: sampler, makeStatusItem: { itemCreations += 1; return nil })
-        module.onOpenDashboard = { opened += 1 }
+        let module = SystemStatusModule(sampler: sampler)
         let stoppedPage = module.makeDashboard()
         try require(labels(stoppedPage).contains("已关闭 · 开启后开始监控"), "module detail is an explicit disabled monitoring dashboard")
-        module.fixtureOpenDashboard()
-        try require(opened == 0, "disabled monitoring entry does not open an inactive page")
         module.start(); module.start()
-        try require(itemCreations == 1, "module restart is idempotent without creating real status items")
-        module.fixtureOpenDashboard()
-        try require(opened == 1, "monitoring entry invokes dashboard navigation directly")
         try await wait("more than 31 real timer readings") { reader.count >= 38 && module.fixtureHistory.count == 31 }
         try require(module.fixtureHistory.count == 31 && module.fixtureHistory.allSatisfy { ($0.timestamp - (module.fixtureLatest?.timestamp ?? 0)) >= -60 },
                     "module retains at most 31 samples within one minute")

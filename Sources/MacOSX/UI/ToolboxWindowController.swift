@@ -257,11 +257,6 @@ final class ToolboxWindowController: NSWindowController {
             self.showSettings(.capture)
             self.present()
         }
-        modules.onShowSystemStatus = { [weak self] in
-            guard let self, self.added.tools.contains(.systemStatus) else { return }
-            self.showSettings(.systemStatus)
-            self.present()
-        }
         modules.reconcile(added.tools)
         showHome()
     }
