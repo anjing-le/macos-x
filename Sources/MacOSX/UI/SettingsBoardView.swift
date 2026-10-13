@@ -167,6 +167,8 @@ import AppKit
     private var selectors: [IllustratedSettingChoice] = []
     private var sourceToggle: NSButton?
     private var sourceMode: NSPopUpButton?
+    private var sourceAudio: [NSButton] = []
+    private var audioChoices: [MinimalToggle] = []
     private let backdrop: NSImage?
     private let captureHints = [NSTextField(labelWithString:"按上方快捷键开始截图"),NSTextField(labelWithString:"框选后 Enter 开始录屏")]
     private let shortcutIssue = NSTextField(wrappingLabelWithString: "")
@@ -232,6 +234,16 @@ import AppKit
         }
         for hint in captureHints { hint.font = .systemFont(ofSize:13); hint.textColor=SketchPalette.ink; hint.alignment = .center; hint.isHidden=true; addSubview(hint) }
         if kind == "capture", let stack=settings as? NSStackView, stack.arrangedSubviews.count >= 4 {
+            if let row = stack.arrangedSubviews.first(where: { $0.identifier?.rawValue == "capture-recording-audio" }) as? NSStackView {
+                sourceAudio = row.arrangedSubviews.compactMap { $0 as? NSButton }; row.isHidden = true
+                for (index, source) in sourceAudio.enumerated() {
+                    let button = MinimalToggle(title: source.title, target: self, action: #selector(selectAudio(_:)))
+                    button.tag = index; button.font = .systemFont(ofSize: 13)
+                    button.toolTip = source.toolTip; button.identifier = source.identifier
+                    button.setAccessibilityLabel("录屏：保留\(source.title)")
+                    audioChoices.append(button); addSubview(button)
+                }
+            }
             let toggle=stack.arrangedSubviews.first { $0.identifier?.rawValue == "capture-pin-outline" } as? NSButton
             sourceToggle=toggle
             // Keep cached source controls in their stack: reopening the page must
@@ -258,6 +270,12 @@ import AppKit
         }
     }
     required init?(coder: NSCoder) { nil }
+    @objc private func selectAudio(_ sender: NSButton) {
+        guard sourceAudio.indices.contains(sender.tag) else { return }
+        let source = sourceAudio[sender.tag]; source.state = sender.state
+        if let action = source.action { NSApp.sendAction(action, to: source.target, from: source) }
+        refreshChoices()
+    }
     @objc private func selectOutline(_ sender: NSButton) {
         guard let toggle=sourceToggle else { return }
         toggle.state=sender.tag == 1 ? .on : .off
@@ -271,6 +289,10 @@ import AppKit
         refreshChoices()
     }
     private func refreshChoices() {
+        for (index, choice) in audioChoices.enumerated() {
+            choice.state = sourceAudio[index].state; choice.isEnabled = sourceAudio[index].isEnabled
+            choice.needsDisplay = true
+        }
         for button in selectors {
             let selected=kind == "capture" ? sourceToggle?.state == (button.tag == 1 ? .on : .off) : sourceMode?.indexOfSelectedItem == button.tag
             button.state=selected ? .on : .off; button.needsDisplay=true
@@ -326,6 +348,8 @@ import AppKit
             for (i,view) in shortcuts.enumerated() { view.frame=slot(Self.captureKeySlots[i]) }
             for (i,view) in selectors.enumerated() { view.frame=slot(Self.captureOutlineSlots[i]) }
             for (i,hint) in captureHints.enumerated() { hint.isHidden=false; hint.frame=slot(CGRect(x:i == 0 ? 0.03 : 0.68,y:0.68,width:0.29,height:0.07)) }
+            let audioSlot = slot(CGRect(x: 0.695, y: 0.758, width: 0.275, height: 0.065))
+            layoutAudio(in: audioSlot)
             settings.frame=slot(CGRect(x:0,y:0.838,width:1,height:0.162))
             settings.frame.size.height=max(settings.frame.height,settings.fittingSize.height)
         } else {
@@ -338,6 +362,14 @@ import AppKit
         settings.layoutSubtreeIfNeeded()
         updateSettingsHeight()
         for row in shortcuts { row.layoutSubtreeIfNeeded() }
+    }
+    private func layoutAudio(in rect: CGRect) {
+        refreshChoices()
+        let width = max(0, (rect.width - 8) / 2)
+        for (i, button) in audioChoices.enumerated() {
+            button.frame = CGRect(x: rect.minX + CGFloat(i) * (width + 8), y: rect.minY,
+                                  width: width, height: max(30, rect.height))
+        }
     }
     private func updateSettingsHeight() {
         let measured=settings.fittingSize.height
@@ -383,7 +415,8 @@ import AppKit
             for (i, view) in selectors.enumerated() {
                 view.frame = CGRect(x: CGFloat(i)*w/2, y: 382, width: w/2-4, height: 88)
             }
-            settings.frame = CGRect(x: 0, y: 664, width: w, height: settings.fittingSize.height)
+            layoutAudio(in: CGRect(x: 0, y: 654, width: w, height: 32))
+            settings.frame = CGRect(x: 0, y: audioChoices.isEmpty ? 664 : 700, width: w, height: settings.fittingSize.height)
         } else if compact && kind == "windowSwitcher" {
             for (i,view) in selectors.enumerated() { view.frame=CGRect(x:0,y:CGFloat(i)*164,width:w,height:156) }
             shortcuts.first?.frame=CGRect(x:0,y:332,width:w,height:50)
@@ -395,6 +428,7 @@ import AppKit
             let ys=[CGFloat(154),154,202,154]
             for (i,view) in shortcuts.enumerated() { view.frame=CGRect(x:xs[i],y:ys[i],width:col,height:48) }
             for (i,view) in selectors.enumerated() { view.frame=CGRect(x:col+12+CGFloat(i)*col/2,y:252,width:col/2-4,height:88) }
+            layoutAudio(in: CGRect(x: 2 * (col + 12), y: 210, width: col, height: 32))
             settings.frame=CGRect(x:0,y:352,width:w,height:max(80,settings.fittingSize.height))
         } else if kind == "windowSwitcher" {
             for (i,view) in selectors.enumerated() { view.frame=CGRect(x:CGFloat(i)*(w*0.34+12),y:0,width:w*0.34,height:204) }

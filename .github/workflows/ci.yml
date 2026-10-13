@@ -23,6 +23,8 @@ jobs:
         run: zsh tools/run-capture-editor-regression.sh
       - name: Check recording file recovery and annotation exports
         run: zsh tools/run-capture-export-regression.sh
+      - name: Check recording audio choices, timestamp mixing and playable AAC output
+        run: zsh tools/run-recording-audio-regression.sh
       - name: Check pinned-image transforms and clipboard color cards
         run: zsh tools/run-pin-regression.sh
       - name: Check window thumbnail cancellation and cache bounds

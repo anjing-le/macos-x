@@ -299,6 +299,7 @@ final class CaptureModule: NSObject {
         // or create files while the user is only selecting a region.
         setStatus("正在启动录屏…")
         let folder = recordingPresentation.recordingDirectory
+        let audioOptions = RecordingAudioOptions(defaults: .standard)
         work.async { [weak self] in
             let result: Swift.Result<URL, Error> = Swift.Result {
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -313,7 +314,7 @@ final class CaptureModule: NSObject {
                     if case .failure(let error) = result { self.handle(error) }; return
                 }
                 self.recordingState = .starting; self.setStatus("正在启动录屏…")
-                self.recorder.start(screen: screen, region: region, destination: url, started: { [weak self] result in
+                self.recorder.start(screen: screen, region: region, destination: url, audioOptions: audioOptions, started: { [weak self] result in
                     MainActor.assumeIsolated {
                         guard let self, self.recordingRevision == revision else { return }
                         switch result {
@@ -418,6 +419,12 @@ final class CaptureModule: NSObject {
         pins.showsOutline = sender.state == .on
         UserDefaults.standard.set(pins.showsOutline, forKey: "capture.pin-outline")
     }
+    @objc private func setRecordingAudio(_ sender: NSButton) {
+        var options = RecordingAudioOptions(defaults: .standard)
+        if sender.tag == 0 { options.system = sender.state == .on }
+        else { options.microphone = sender.state == .on }
+        options.save(to: .standard)
+    }
     private func buildSettings() -> NSView {
         status.font = .systemFont(ofSize: 12); status.textColor = .secondaryLabelColor
         status.preferredMaxLayoutWidth = 600
@@ -429,7 +436,19 @@ final class CaptureModule: NSObject {
         hint.identifier = .init("capture-pin-help")
         hint.font = .systemFont(ofSize: 12); hint.textColor = .secondaryLabelColor
         hint.preferredMaxLayoutWidth = 600
-        let stack = NSStackView(views: [outline, hint, recordingPresentation.settingsView, status])
+        let options = RecordingAudioOptions(defaults: .standard)
+        let audioButtons = ["系统声音", "麦克风"].enumerated().map { index, title in
+            let button = MinimalToggle(title: title, target: self, action: #selector(setRecordingAudio(_:)))
+            button.tag = index; button.font = .systemFont(ofSize: 13)
+            button.state = (index == 0 ? options.system : options.microphone) ? .on : .off
+            button.identifier = .init(index == 0 ? "recording-system-audio" : "recording-microphone")
+            button.setAccessibilityLabel("录屏：保留\(title)")
+            button.toolTip = index == 0 ? "下次录屏保留电脑播放的声音；不包含麦克风。" : "下次录屏录制默认麦克风；开始录制时才请求授权。"
+            return button
+        }
+        let audioRow = NSStackView(views: audioButtons); audioRow.spacing = 12
+        audioRow.identifier = .init("capture-recording-audio")
+        let stack = NSStackView(views: [outline, hint, recordingPresentation.settingsView, audioRow, status])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 14
         recordingPresentation.settingsView.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         return stack

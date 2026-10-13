@@ -314,7 +314,14 @@ import MacOSXCore
         let recordingResults=NSStackView(views:[recordingCaption,recordingActions]); recordingResults.orientation = .vertical
         let recordingFooter=RecordingSettingsFooter(folder:recordingFolder,path:recordingPath,choose:recordingChooser,clock:recordingClock,results:recordingResults)
         let captureStatus=NSTextField(labelWithString:""); captureStatus.isHidden=true
-        let captureSettings=NSStackView(views:[toggle,NSTextField(labelWithString:"说明"),recordingFooter,captureStatus])
+        let audioReceiver = BoardReceiver()
+        let audioButtons = ["系统声音", "麦克风"].enumerated().map { index, title in
+            let button = MinimalToggle(title: title, target: audioReceiver, action: #selector(BoardReceiver.changed(_:)))
+            button.tag = index; button.identifier = .init(index == 0 ? "recording-system-audio" : "recording-microphone")
+            return button
+        }
+        let audioRow = NSStackView(views: audioButtons); audioRow.identifier = .init("capture-recording-audio")
+        let captureSettings=NSStackView(views:[toggle,NSTextField(labelWithString:"说明"),recordingFooter,audioRow,captureStatus])
         recordingFooter.widthAnchor.constraint(equalTo:captureSettings.widthAnchor).isActive=true
         captureSettings.arrangedSubviews[1].identifier = .init("capture-pin-help")
         captureSettings.orientation = .vertical; captureSettings.alignment = .leading
@@ -346,6 +353,18 @@ import MacOSXCore
                 try require(abs(board.frame.width-912)<1,"board fills default client width with balanced margins")
                 try require(root.fittingSize.height+48 <= 584,"common settings fit default client without outer scrolling")
                 board.layoutSubtreeIfNeeded()
+                if kind == "capture" {
+                    let audioChoices = board.subviews.compactMap { $0 as? MinimalToggle }
+                    try require(audioChoices.count == 2 && audioRow.isHidden, "audio settings have one visible pair of real controls")
+                    for choice in audioChoices {
+                        try require(board.bounds.contains(choice.frame) && choice.frame.height >= 30, "audio controls fit the recording area")
+                        let before = audioReceiver.calls
+                        choice.performClick(nil)
+                        try require(audioReceiver.calls == before + 1 && audioButtons[choice.tag].state == choice.state,
+                                    "audio option routes to the original settings action exactly once")
+                        choice.performClick(nil)
+                    }
+                }
                 let shortcutRows=board.subviews.compactMap { $0 as? ShortcutSettingsRow }
                 if kind == "capture" {
                     try require(board.usesBackdrop,"capture backdrop resource loaded")
@@ -386,6 +405,9 @@ import MacOSXCore
                             root.needsLayout=true; root.layoutSubtreeIfNeeded()
                             root.frame.size.height=root.fittingSize.height; root.layoutSubtreeIfNeeded(); board.layoutSubtreeIfNeeded()
                             let error=board.subviews.compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "shortcut-board-issue" }!
+                            let audioChoices = board.subviews.compactMap { $0 as? MinimalToggle }
+                            try require(audioChoices.allSatisfy { board.bounds.contains($0.frame) && !$0.frame.intersects(settings.frame) },
+                                        "audio choices remain visible and separate from recording footer in wide and narrow layouts")
                             try require(!error.isHidden && error.frame.height > 15 && board.bounds.contains(error.frame),"capture conflict is visible outside its illustrated keycap in both layouts")
                             if let output,let bitmap=board.bitmapImageRepForCachingDisplay(in:board.bounds) {
                                 board.cacheDisplay(in:board.bounds,to:bitmap)

@@ -4,8 +4,8 @@ set -euo pipefail
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 configuration=release
 output_dir="$root_dir/dist"
-version=0.0.66
-build_number=68
+version=0.0.67
+build_number=69
 sign_identity="${MACOSX_SIGN_IDENTITY:-}"
 sign_keychain="${MACOSX_SIGN_KEYCHAIN:-}"
 local_signing=false
@@ -15,7 +15,7 @@ feed_url="${MACOSX_FEED_URL:-https://github.com/anjing-le/macos-x/releases/lates
 usage() {
     cat <<'USAGE'
 Usage: scripts/build.sh [--disable-updates] [--configuration debug|release]
-       [--version 0.0.66] [--build-number 68] [--output-dir path]
+       [--version 0.0.67] [--build-number 69] [--output-dir path]
        [--sign-identity pinned-certificate-SHA1 | "Apple Development: ..." | "Developer ID Application: ..."]
        [--sign-keychain path]
 Default: host architecture, OTA enabled; an explicit certificate identity is required.
@@ -165,6 +165,7 @@ info = {
     'LSMinimumSystemVersion': '14.0',
     'LSUIElement': True,
     'NSHighResolutionCapable': True,
+    'NSMicrophoneUsageDescription': '仅在你开启录屏麦克风并开始录制时，将麦克风声音保留在本机视频中。',
     'MacOSXUpdatesEnabled': enabled == 'true',
     'SUEnableAutomaticChecks': enabled == 'true',
     'SUScheduledCheckInterval': 3600,
@@ -196,7 +197,7 @@ if [[ "$local_signing" == true ]]; then
     app_sign_options+=(--options 0 --timestamp=none)
 elif [[ "$sign_identity" != - ]]; then
     sign_options+=(--options runtime --timestamp)
-    app_sign_options+=(--options runtime --timestamp)
+    app_sign_options+=(--options runtime --timestamp --entitlements "$root_dir/Resources/Recording.entitlements")
 fi
 framework="$app/Contents/Frameworks/Sparkle.framework"
 for component in "$framework"/Versions/Current/XPCServices/*.xpc \

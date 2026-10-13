@@ -27,6 +27,8 @@ final class SCStreamConfiguration {
     var sourceRect = CGRect.zero
     var width = 0, height = 0, queueDepth = 0
     var showsCursor = false, capturesAudio = false
+    var sampleRate = 48_000, channelCount = 2
+    var excludesCurrentProcessAudio = false
     var ignoreShadowsSingleWindow = false, ignoreGlobalClipSingleWindow = false, shouldBeOpaque = false
     var backgroundColor: CGColor?
     var minimumFrameInterval = CMTime.zero
@@ -36,19 +38,32 @@ enum SCScreenshotManager {
     static func captureImage(contentFilter: SCContentFilter, configuration: SCStreamConfiguration,
         completionHandler: @escaping (CGImage?, Error?) -> Void) { MockCapture.configuration(configuration); MockCapture.holdImage(completionHandler) }
 }
-enum SCStreamOutputType { case screen }
+enum SCStreamOutputType: Hashable { case screen, audio }
 enum SCStreamFrameInfo: Hashable { case status }
 enum SCFrameStatus: Int { case complete = 0 }
 protocol SCStreamOutput: AnyObject {}
 protocol SCStreamDelegate: AnyObject {}
 final class SCStream {
-    init(filter: SCContentFilter, configuration: SCStreamConfiguration, delegate: SCStreamDelegate) { MockCapture.configuration(configuration) }
-    func addStreamOutput(_ output: SCStreamOutput, type: SCStreamOutputType, sampleHandlerQueue: DispatchQueue) throws {}
+    var synchronizationClock: CMClock? { CMClockGetHostTimeClock() }
+    private var outputs: [SCStreamOutputType: (CMSampleBuffer) -> Void] = [:]
+    init(filter: SCContentFilter, configuration: SCStreamConfiguration, delegate: SCStreamDelegate) {
+        MockCapture.configuration(configuration); MockCapture.lastStream = self
+    }
+    func addStreamOutput(_ output: SCStreamOutput, type: SCStreamOutputType, sampleHandlerQueue: DispatchQueue) throws {
+        outputs[type] = { [weak output, weak self] sample in
+            sampleHandlerQueue.async { [weak output, weak self] in
+                guard let self, let recorder = output as? CaptureRecorder else { return }
+                recorder.stream(self, didOutputSampleBuffer: sample, of: type)
+            }
+        }
+    }
+    func emit(_ sample: CMSampleBuffer, type: SCStreamOutputType) { outputs[type]?(sample) }
     func startCapture(completionHandler: @escaping (Error?) -> Void) { MockCapture.holdStart(completionHandler) }
     func stopCapture(completionHandler: @escaping (Error?) -> Void) { completionHandler(nil) }
 }
 
 private enum MockCapture {
+    static var lastStream: SCStream?
     private static let lock = NSLock()
     private static var contents: [(SCShareableContent?, Error?) -> Void] = []
     private static var images: [(CGImage?, Error?) -> Void] = []
@@ -240,6 +255,96 @@ private struct CheckFailure: Error { let message: String }
             metadata[kCGWindowLayer as String] = NSNumber(value: 3)
             try require(CaptureImageService.windowTarget(metadata, primaryTop: 900, ownPID: ownPID, ownWindowIDs: [42]) == nil, "floating layer must not snap")
             let image = fixture()
+            // Permission failures and late grants are isolated from actual TCC.
+            var authorization: ((Bool) -> Void)?
+            var denied: Result<Void, Error>?
+            var authorizationCalls = 0
+            let audioRecorder = CaptureRecorder(authorizeMicrophone: { callback in
+                authorizationCalls += 1; authorization = callback
+            })
+            let audioURL = FileManager.default.temporaryDirectory.appendingPathComponent("audio-permission-fixture-\(UUID().uuidString).mp4")
+            audioRecorder.start(screen: screen, destination: audioURL, audioOptions: .init(microphone: true),
+                                started: { denied = $0 }, finished: { _, _ in })
+            try await wait({ authorization != nil }, "microphone asks only on explicit recording start")
+            try require(authorizationCalls == 1 && MockCapture.pendingContent == 0, "microphone grant precedes capture and writer creation")
+            authorization?(false)
+            try await wait({ denied != nil }, "microphone denial has a visible start failure")
+            if case .failure(let error) = denied {
+                try require(error.localizedDescription.contains("麦克风") && !FileManager.default.fileExists(atPath: audioURL.path),
+                            "denial is not silently downgraded or confused with screen permission")
+            } else { throw CheckFailure(message: "microphone denial allowed recording") }
+            authorization = nil; denied = nil
+            audioRecorder.start(screen: screen, destination: audioURL, audioOptions: .init(system: true, microphone: true),
+                                started: { denied = $0 }, finished: { _, _ in })
+            try await wait({ authorization != nil }, "second microphone authorization pending")
+            var microphoneStopped = false
+            audioRecorder.stop { microphoneStopped = true }
+            try await wait({ microphoneStopped && denied != nil }, "cancel pending microphone permission releases recording")
+            authorization?(true); try await settle()
+            try require(MockCapture.pendingContent == 0 && !FileManager.default.fileExists(atPath: audioURL.path),
+                        "late microphone grant cannot resurrect a cancelled recording")
+            var systemStarted: Result<Void, Error>?
+            var systemFinished = false
+            audioRecorder.start(screen: screen, destination: audioURL, audioOptions: .init(system: true),
+                                started: { systemStarted = $0 }, finished: { _, _ in systemFinished = true })
+            try await wait({ MockCapture.pendingContent == 1 }, "system-only recording begins without microphone grant")
+            MockCapture.content()
+            try await wait({ MockCapture.pendingStart == 1 }, "system audio stream configured")
+            try require(MockCapture.lastConfiguration?.capturesAudio == true && authorizationCalls == 2,
+                        "system audio selection reaches SCK and never requests microphone")
+            MockCapture.started()
+            try await wait({ systemStarted != nil }, "system-only start callback")
+            audioRecorder.stop()
+            try await wait({ systemFinished }, "system-only stop cancels the active audio timer and finalizes")
+            for hasAudio in [false, true] {
+                let url = FileManager.default.temporaryDirectory.appendingPathComponent("recording-track-fixture-\(UUID().uuidString).mp4")
+                defer { try? FileManager.default.removeItem(at: url) }
+                var recorder: CaptureRecorder? = CaptureRecorder(authorizeMicrophone: { _ in
+                    fatalError("silent/system-only must never request a microphone")
+                })
+                weak var releasedRecorder = recorder
+                var started = false, completed = false, saved: URL?, recordingError: Error?
+                recorder?.start(screen: screen, destination: url, audioOptions: .init(system: hasAudio),
+                    started: { result in if case .success = result { started = true } },
+                    finished: { output, error in saved = output; recordingError = error; completed = true })
+                try await wait({ MockCapture.pendingContent == 1 }, "native writer capture metadata")
+                MockCapture.content()
+                try await wait({ MockCapture.pendingStart == 1 }, "native writer stream prepared")
+                let stream = MockCapture.lastStream!
+                MockCapture.started(); try await wait({ started }, "native writer recording starts")
+                let anchor = CMClockGetTime(CMClockGetHostTimeClock())
+                var pixel: CVPixelBuffer?
+                try require(CVPixelBufferCreate(kCFAllocatorDefault, 4, 4, kCVPixelFormatType_32BGRA, nil, &pixel) == kCVReturnSuccess,
+                            "real video pixel buffer allocated")
+                var description: CMVideoFormatDescription?
+                CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: pixel!, formatDescriptionOut: &description)
+                var timing = CMSampleTimingInfo(duration: CMTime(value: 1, timescale: 30), presentationTimeStamp: anchor, decodeTimeStamp: .invalid)
+                var video: CMSampleBuffer?
+                CMSampleBufferCreateReadyWithImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: pixel!, formatDescription: description!,
+                    sampleTiming: &timing, sampleBufferOut: &video)
+                stream.emit(video!, type: .screen)
+                for i in 0..<12 {
+                    if hasAudio {
+                        let pcm = AVAudioPCMBuffer(pcmFormat: AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)!, frameCapacity: 960)!
+                        pcm.frameLength = 960
+                        for channel in 0..<2 { for frame in 0..<960 { pcm.floatChannelData![channel][frame] = 0.2 } }
+                        let time = CMTimeAdd(anchor, CMTime(value: Int64(i * 960), timescale: 48_000))
+                        stream.emit(try RecordingAudioWriter.sample(pcm, at: time), type: .audio)
+                    }
+                    try await Task.sleep(nanoseconds: 20_000_000)
+                }
+                recorder?.stop(); try await wait({ completed }, "real recorder finishes MP4")
+                try require(saved == url && recordingError == nil, "native video/audio writer completes without losing selected sound")
+                let asset = AVURLAsset(url: url)
+                let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+                let videoTracks = try await asset.loadTracks(withMediaType: .video)
+                let duration = try await asset.load(.duration)
+                try require(audioTracks.count == (hasAudio ? 1 : 0) && videoTracks.count == 1,
+                            "silent file has no audio track; system selection creates one playable track alongside video")
+                try require(duration.seconds >= 0.2, "static final frame and audio share actual recording duration")
+                recorder = nil; MockCapture.lastStream = nil
+                try await wait({ releasedRecorder == nil }, "stopping audio releases recorder, timer, stream and buffers")
+            }
             let refusal = NSError(domain: SCStreamErrorDomain, code: -3801)
             let unrelated = NSError(domain: SCStreamErrorDomain, code: -3811)
             let wrongDomain = NSError(domain: "fixture.other", code: -3801)
