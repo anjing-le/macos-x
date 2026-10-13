@@ -59,7 +59,9 @@ final class SCStream {
     }
     func emit(_ sample: CMSampleBuffer, type: SCStreamOutputType) { outputs[type]?(sample) }
     func startCapture(completionHandler: @escaping (Error?) -> Void) { MockCapture.holdStart(completionHandler) }
-    func stopCapture(completionHandler: @escaping (Error?) -> Void) { completionHandler(nil) }
+    func stopCapture(completionHandler: @escaping (Error?) -> Void) {
+        if MockCapture.delayStops { MockCapture.holdStop(completionHandler) } else { completionHandler(nil) }
+    }
 }
 
 private enum MockCapture {
@@ -69,6 +71,8 @@ private enum MockCapture {
     private static var images: [(CGImage?, Error?) -> Void] = []
     private(set) static var peakPendingImages = 0
     private static var starts: [(Error?) -> Void] = []
+    private static var stops: [(Error?) -> Void] = []
+    static var delayStops = false
     private static var preflights = 0
     private static var recordedConfiguration: SCStreamConfiguration?
     static var lastConfiguration: SCStreamConfiguration? { lock.lock(); defer { lock.unlock() }; return recordedConfiguration }
@@ -76,11 +80,14 @@ private enum MockCapture {
     static var pendingContent: Int { lock.lock(); defer { lock.unlock() }; return contents.count }
     static var pendingImage: Int { lock.lock(); defer { lock.unlock() }; return images.count }
     static var pendingStart: Int { lock.lock(); defer { lock.unlock() }; return starts.count }
+    static var pendingStop: Int { lock.lock(); defer { lock.unlock() }; return stops.count }
     static var preflightCalls: Int { lock.lock(); defer { lock.unlock() }; return preflights }
     static func falsePreflight() -> Bool { lock.lock(); preflights += 1; lock.unlock(); return false }
     static func holdContent(_ callback: @escaping (SCShareableContent?, Error?) -> Void) { lock.lock(); contents.append(callback); lock.unlock() }
     static func holdImage(_ callback: @escaping (CGImage?, Error?) -> Void) { lock.lock(); images.append(callback); peakPendingImages = max(peakPendingImages, images.count); lock.unlock() }
     static func holdStart(_ callback: @escaping (Error?) -> Void) { lock.lock(); starts.append(callback); lock.unlock() }
+    static func holdStop(_ callback: @escaping (Error?) -> Void) { lock.lock(); stops.append(callback); lock.unlock() }
+    static func stopped() { lock.lock(); let callback = stops.removeFirst(); lock.unlock(); callback(nil) }
     static func content(error: Error? = nil) {
         lock.lock(); let callback = contents.removeFirst(); lock.unlock()
         callback(error == nil ? SCShareableContent() : nil, error)
@@ -323,6 +330,7 @@ private struct CheckFailure: Error { let message: String }
                 var video: CMSampleBuffer?
                 CMSampleBufferCreateReadyWithImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: pixel!, formatDescription: description!,
                     sampleTiming: &timing, sampleBufferOut: &video)
+                let emittedAt = CACurrentMediaTime()
                 stream.emit(video!, type: .screen)
                 for i in 0..<12 {
                     if hasAudio {
@@ -334,7 +342,13 @@ private struct CheckFailure: Error { let message: String }
                     }
                     try await Task.sleep(nanoseconds: 20_000_000)
                 }
-                recorder?.stop(); try await wait({ completed }, "real recorder finishes MP4")
+                MockCapture.delayStops = true
+                recorder?.stop(); try await wait({ MockCapture.pendingStop == 1 }, "recording stop waits for native teardown")
+                let stoppedAt = CACurrentMediaTime()
+                try await Task.sleep(nanoseconds: 500_000_000)
+                try require(!completed, "Recorder waits for teardown before sealing the file")
+                MockCapture.delayStops = false; MockCapture.stopped()
+                try await wait({ completed }, "real recorder finishes MP4")
                 try require(saved == url && recordingError == nil, "native video/audio writer completes without losing selected sound")
                 let asset = AVURLAsset(url: url)
                 let audioTracks = try await asset.loadTracks(withMediaType: .audio)
@@ -343,6 +357,7 @@ private struct CheckFailure: Error { let message: String }
                 try require(audioTracks.count == (hasAudio ? 1 : 0) && videoTracks.count == 1,
                             "silent file has no audio track; system selection creates one playable track alongside video")
                 try require(duration.seconds >= 0.2, "static final frame and audio share actual recording duration")
+                try require(duration.seconds <= stoppedAt - emittedAt + 0.15, "Native teardown delay does not extend video or audio duration")
                 recorder = nil; MockCapture.lastStream = nil
                 try await wait({ releasedRecorder == nil }, "stopping audio releases recorder, timer, stream and buffers")
             }

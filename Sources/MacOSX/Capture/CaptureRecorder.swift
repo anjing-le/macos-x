@@ -22,6 +22,7 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private var firstTime: CMTime?
     private var lastSample: CMSampleBuffer?
     private var startedAt: CFTimeInterval = 0
+    private var endedAt: CFTimeInterval?
     private var wantsStop = false
     private var interrupted: Error?
     private var onStarted: ((Result<Void, Error>) -> Void)?
@@ -47,6 +48,7 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             }
             session &+= 1; let expected = session
             state = .starting; lifetime = self; wantsStop = false; interrupted = nil
+            endedAt = nil
             finishStarted = false; failureInProgress = false
             onStarted = started; onFinished = finished; self.destination = destination
             self.audioOptions = audioOptions
@@ -211,6 +213,7 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         guard state == .recording || state == .starting else { return }
         let expected = session
         state = .finishing
+        endedAt = CACurrentMediaTime()
         audioTimer?.cancel(); audioTimer = nil
         if alreadyStopped { stopMicrophone { [weak self] in self?.finishFile() } }
         else if let stream {
@@ -237,7 +240,9 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         guard writer != nil, input != nil, let firstTime, temporaryURL != nil, destination != nil else {
             fail(interrupted ?? CaptureFailure.message("未收到画面，未保存空文件。"), streamAlreadyStopped: true); return
         }
-        let elapsed = max(1.0 / 30, CACurrentMediaTime() - startedAt)
+        // Native stream/device teardown can take hundreds of milliseconds. That
+        // wait is not recorded time and must not extend the final frame/audio.
+        let elapsed = max(1.0 / 30, (endedAt ?? CACurrentMediaTime()) - startedAt)
         let endTime = CMTimeAdd(firstTime, CMTime(seconds: elapsed, preferredTimescale: 600))
         drainFinalAudio(through: elapsed, endTime: endTime, deadline: CACurrentMediaTime() + 3)
     }
@@ -336,6 +341,7 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private func reset() {
         session &+= 1
         state = .idle; stream = nil; writer = nil; input = nil; temporaryURL = nil; destination = nil
+        endedAt = nil
         audioTimer?.cancel(); audioTimer = nil; audio = nil; microphone = nil; audioOptions = .init()
         firstTime = nil; lastSample = nil; wantsStop = false; interrupted = nil; onStarted = nil; onFinished = nil
         finishStarted = false; failureInProgress = false
