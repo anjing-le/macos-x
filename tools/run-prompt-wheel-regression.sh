@@ -14,7 +14,7 @@ import sys
 root, out = map(Path, sys.argv[1:])
 source = (root / 'Sources/MacOSX/Shared/GlobalInput.swift').read_text()
 (out / 'ShortcutTypes.swift').write_text(source[:source.index('private enum InputAction')] + source[source.index('extension ShortcutBinding'):])
-(out / 'PromptModuleAndFixture.swift').write_text((root / 'Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift').read_text() + '\n' + (root / 'tools/prompt-management-regression.swift').read_text() + '\n' + (root / 'tools/prompt-wheel-regression.swift').read_text())
+(out / 'PromptModuleAndFixture.swift').write_text((root / 'Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift').read_text() + '\n' + (root / 'tools/prompt-management-regression.swift').read_text() + '\n' + (root / 'tools/prompt-polish-regression.swift').read_text() + '\n' + (root / 'tools/prompt-wheel-regression.swift').read_text())
 PY
 xcrun swiftc -I "$wheel_bin/Modules" "$wheel_bin"/MacOSXCore.build/*.swift.o \
   Sources/MacOSX/UI/SketchTheme.swift Sources/MacOSX/UI/SketchIcons.swift \

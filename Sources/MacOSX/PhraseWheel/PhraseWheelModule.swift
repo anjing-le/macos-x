@@ -113,6 +113,9 @@ import MacOSXCore
     private var draggingLibrary = false
     private var lastDeleted: PromptCollection.DeletedPrompt?
     private var interactionRevision = 0
+    private var importRevision = 0
+    private var importTask: Task<Void, Never>?
+    private var importPanel: NSOpenPanel?
     private var exportTask: Task<Void, Never>?
     private var exportPanel: NSSavePanel?
     private var closeObserver: NSObjectProtocol?
@@ -221,7 +224,7 @@ import MacOSXCore
         }
         let editorX=bounds.width*0.49, editorWidth=bounds.width-editorX-16
         editorHeading.frame=CGRect(x:editorX,y:bounds.height-32,width:editorWidth,height:26)
-        editorHint.frame=CGRect(x:editorX,y:bounds.height-74,width:editorWidth,height:32)
+        editorHint.frame=CGRect(x:editorX,y:bounds.height-64,width:editorWidth,height:20)
         let countX:CGFloat=250
         ringCountLabel.frame=CGRect(x:countX,y:bounds.height-30,width:52,height:20)
         ringCount.frame=CGRect(x:countX+54,y:bounds.height-34,width:58,height:28)
@@ -230,9 +233,10 @@ import MacOSXCore
         let leftWidth=editorX-32, tabY=bounds.height-96
         wheelTab.frame=CGRect(x:16,y:tabY,width:54,height:28)
         libraryTab.frame=CGRect(x:74,y:tabY,width:54,height:28)
-        add.frame=CGRect(x:132,y:tabY,width:28,height:28)
-        delete.frame=CGRect(x:166,y:tabY,width:54,height:28)
-        undoDelete.frame=CGRect(x:226,y:tabY,width:72,height:28)
+        // Navigation stays with the preview; content actions stay with the editor.
+        add.title = "+ 新建"; add.frame=CGRect(x:editorX,y:tabY,width:64,height:28)
+        delete.frame=CGRect(x:editorX+74,y:tabY,width:54,height:28)
+        undoDelete.frame=CGRect(x:editorX+138,y:tabY,width:80,height:28)
         presentationHost.frame=CGRect(x:16,y:62,width:leftWidth,height:tabY-70); layoutPreview()
         search.frame=CGRect(x:16,y:tabY-40,width:leftWidth,height:30)
         listScroll.frame=CGRect(x:16,y:66,width:leftWidth,height:tabY-114)
@@ -260,6 +264,7 @@ import MacOSXCore
             return
         }
         for button in styleButtons { button.backdropOnly=artwork != nil }
+        add.title = "+"
         displayStyle.frame = CGRect(x:0,y:bounds.height-32,width:100,height:28)
         for (i,button) in styleButtons.enumerated() { button.frame=CGRect(x:CGFloat(i)*116,y:bounds.height-60,width:110,height:58) }
         ringCountLabel.frame = CGRect(x:192,y:bounds.height-26,width:32,height:18)
@@ -300,7 +305,7 @@ import MacOSXCore
         rebuildPreview()
         updateModeVisibility()
         delete.isEnabled = selected != nil; undoDelete.isEnabled = lastDeleted != nil
-        editorHint.stringValue = "拖动条目放入常用位置；拖动已有位置互换。也可用位置菜单调整。"
+        editorHint.stringValue = "拖到常用位置；已有位置可互换。"
         wheelTab.state = libraryMode ? .off : .on; libraryTab.state = libraryMode ? .on : .off
         picker.isHidden = libraryMode; placement.isHidden = !libraryMode
         picker.removeAllItems(); picker.addItem(withTitle:"空位")
@@ -353,6 +358,7 @@ import MacOSXCore
     func endInteraction() {
         interactionRevision += 1; exportTask?.cancel(); exportTask = nil; exporter.isEnabled = true
         exportPanel?.cancel(nil); exportPanel = nil
+        if importTask != nil || importPanel != nil || pending != nil { cancelPendingImport() }
         dragContext.end(); importDropdown?.dismiss(); importDropdown = nil
     }
     override func viewDidMoveToWindow() {
@@ -495,7 +501,15 @@ import MacOSXCore
             let size = encodedSize + (try JSONEncoder().encode(entry).count) - oldSize + (creating && !collection.prompts.isEmpty ? 1 : 0) + slotsDelta
             guard size<=PromptCollection.byteLimit else { throw PromptCollection.Failure("提示词库超过 4 MB") }
             collection = candidate; selected = index; encodedSize = size; status.stringValue = ""
-            refresh(); onChange?(collection)
+            if creating { refresh() }
+            else {
+                presentationPreview?.updateEditingPrompt(at: index, prompt: entry)
+                if old.title != entry.title {
+                    picker.item(at: index + 1)?.title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "未命名" : entry.title
+                    if libraryMode { filterRows() }
+                }
+            }
+            onChange?(collection)
         } catch { status.stringValue = error.localizedDescription }
     }
     private func filterRows() {
@@ -575,33 +589,59 @@ import MacOSXCore
         dropdown.onDismiss = { [weak self] in self?.importDropdown=nil }
         importDropdown=dropdown; dropdown.present(relativeTo:importer)
     }
-    @objc private func cancelPendingImport() { pending = nil; importer.title = "导入 JSON"; cancelImport.isHidden = true; format.isHidden = false; status.stringValue = "" }
+    @objc private func cancelPendingImport() {
+        importRevision += 1; importTask?.cancel(); importTask = nil
+        let panel = importPanel; importPanel = nil; panel?.cancel(nil)
+        pending = nil; importer.isEnabled = true; importer.title = "导入 JSON"
+        cancelImport.isHidden = true; format.isHidden = false; status.stringValue = ""
+    }
     @objc private func importClipboard() {
         guard let string = NSPasteboard.general.string(forType:.string) else { status.stringValue = "剪贴板没有 JSON"; return }
         parseData(Data(string.utf8))
     }
     @objc private func importFile() {
-        guard let window else { return }; let panel = NSOpenPanel(); panel.allowedContentTypes = [.json]; panel.allowsMultipleSelection = false; panel.prompt = "选择"
+        guard let window else { return }
+        cancelPendingImport()
+        let expected = importRevision, session = interactionRevision
+        let panel = NSOpenPanel(); panel.allowedContentTypes = [.json]; panel.allowsMultipleSelection = false; panel.prompt = "选择"
+        importPanel = panel
         panel.beginSheetModal(for:window) { [weak self] response in
+            guard let self, self.importRevision == expected, self.interactionRevision == session,
+                  self.importPanel === panel else { return }
+            self.importPanel = nil
             guard response == .OK, let url = panel.url else { return }
-            Task { @MainActor [weak self] in
-                do {
-                    let data = try await Task.detached(priority:.userInitiated) {
-                        let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
-                        let handle = try FileHandle(forReadingFrom:url); defer { try? handle.close() }
-                        return try handle.read(upToCount:PromptCollection.byteLimit+1) ?? Data()
-                    }.value
-                    self?.parseData(data)
-                } catch { self?.status.stringValue = "无法读取 JSON 文件" }
-            }
+            self.readImportFile(url)
+        }
+    }
+    private func readImportFile(_ url: URL) {
+        cancelPendingImport()
+        let expected = importRevision, session = interactionRevision
+        importer.isEnabled = false; cancelImport.isHidden = false; format.isHidden = true
+        status.stringValue = "正在读取 JSON…"
+        importTask = Task { @MainActor [weak self] in
+            let result = await Task.detached(priority: .userInitiated) { Result {
+                let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
+                let handle = try FileHandle(forReadingFrom: url); defer { try? handle.close() }
+                return try handle.read(upToCount: PromptCollection.byteLimit + 1) ?? Data()
+            } }.value
+            guard !Task.isCancelled, let self, self.importRevision == expected,
+                  self.interactionRevision == session else { return }
+            self.importTask = nil; self.importer.isEnabled = true
+            do { self.parseData(try result.get()) }
+            catch { self.cancelPendingImport(); self.status.stringValue = "无法读取 JSON 文件" }
         }
     }
     private func parseData(_ data:Data) {
+        cancelPendingImport()
         guard data.count<=PromptCollection.byteLimit else { status.stringValue = "JSON 超过 4 MB"; return }
-        importer.isEnabled = false
-        Task { [weak self] in
+        let expected = importRevision, session = interactionRevision
+        importer.isEnabled = false; cancelImport.isHidden = false; format.isHidden = true
+        status.stringValue = "正在校验 JSON…"
+        importTask = Task { [weak self] in
             let result = await Task.detached(priority:.userInitiated) { Result { try PromptImport.parse(data) } }.value
-            guard let self else { return }; self.importer.isEnabled = true
+            guard !Task.isCancelled, let self, self.importRevision == expected,
+                  self.interactionRevision == session else { return }
+            self.importTask = nil; self.importer.isEnabled = true
             do {
                 let document = try result.get(), value = try self.collection.merging(document)
                 self.pending = document; self.importer.title = "确认导入"; self.cancelImport.isHidden = false; self.format.isHidden = true
@@ -610,7 +650,7 @@ import MacOSXCore
                     return old.title != item.title || old.content != item.content
                 }.count
                 self.status.stringValue = "\(document.prompts.count) 条 · 新增 \(value.prompts.count-self.collection.prompts.count) · 更新 \(updated) · 转盘位置 \(document.prompts.compactMap(\.slot).count) 个"
-            } catch { self.status.stringValue = error.localizedDescription }
+            } catch { self.cancelPendingImport(); self.status.stringValue = error.localizedDescription }
         }
     }
 }

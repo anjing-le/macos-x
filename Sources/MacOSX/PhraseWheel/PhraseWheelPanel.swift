@@ -240,7 +240,7 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
     var onChoose: ((Int) -> Void)?
     var onCancel: (() -> Void)?
     let search = SketchSearchField()
-    private let collection: PromptCollection
+    private var collection: PromptCollection
     private let presentation: PromptPresentation
     private let surface = SketchSurface()
     private let ring: PromptRingView
@@ -345,6 +345,17 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
         refreshSearch()
     }
     required init?(coder: NSCoder) { nil }
+    /// Editing one entry keeps native controls, search and drag identities alive.
+    /// Runtime panels still hold the immutable snapshot used for copying.
+    func updateEditingPrompt(at index: Int, prompt: LibraryPrompt) {
+        guard editing, !finished, collection.prompts.indices.contains(index),
+              collection.prompts[index].id == prompt.id else { return }
+        let old = collection.prompts[index]
+        collection.prompts[index] = prompt
+        if old.title != prompt.title || old.content.isEmpty != prompt.content.isEmpty {
+            refreshSearch()
+        } else { refreshRing() }
+    }
     func finish() { finished = true; onChoose = nil; onCancel = nil; search.delegate = nil; ring.onHover = nil; ring.onChoose = nil; onResize = nil; onEditSlot = nil; onEditPrompt = nil; onDrop = nil; dragContext = nil; unregisterDraggedTypes(); ring.configureDragging(context: nil, slots: []); results.forEach { $0.dragContext = nil; $0.dragPayload = nil }; clearDropHighlight() }
     private var showsList: Bool { searching || presentation.style == .list || presentation.count == 0 }
     private var showsEditableSlots: Bool { editing && !searching && presentation.style == .list && presentation.count > 0 }

@@ -75,6 +75,12 @@ final class CaptureImageService {
         let ticket: Ticket
         let completion: (Result<[CaptureFrame], Error>) -> Void
     }
+    /// Accessed only on the serial capture queue. The next native screenshot can
+    /// run while this queue prepares the previous image's immutable sampler.
+    private final class DisplayFrames {
+        var frames: [CaptureFrame] = []
+        var finished = false
+    }
     private static let windowBackground = CGColor(gray: 1, alpha: 1)
     private let queue = DispatchQueue(label: "cc.anjing.macos-x.capture.images", qos: .userInitiated)
     private var pending: Request?
@@ -122,18 +128,19 @@ final class CaptureImageService {
                 let windows = Self.windowRegions(primaryTop: request.screens.first?.frame.maxY ?? 0, ownWindowIDs: request.ownWindowIDs)
                 metadataTiming.record("window-metadata")
                 self.captureDisplay(request, displays: content.displays, windows: windows,
-                                    index: 0, reduction: reduction, frames: [])
+                                    index: 0, reduction: reduction, state: DisplayFrames())
             }
         }
     }
 
     private func captureDisplay(_ request: Request, displays: [SCDisplay], windows: [CaptureWindow],
-                                index: Int, reduction: CGFloat, frames: [CaptureFrame]) {
-        guard request.ticket.valid else { finish(request, .failure(CaptureFailure.cancelled)); return }
-        guard index < request.screens.count else { finish(request, frames.isEmpty ? .failure(CaptureFailure.unavailable) : .success(frames)); return }
+                                index: Int, reduction: CGFloat, state: DisplayFrames) {
+        guard !state.finished else { return }
+        guard request.ticket.valid else { completeDisplay(request, state, .failure(CaptureFailure.cancelled)); return }
+        guard index < request.screens.count else { completeDisplay(request, state, state.frames.isEmpty ? .failure(CaptureFailure.unavailable) : .success(state.frames)); return }
         let screen = request.screens[index]
         guard let display = displays.first(where: { $0.displayID == screen.id }) else {
-            finish(request, .failure(CaptureFailure.unavailable)); return
+            completeDisplay(request, state, .failure(CaptureFailure.unavailable)); return
         }
         let configuration = SCStreamConfiguration()
         configuration.width = max(1, Int((screen.frame.width * screen.scale * reduction).rounded(.down)))
@@ -144,17 +151,34 @@ final class CaptureImageService {
         SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration) { [weak self] image, error in
             self?.queue.async { [weak self] in
                 guard let self else { return }
+                guard !state.finished else { return }
                 screenshotTiming.record("display-screenshot")
-                guard let image else { self.finish(request, .failure(error ?? CaptureFailure.unavailable)); return }
-                guard request.ticket.valid else { self.finish(request, .failure(CaptureFailure.cancelled)); return }
+                guard let image else { self.completeDisplay(request, state, .failure(error ?? CaptureFailure.unavailable)); return }
+                guard request.ticket.valid else { self.completeDisplay(request, state, .failure(CaptureFailure.cancelled)); return }
+                let position = state.frames.count
+                state.frames.append(CaptureFrame(screen: screen, image: image, windows: windows.map(\.frame), windowTargets: windows))
+                if index + 1 < request.screens.count {
+                    self.captureDisplay(request, displays: displays, windows: windows, index: index + 1, reduction: reduction, state: state)
+                }
+                guard !state.finished else { return }
+                guard request.ticket.valid else {
+                    // A previously issued next display owns the completion. On
+                    // the final display there is no callback left to drain it.
+                    if index + 1 == request.screens.count { self.completeDisplay(request, state, .failure(CaptureFailure.cancelled)) }
+                    return
+                }
                 let samplingTiming = CaptureTiming()
                 let sampler = CapturePixelSampler(image: image)
                 samplingTiming.record("pixel-sampler")
-                self.captureDisplay(request, displays: displays, windows: windows, index: index + 1, reduction: reduction,
-                                    frames: frames + [CaptureFrame(screen: screen, image: image,
-                                                                 windows: windows.map(\.frame), sampler: sampler, windowTargets: windows)])
+                state.frames[position] = CaptureFrame(screen: screen, image: image, windows: windows.map(\.frame), sampler: sampler, windowTargets: windows)
+                if index + 1 == request.screens.count { self.completeDisplay(request, state, .success(state.frames)) }
             }
         }
+    }
+
+    private func completeDisplay(_ request: Request, _ state: DisplayFrames, _ result: Result<[CaptureFrame], Error>) {
+        guard !state.finished else { return }
+        state.finished = true; finish(request, result)
     }
 
     /// A single isolated window capture only after explicit window selection.

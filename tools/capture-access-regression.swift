@@ -14,7 +14,7 @@ final class SCWindow {
 }
 final class SCShareableContent {
     let windows = [SCWindow()]
-    let displays = [SCDisplay(7)]
+    let displays = [SCDisplay(7), SCDisplay(8)]
     static func getExcludingDesktopWindows(_ exclude: Bool, onScreenWindowsOnly: Bool,
         completionHandler: @escaping (SCShareableContent?, Error?) -> Void) { MockCapture.holdContent(completionHandler) }
 }
@@ -67,6 +67,7 @@ private enum MockCapture {
     private static let lock = NSLock()
     private static var contents: [(SCShareableContent?, Error?) -> Void] = []
     private static var images: [(CGImage?, Error?) -> Void] = []
+    private(set) static var peakPendingImages = 0
     private static var starts: [(Error?) -> Void] = []
     private static var preflights = 0
     private static var recordedConfiguration: SCStreamConfiguration?
@@ -78,7 +79,7 @@ private enum MockCapture {
     static var preflightCalls: Int { lock.lock(); defer { lock.unlock() }; return preflights }
     static func falsePreflight() -> Bool { lock.lock(); preflights += 1; lock.unlock(); return false }
     static func holdContent(_ callback: @escaping (SCShareableContent?, Error?) -> Void) { lock.lock(); contents.append(callback); lock.unlock() }
-    static func holdImage(_ callback: @escaping (CGImage?, Error?) -> Void) { lock.lock(); images.append(callback); lock.unlock() }
+    static func holdImage(_ callback: @escaping (CGImage?, Error?) -> Void) { lock.lock(); images.append(callback); peakPendingImages = max(peakPendingImages, images.count); lock.unlock() }
     static func holdStart(_ callback: @escaping (Error?) -> Void) { lock.lock(); starts.append(callback); lock.unlock() }
     static func content(error: Error? = nil) {
         lock.lock(); let callback = contents.removeFirst(); lock.unlock()
@@ -356,6 +357,33 @@ private struct CheckFailure: Error { let message: String }
             if case .success(let frames) = result { try require(frames.count == 1 && frames[0].image.width == 4, "actual image result must pass despite false advisory") }
             else { throw CheckFailure(message: "false advisory blocked actual successful image") }
             try require(MockCapture.preflightCalls == 0, "capture must not use advisory as a hard gate")
+
+            let secondScreen = CaptureScreen(id: 8, frame: CGRect(x: -4, y: 0, width: 4, height: 4), scale: 1)
+            let greenContext = CaptureRaster.context(width: 4, height: 4)!
+            greenContext.setFillColor(CGColor(red: 0, green: 1, blue: 0, alpha: 1)); greenContext.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+            let green = greenContext.makeImage()!
+            let expectedRed = CapturePixelSampler(image: image)!.sample(x: 0, y: 0)
+            let expectedGreen = CapturePixelSampler(image: green)!.sample(x: 0, y: 0)
+            result = nil; service.capture([screen, secondScreen]) { result = $0 }
+            try await succeedImage(image)
+            try await wait({ MockCapture.pendingImage == 1 }, "second display begins after first native result")
+            try require(result == nil && MockCapture.pendingContent == 0, "No partial multi-display delivery or extra metadata request")
+            MockCapture.image(green)
+            try await wait({ result != nil }, "multi-display samplers complete before delivery")
+            if case .success(let frames) = result {
+                try require(frames.map(\.screen.id) == [7,8], "Multi-display frame ordering remains stable")
+                try require(expectedRed != expectedGreen && frames[0].sampler?.sample(x: 0, y: 0) == expectedRed && frames[1].sampler?.sample(x: 0, y: 0) == expectedGreen, "Each display keeps its own completed immutable sampler")
+            } else { throw CheckFailure(message: "multi-display capture failed") }
+            var cancelledPairCalls = 0, replacementCalls = 0
+            service.capture([screen, secondScreen]) { _ in cancelledPairCalls += 1 }
+            try await succeedImage(image)
+            try await wait({ MockCapture.pendingImage == 1 }, "pending second display")
+            service.capture([screen]) { _ in replacementCalls += 1 }
+            try await settle()
+            try require(MockCapture.pendingContent == 0, "Replacement waits for the already-issued display callback")
+            MockCapture.image(green)
+            try await succeedImage(image); try await wait({ replacementCalls == 1 }, "replacement after cancelled multi-display")
+            try require(cancelledPairCalls == 0 && MockCapture.peakPendingImages == 1, "Multi-display cancellation keeps latest delivery and a single native screenshot in flight")
 
             let target = CaptureWindow(id: 42, frame: CGRect(x: 0, y: -4, width: 4, height: 4))
             result = nil; service.capture([screen], window: target) { result = $0 }

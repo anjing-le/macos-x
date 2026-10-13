@@ -12,6 +12,7 @@ final class CountingPromptDefaults: UserDefaults {
         _ = NSApplication.shared
         try checkPromptPreviews()
         try checkPromptManagement()
+        try checkPromptPolish()
         let collection = PromptCollection(legacy: (1...10).map { PromptEntry(title: "办公 \($0)", content: "正文 \($0)") })
         // Exercise every display count with real, non-presented AppKit views.
         for style in [PromptPresentation.Style.ring, .list] {
