@@ -11,6 +11,11 @@ import AppKit
     var recognitionWasCancelled: Bool { recognition == nil && recognitionButton.isEnabled && status.isHidden && status.stringValue.isEmpty }
     func showFixtureStatus(_ value: String) { toolbarVisible = false; showStatus(value) }
     var fixtureStatus: String { status.stringValue }
+    func beginTextFixture(point: CGPoint, width: CGFloat, ink: CaptureInk) -> NSTextView {
+        addText(point, width, ink); return textInput!
+    }
+    func finishTextFixture(commit: Bool) { finishText(commit: commit) }
+    var fixtureTextMark: CaptureAnnotation? { annotations.last }
 }
 
 @MainActor private extension PinEntry {
@@ -28,6 +33,79 @@ import AppKit
         let context = CaptureRaster.context(width: 200, height: 160)!
         context.setFillColor(CGColor(gray: 1, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 200, height: 160))
         let image = context.makeImage()!
+        // Real native input and exported pixels, including the normal 2x
+        // screenshot-to-point mapping. No shown window or clipboard writes.
+        for displayScale: CGFloat in [1, 0.5] {
+            let textEditor = CaptureEditor(image: image,
+                selectionFrame: CGRect(x: 0,y: 0,width: 200 * displayScale,height: 160 * displayScale),defaults: defaults)
+            let textCanvas = textEditor.window.contentView as! CaptureCanvas
+            let ink = CaptureInk(red: 0.1,green: 0.6,blue: 0.9,alpha: 1)
+            let input = textEditor.beginTextFixture(point: CGPoint(x: 16,y: 140),width: 3,ink: ink)
+            precondition(!input.drawsBackground && input.backgroundColor == .clear && input.textContainerInset == .zero,
+                         "The active text input is transparent and has no padded field or border")
+            let sampleText = "Ab中文 🙂 自动换行一致\n第二行"
+            input.insertText(sampleText,replacementRange: NSRange(location: 0,length: 0))
+            textEditor.textDidChange(Notification(name: NSText.didChangeNotification,object: input))
+            precondition(abs(input.font!.pointSize * input.frame.width / input.bounds.width - 21 * displayScale) < 0.001)
+            precondition(input.string == sampleText, "Plain native input retains Unicode and pasted line breaks")
+            let beforeFrame = input.frame, beforeFont = input.font!, text = input.string
+            let beforeContainer = input.textContainer!.size
+            // Render the actual editable NSTextView, not another call to the
+            // export helper. Its empty area must remain alpha-transparent.
+            let nativeWidth = Int(ceil(input.bounds.width)), nativeHeight = Int(ceil(input.bounds.height))
+            let nativeContext = CaptureRaster.context(width: nativeWidth,height: nativeHeight)!
+            nativeContext.saveGState()
+            nativeContext.translateBy(x: 0,y: CGFloat(nativeHeight)); nativeContext.scaleBy(x: 1,y: -1)
+            let graphics = NSGraphicsContext.current
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: nativeContext,flipped: true)
+            input.draw(input.bounds)
+            NSGraphicsContext.current = graphics; nativeContext.restoreGState()
+            let nativeInput = nativeContext.makeImage()!
+            var localMark = CaptureAnnotation(tool: .text,points: [CGPoint(x: 0,y: CGFloat(nativeHeight))],ink: ink,width: 3)
+            localMark.text = text; localMark.textLayoutWidth = beforeContainer.width
+            let transparent = CaptureRaster.context(width: nativeWidth,height: nativeHeight)!.makeImage()!
+            let nativeExport = CaptureAnnotationRenderer.render(base: transparent,annotations: [localMark])!
+            let inputBytes = nativeInput.dataProvider!.data! as Data, exportBytes = nativeExport.dataProvider!.data! as Data
+            var activePixels = 0, differences = 0
+            for y in 0..<nativeHeight { for x in 0..<nativeWidth {
+                let offset = y * nativeInput.bytesPerRow + x * 4
+                let exported = y * nativeExport.bytesPerRow + x * 4
+                if inputBytes[offset + 3] > 0 || exportBytes[exported + 3] > 0 { activePixels += 1 }
+                if (0..<4).contains(where: { abs(Int(inputBytes[offset + $0]) - Int(exportBytes[exported + $0])) > 2 }) { differences += 1 }
+            } }
+            precondition(activePixels > 0 && activePixels < nativeWidth * nativeHeight / 2,
+                         "Native editing renders real text and leaves the surrounding area transparent")
+            print("Text native/export RGBA difference: \(differences) / \(activePixels), scale \(displayScale)")
+            precondition(differences == 0, "Editable text glyph positions and shapes must match final export")
+            if let directory = ProcessInfo.processInfo.environment["MACOSX_TEXT_EVIDENCE_DIRECTORY"] {
+                let output = URL(fileURLWithPath: directory,isDirectory: true)
+                try! FileManager.default.createDirectory(at: output,withIntermediateDirectories: true)
+                for (name,bitmap) in [("editing",nativeInput),("export",nativeExport)] {
+                    try! NSBitmapImageRep(cgImage: bitmap).representation(using: .png,properties: [:])!
+                        .write(to: output.appendingPathComponent("\(name)-\(displayScale).png"))
+                }
+            }
+            textEditor.finishTextFixture(commit: true)
+            let mark = textEditor.fixtureTextMark!
+            let layout = CaptureTextLayout(annotation: mark)
+            precondition(mark.text == text && layout.attributes[.font] as? NSFont == beforeFont && layout.container.size == beforeContainer,
+                         "Commit retains the exact font, full text and wrapping width")
+            let topLeft = textCanvas.viewPoint(for: mark.points[0])
+            precondition(abs(topLeft.x - beforeFrame.minX) < 0.001 && abs(topLeft.y - beforeFrame.maxY) < 0.001,
+                         "Commit must retain the displayed top-left instead of moving to a different baseline")
+            let rendered = DispatchQueue(label: "cc.anjing.macos-x.text-export-fixture").sync {
+                CaptureAnnotationRenderer.render(base: image,annotations: [mark])!
+            }
+            let sample = CapturePixelSampler(image: rendered)!
+            precondition(sample.sample(x: 190,y: 150)?.hex == "#FFFFFF", "Text exports have no opaque text-field background")
+            precondition((24..<110).contains { y in (16..<180).contains { x in sample.sample(x: x,y: y)?.hex != "#FFFFFF" } },
+                         "Committed text actually paints foreground glyphs")
+            let abandoned = textEditor.beginTextFixture(point: CGPoint(x: 30,y: 70),width: 3,ink: ink)
+            abandoned.insertText("取消本段",replacementRange: NSRange(location: 0,length: 0))
+            precondition(textEditor.textView(abandoned,doCommandBy: #selector(NSResponder.cancelOperation(_:))))
+            precondition(textEditor.fixtureTextMark?.text == text, "Esc must abandon only the active text")
+            textEditor.close()
+        }
         let pinEntry = PinEntry(image: image, frame: CGRect(x: -200, y: 40, width: 200, height: 160), queue: DispatchQueue(label: "pin-drag-fixture"))
         let pinView = pinEntry.window.contentView as! PinView
         let initialFrame = pinEntry.window.frame

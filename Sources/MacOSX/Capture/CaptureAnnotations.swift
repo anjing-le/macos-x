@@ -1,6 +1,5 @@
 import AppKit
 import CoreImage
-import CoreText
 
 enum CaptureTool: Int, CaseIterable {
     case rectangle, ellipse, arrow, pen, highlighter, text, mosaic, blur, eraser
@@ -25,19 +24,25 @@ struct CaptureAnnotation {
     let ink: CaptureInk
     let width: CGFloat
     var text = ""
+    /// Image-pixel line width. Text points use the top-left of the first line.
+    var textLayoutWidth: CGFloat?
+    var textFontSize: CGFloat?
     func reframed(from old: CGRect, pixels oldPixels: CGSize, to new: CGRect, pixels newPixels: CGSize) -> CaptureAnnotation {
         let sx = newPixels.width / new.width, sy = newPixels.height / new.height
         var result = CaptureAnnotation(tool: tool, points: points.map { point in
             CGPoint(x: (old.minX + point.x * old.width / oldPixels.width - new.minX) * sx,
                     y: (old.minY + point.y * old.height / oldPixels.height - new.minY) * sy)
         }, ink: ink, width: width * old.width / oldPixels.width * sx)
-        result.text = text; return result
+        result.text = text
+        result.textLayoutWidth = textLayoutWidth.map { $0 * old.width / oldPixels.width * sx }
+        if tool == .text { result.textFontSize = (textFontSize ?? max(18, width * 7)) * old.width / oldPixels.width * sx }
+        return result
     }
     var bounds: CGRect {
         guard let first = points.first else { return .null }
         if tool == .text {
-            let size = max(18, width * 7)
-            return CGRect(x: first.x, y: first.y, width: max(size, CGFloat(text.count) * size * 0.7), height: size * 1.2)
+            let size = CaptureTextLayout(annotation: self).size
+            return CGRect(x: first.x, y: first.y - size.height, width: size.width, height: size.height)
         }
         let minX = points.map(\.x).min() ?? first.x, maxX = points.map(\.x).max() ?? first.x
         let minY = points.map(\.y).min() ?? first.y, maxY = points.map(\.y).max() ?? first.y
@@ -53,6 +58,44 @@ struct CaptureAnnotation {
             return CGPath(ellipseIn: CGRect(x: first.x - width / 2, y: first.y - width / 2, width: width, height: width), transform: nil)
         }
         return path.copy(strokingWithWidth: width, lineCap: .round, lineJoin: .round, miterLimit: 1)
+    }
+}
+
+/// Input and export use the same TextKit 1 font, container and glyph layout.
+/// Each instance owns its storage/manager; export instances stay on the render
+/// queue. The editable view scales its bounds, never its font or line wrapping.
+final class CaptureTextLayout {
+    let storage: NSTextStorage
+    let manager: NSLayoutManager
+    let container: NSTextContainer
+    let attributes: [NSAttributedString.Key: Any]
+    init(annotation: CaptureAnnotation) {
+        let fontSize = annotation.textFontSize ?? max(18, annotation.width * 7)
+        let font = NSFont(name: "Helvetica", size: fontSize) ?? .systemFont(ofSize: fontSize)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
+        attributes = [.font: font, .foregroundColor: NSColor(cgColor: annotation.ink.cgColor)!, .paragraphStyle: paragraph]
+        storage = NSTextStorage(string: annotation.text, attributes: attributes)
+        manager = NSLayoutManager()
+        container = NSTextContainer(size: CGSize(width: max(1, annotation.textLayoutWidth ?? 100_000), height: 100_000))
+        container.lineFragmentPadding = 0
+        container.widthTracksTextView = false; container.heightTracksTextView = false
+        storage.addLayoutManager(manager); manager.addTextContainer(container)
+    }
+    var size: CGSize {
+        manager.ensureLayout(for: container)
+        let used = manager.usedRect(for: container)
+        let font = attributes[.font] as! NSFont
+        return CGSize(width: max(1, used.maxX), height: max(manager.defaultLineHeight(for: font), used.maxY))
+    }
+    func draw(at topLeft: CGPoint, in context: CGContext) {
+        manager.ensureLayout(for: container)
+        context.saveGState(); defer { context.restoreGState() }
+        context.translateBy(x: topLeft.x, y: topLeft.y); context.scaleBy(x: 1, y: -1)
+        let previous = NSGraphicsContext.current
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+        defer { NSGraphicsContext.current = previous }
+        manager.drawGlyphs(forGlyphRange: manager.glyphRange(for: container), at: .zero)
     }
 }
 
@@ -105,7 +148,7 @@ enum CaptureAnnotationRenderer {
         context.setFillColor(annotation.ink.cgColor)
         context.setLineWidth(annotation.width)
         context.setLineCap(.round); context.setLineJoin(.round)
-        let rect = annotation.bounds
+        let rect = annotation.tool == .text ? CGRect.zero : annotation.bounds
         switch annotation.tool {
         case .rectangle:
             CaptureCrayonStroke.draw(segments: [(CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY)),
@@ -127,14 +170,7 @@ enum CaptureAnnotationRenderer {
             if annotation.points.count == 1 { context.addLine(to: CGPoint(x: first.x + 0.1, y: first.y)) }
             context.strokePath()
         case .text:
-            let font = CTFontCreateWithName("Helvetica" as CFString, max(18, annotation.width * 7), nil)
-            let text = NSAttributedString(string: annotation.text, attributes: [
-                NSAttributedString.Key(kCTFontAttributeName as String): font,
-                NSAttributedString.Key(kCTForegroundColorAttributeName as String): annotation.ink.cgColor
-            ])
-            context.textMatrix = .identity
-            context.textPosition = first
-            CTLineDraw(CTLineCreateWithAttributedString(text), context)
+            CaptureTextLayout(annotation: annotation).draw(at: first, in: context)
         case .mosaic, .blur:
             context.setStrokeColor(CGColor(gray: 0.3, alpha: 1)); context.setLineDash(phase: 0, lengths: [6, 4]); context.stroke(rect)
         case .eraser: break
@@ -285,7 +321,7 @@ final class CaptureCanvas: NSView {
         let size = CGSize(width: CGFloat(base.width) * max(scale, 0.01), height: CGFloat(base.height) * max(scale, 0.01))
         return CGRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2, width: size.width, height: size.height)
     }
-    private var scale: CGFloat { imageRect.width / CGFloat(base.width) }
+    var scale: CGFloat { imageRect.width / CGFloat(base.width) }
     func viewPoint(for point: CGPoint) -> CGPoint {
         CGPoint(x: imageRect.minX + point.x * scale, y: imageRect.minY + point.y * scale)
     }

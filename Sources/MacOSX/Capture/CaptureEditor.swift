@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 @preconcurrency import Vision
 
 @MainActor
-final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
+final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
     let window: NSWindow
     private final class Panel: NSPanel {
         var onCopy: (() -> Void)?
@@ -42,7 +42,8 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     private var revision: UInt64 = 0
     private var closed = false
     private var exporting = false
-    private var textInput: NSTextField?
+    private var textInput: NSTextView?
+    private var textLayout: CaptureTextLayout?
     private var textAnnotation: CaptureAnnotation?
     private let lifetime = CaptureImageService.Ticket()
     private var preview: CaptureImageService.Ticket?
@@ -290,7 +291,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         recognition?.cancel(); recognition = nil
         colorPopover?.close(); colorPopover = nil
         toolbar.orderOut(nil); toolbar.close()
-        textInput?.delegate = nil; textInput?.removeFromSuperview(); textInput = nil; textAnnotation = nil
+        textInput?.delegate = nil; textInput?.removeFromSuperview(); textInput = nil; textAnnotation = nil; textLayout = nil
         let callback = onClose; onClose = nil; onExport = nil; onCopied = nil; onPin = nil
         onEditingChanged = nil; onReselect = nil; colorAtPointer = nil; onApply = nil; callback?()
     }
@@ -397,26 +398,56 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     }
     private func addText(_ point: CGPoint, _ width: CGFloat, _ ink: CaptureInk) {
         finishText(commit: true)
-        let location = canvas.viewPoint(for: point)
-        let input = SketchTextField(frame: CGRect(x: min(location.x, max(0, canvas.bounds.width - 80)),
-            y: min(max(0, location.y - 4), max(0, canvas.bounds.height - 28)),
-            width: min(280, max(80, canvas.bounds.width - location.x)), height: 28))
-        input.font = .systemFont(ofSize: 15); input.placeholderString = "输入文字"
+        var annotation = CaptureAnnotation(tool: .text, points: [point], ink: ink, width: width)
+        let lineHeight = CaptureTextLayout(annotation: annotation).size.height
+        annotation.points = [CGPoint(x: min(point.x, max(0, CGFloat(canvas.base.width) - max(18, width * 7))),
+                                     y: max(min(lineHeight, CGFloat(canvas.base.height)), point.y))]
+        annotation.textLayoutWidth = max(1, CGFloat(canvas.base.width) - annotation.points[0].x)
+        let layout = CaptureTextLayout(annotation: annotation)
+        let input = NSTextView(frame: .zero, textContainer: layout.container)
+        input.isRichText = false; input.importsGraphics = false; input.usesFontPanel = false; input.allowsUndo = true
+        input.drawsBackground = false; input.backgroundColor = .clear; input.focusRingType = .none
+        input.textContainerInset = .zero
+        input.isHorizontallyResizable = false; input.isVerticallyResizable = false
+        layout.container.widthTracksTextView = false; layout.container.heightTracksTextView = false
+        input.font = layout.attributes[.font] as? NSFont
+        input.textColor = layout.attributes[.foregroundColor] as? NSColor
+        input.defaultParagraphStyle = layout.attributes[.paragraphStyle] as? NSParagraphStyle
+        input.typingAttributes = layout.attributes
+        input.insertionPointColor = input.textColor ?? .black
         input.delegate = self; input.setAccessibilityLabel("截图文字")
-        canvas.addSubview(input); textInput = input
-        textAnnotation = CaptureAnnotation(tool: .text, points: [point], ink: ink, width: width)
+        canvas.addSubview(input); textInput = input; textLayout = layout; textAnnotation = annotation
+        layoutTextInput()
         window.makeFirstResponder(input)
+    }
+    private func layoutTextInput() {
+        guard let input = textInput, let layout = textLayout, let annotation = textAnnotation,
+              let anchor = annotation.points.first else { return }
+        let location = canvas.viewPoint(for: anchor), scale = canvas.scale
+        let size = CGSize(width: layout.container.size.width, height: min(anchor.y, layout.size.height + 1))
+        input.frame = CGRect(x: location.x, y: location.y - size.height * scale,
+                             width: size.width * scale, height: size.height * scale)
+        input.bounds = CGRect(origin: .zero, size: size)
+    }
+    func textDidChange(_ notification: Notification) {
+        guard let input = textInput, notification.object as? NSTextView === input else { return }
+        if !input.hasMarkedText(), input.string.count > 1000 {
+            input.string = String(input.string.prefix(1000))
+            input.setSelectedRange(NSRange(location: input.string.utf16.count, length: 0))
+        }
+        layoutTextInput()
     }
     private func finishText(commit: Bool) {
         guard let input = textInput else { return }
         let annotation = textAnnotation
-        let value = String(input.stringValue.prefix(1000))
-        textInput = nil; textAnnotation = nil; input.delegate = nil; input.removeFromSuperview()
+        let value = String(input.string.prefix(1000))
+        textInput = nil; textAnnotation = nil; textLayout = nil; input.delegate = nil; input.removeFromSuperview()
         window.makeFirstResponder(canvas)
         if commit, !value.isEmpty, var annotation { annotation.text = value; append(annotation) }
     }
-    func controlTextDidEndEditing(_ notification: Notification) { finishText(commit: true) }
-    func control(_ control: NSControl, textView: NSTextView, doCommandBy command: Selector) -> Bool {
+    func textDidEndEditing(_ notification: Notification) { finishText(commit: true) }
+    func textView(_ textView: NSTextView, doCommandBy command: Selector) -> Bool {
+        if textView.hasMarkedText() { return false }
         if command == #selector(NSResponder.insertNewline(_:)) { finishText(commit: true); return true }
         if command == #selector(NSResponder.cancelOperation(_:)) { finishText(commit: false); return true }
         return false

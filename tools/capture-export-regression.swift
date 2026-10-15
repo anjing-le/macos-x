@@ -80,6 +80,7 @@ import CoreImage
         let largerRegion = CGRect(x: 96, y: 196, width: 40, height: 40)
         var textMark = CaptureAnnotation(tool: .text, points: [CGPoint(x: 12, y: 16)], ink: .red, width: 4)
         textMark.text = "保留文字"
+        textMark.textLayoutWidth = 48
         let moved = textMark.reframed(from: oldRegion, pixels: CGSize(width: 64, height: 64),
                                      to: largerRegion, pixels: CGSize(width: 80, height: 80))
         check(moved.points == [CGPoint(x: 20, y: 24)] && moved.width == 4 && moved.text == textMark.text,
@@ -92,6 +93,8 @@ import CoreImage
                                           to: oldRegion, pixels: CGSize(width: 32, height: 32))
         check(lowerScale.points == [CGPoint(x: 6, y: 8)] && lowerScale.width == 2,
               "cross-display scale changes preserve physical mark geometry")
+        check(lowerScale.textLayoutWidth == 24 && lowerScale.textFontSize == 14,
+              "text font and wrapping scale together across displays, without a second minimum-font clamp")
         let redaction = CaptureAnnotation(tool: .mosaic, points: [CGPoint(x: 16, y: 16), CGPoint(x: 48, y: 48)], ink: .red, width: 3)
         let expanded = CaptureRaster.context(width: 80, height: 80)!
         expanded.setFillColor(CGColor(gray: 1, alpha: 1)); expanded.fill(CGRect(x: 0, y: 0, width: 80, height: 80))
