@@ -23,7 +23,7 @@ enum ShortcutAction: UInt32, CaseIterable, Sendable {
         case .wheel: return .init(kind: .doubleModifier, keyCode: 61, modifiers: 0, keyLabel: "")
         case .capture: return .init(keyCode: 122, modifiers: 0, keyLabel: "F1")
         case .pin: return .init(keyCode: 99, modifiers: 0, keyLabel: "F3")
-        case .recording: return .init(keyCode: 15, modifiers: 5, keyLabel: "R")
+        case .recording: return .init(keyCode: 17, modifiers: 5, keyLabel: "T")
         case .togglePins: return .init(keyCode: 99, modifiers: 4, keyLabel: "F3")
         case .layoutLeft:return .init(keyCode:123,modifiers:10,keyLabel:"←")
         case .layoutRight:return .init(keyCode:124,modifiers:10,keyLabel:"→")
