@@ -2,6 +2,19 @@ import AppKit
 import ApplicationServices
 import MacOSXCore
 
+@MainActor final class SettingsHeaderFixtureModel {
+    var enabled = true, needsAX = true, needsCapture = true
+    var message: String? = "组合键已被其他功能使用，请修改快捷键后重试。"
+    var requestedAX = 0, requestedCapture = 0
+    func isEnabled(_ tool: Tool) -> Bool { enabled }
+    func setEnabled(_ value: Bool, tool: Tool) { enabled = value }
+    func needsAccessibility(_ tool: Tool) -> Bool { needsAX }
+    func needsScreenCapture(_ tool: Tool) -> Bool { needsCapture }
+    func issue(for tool: Tool) -> String? { message }
+    func requestAccessibility() { requestedAX += 1 }
+    func requestScreenCapture() { requestedCapture += 1 }
+}
+
 @MainActor final class BoardReceiver: NSObject {
     var calls=0
     @objc func changed(_ sender: AnyObject) { calls += 1 }
@@ -92,6 +105,28 @@ import MacOSXCore
             try require(pageHeader.bounds.contains(pageToggle.frame) && !pageToggle.frame.intersects(pageHeader.update.frame), "header enable control fits without covering updates")
             try require(!title.frame.intersects(pageToggle.frame) && !title.frame.intersects(pageHeader.back.frame), "title stays clear of module switch and navigation at narrow widths")
         }
+        let state = SettingsHeaderFixtureModel()
+        let permissionHeader = ModuleSettingsHeader(tool: .capture, module: state)
+        permissionHeader.placeEnableControl(in: pageHeader)
+        for width: CGFloat in [912, 312] {
+            permissionHeader.frame.size.width = width
+            permissionHeader.frame.size.height = permissionHeader.intrinsicContentSize.height
+            permissionHeader.needsLayout = true; permissionHeader.layoutSubtreeIfNeeded()
+            let buttons = permissionHeader.subviews.compactMap { $0 as? NSButton }.filter { !$0.isHidden }
+            try require(buttons.count == 2 && !permissionHeader.isHidden, "permissions remain explicit after moving enable to the title bar")
+            for button in buttons {
+                try require(button.frame.width >= 68 && button.frame.height >= 30 && permissionHeader.bounds.contains(button.frame), "permission controls retain visible nonzero click areas")
+            }
+            try require(!buttons[0].frame.intersects(buttons[1].frame), "permission actions never overlap")
+            let error = permissionHeader.subviews.compactMap { $0 as? NSTextField }.first!
+            try require(!error.isHidden && error.frame.minY >= 36 && permissionHeader.bounds.contains(error.frame), "actual shortcut errors stay visible below permission controls")
+            buttons[0].performClick(nil); buttons[1].performClick(nil)
+        }
+        try require(state.requestedAX == 2 && state.requestedCapture == 2, "visible permission buttons retain their original actions")
+        state.needsAX = false; state.needsCapture = false; state.message = nil; permissionHeader.refresh()
+        try require(permissionHeader.isHidden && permissionHeader.intrinsicContentSize.height == 0, "ready pages reclaim the whole permissions row")
+        state.needsAX = true; permissionHeader.refresh()
+        try require(!permissionHeader.isHidden && permissionHeader.intrinsicContentSize.height >= 30, "later permission changes restore the visible row")
         pageHeader.accessory = nil
         try require(pageToggle.superview == nil, "leaving settings removes the old enable control")
         let output = ProcessInfo.processInfo.environment["MACOSX_SETTINGS_PREVIEW"]

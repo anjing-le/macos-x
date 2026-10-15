@@ -295,31 +295,28 @@ final class ModuleCoordinator {
 }
 
 @MainActor
-final class ModuleSettingsHeader: NSStackView {
+final class ModuleSettingsHeader: NSView {
     private let module: ModuleCoordinator
     private let tool: Tool
     private let toggle = ModuleEnableButton(title:"功能",target:nil,action:nil)
     private let accessibility = MinimalButton(title: "允许辅助功能", target: nil, action: nil, style: .standard)
     private let screenCapture = MinimalButton(title: "屏幕权限", target: nil, action: nil, style: .standard)
-    private let issue = NSTextField(labelWithString: "")
+    private let issue = NSTextField(wrappingLabelWithString: "")
 
     init(tool: Tool, module: ModuleCoordinator) {
         self.tool = tool; self.module = module
         super.init(frame: .zero)
-        orientation = .vertical; alignment = tool == .capture ? .trailing : .leading; spacing = 8
-        toggle.widthAnchor.constraint(equalToConstant:68).isActive=true
-        toggle.heightAnchor.constraint(equalToConstant:30).isActive=true
         toggle.target = self; toggle.action = #selector(changeEnabled); toggle.setAccessibilityLabel("启用\(tool.title)")
-        addArrangedSubview(toggle)
-        for button in [accessibility, screenCapture] { button.target = self; addArrangedSubview(button) }
+        addSubview(toggle)
+        for button in [accessibility, screenCapture] { button.target = self; addSubview(button) }
         accessibility.action = #selector(allowAccessibility); screenCapture.action = #selector(allowScreenCapture)
-        issue.font = .systemFont(ofSize: 11); issue.textColor = .secondaryLabelColor; issue.maximumNumberOfLines = 2
-        addArrangedSubview(issue)
+        issue.font = .systemFont(ofSize: 11); issue.textColor = .secondaryLabelColor; issue.maximumNumberOfLines = 0
+        addSubview(issue)
         refresh()
     }
     required init?(coder: NSCoder) { nil }
     func placeEnableControl(in header: SketchWindowHeader) {
-        removeArrangedSubview(toggle); toggle.removeFromSuperview()
+        toggle.removeFromSuperview()
         header.accessory = toggle
         refresh()
     }
@@ -330,7 +327,33 @@ final class ModuleSettingsHeader: NSStackView {
         screenCapture.isHidden = !active || !module.needsScreenCapture(tool)
         issue.stringValue = module.issue(for: tool) ?? ""
         issue.isHidden = issue.stringValue.isEmpty
+        issue.toolTip = issue.stringValue.isEmpty ? nil : issue.stringValue
         isHidden = toggle.superview !== self && accessibility.isHidden && screenCapture.isHidden && issue.isHidden
+        invalidateIntrinsicContentSize(); needsLayout = true; superview?.needsLayout = true
+    }
+    override var isFlipped: Bool { true }
+    private var visibleButtons: [NSButton] {
+        [toggle, accessibility, screenCapture].filter { $0.superview === self && !$0.isHidden }
+    }
+    private var messageHeight: CGFloat {
+        guard !issue.isHidden else { return 0 }
+        let width = max(1, bounds.width > 0 ? bounds.width : 840)
+        return ceil((issue.stringValue as NSString).boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: issue.font ?? NSFont.systemFont(ofSize: 11)]).height) + 4
+    }
+    override var intrinsicContentSize: NSSize {
+        let row: CGFloat = visibleButtons.isEmpty ? 0 : 30
+        return CGSize(width: 840, height: row + (messageHeight > 0 && row > 0 ? 6 : 0) + messageHeight)
+    }
+    override func layout() {
+        super.layout()
+        var x: CGFloat = 0
+        for button in visibleButtons {
+            let width = min(max(68, button.intrinsicContentSize.width), max(1, bounds.width - x))
+            button.frame = CGRect(x: x, y: 0, width: width, height: 30); x += width + 8
+        }
+        let top: CGFloat = visibleButtons.isEmpty ? 0 : 36
+        issue.frame = CGRect(x: 0, y: top, width: bounds.width, height: messageHeight)
     }
     @objc private func changeEnabled() { module.setEnabled(toggle.state == .on, tool: tool); refresh() }
     @objc private func allowAccessibility() { module.requestAccessibility() }
