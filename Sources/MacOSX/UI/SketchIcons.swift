@@ -3,7 +3,7 @@ import ImageIO
 
 @MainActor
 enum SketchIcons {
-    enum Kind: String { case capture, switcher, layout, prompt, plus, back, update, settings, close, minimize, expand }
+    enum Kind: String { case capture, switcher, layout, prompt, radar, plus, back, update, settings, close, minimize, expand }
     private static var images: [String: NSImage] = [:]
     static func kind(for symbol: String) -> Kind? {
         switch symbol {
@@ -11,6 +11,7 @@ enum SketchIcons {
         case "macwindow.on.rectangle": return .switcher
         case "text.bubble": return .prompt
         case "rectangle.split.2x1":return .layout
+        case "keyboard.badge.ellipsis": return .radar
         case "plus": return .plus
         case "chevron.left": return .back
         case "arrow.down.to.line": return .update
@@ -88,6 +89,20 @@ enum SketchIcons {
             SketchPalette.fill(bubble, color: SketchPalette.purple.withAlphaComponent(0.54))
             SketchPencil.stroke(bubble, color: SketchPalette.ink, width: 1.9)
             line([(21, 38), (44, 38)]); line([(21, 29), (37, 29)])
+        case .radar:
+            tile(NSRect(x: 5, y: 20, width: 52, height: 32), SketchPalette.blue)
+            for row in 0..<2 {
+                for column in 0..<5 {
+                    let key = NSRect(x: 10 + CGFloat(column) * 8.8, y: 36 - CGFloat(row) * 9, width: 6, height: 6)
+                    let outline = SketchPencil.outline(in: key, radius: 1.5)
+                    SketchPalette.fill(outline, color: row == 0 && column == 2 ? SketchPalette.coral : SketchPalette.paper)
+                    SketchPencil.stroke(outline, color: SketchPalette.line, width: 0.7)
+                }
+            }
+            let lens = NSBezierPath(ovalIn: NSRect(x: 33, y: 9, width: 21, height: 21))
+            SketchPalette.fill(lens, color: SketchPalette.paper)
+            SketchPencil.stroke(lens, color: SketchPalette.ink, width: 1.8)
+            line([(50, 12), (59, 3)]); line([(40, 18), (46, 18)]); line([(43, 15), (43, 21)])
         case .plus: line([(13, 32), (51, 32)]); line([(32, 13), (32, 51)])
         case .back: line([(40, 12), (20, 32), (40, 52)])
         case .update: line([(32, 53), (32, 20)]); line([(19, 33), (32, 20), (45, 33)]); line([(14, 12), (50, 12)])
@@ -210,6 +225,12 @@ final class SketchWindowHeader: SketchSurface {
 /// Small bundled illustrations, lazily decoded and shared by home/catalog.
 @MainActor
 enum SketchCardArt {
+    private static let radarImage = NSImage(size: NSSize(width: 256, height: 236), flipped: false) { _ in
+        MainActor.assumeIsolated {
+            SketchIcons.image(.radar, size: 236).draw(in: CGRect(x: 10, y: 0, width: 236, height: 236))
+            return true
+        }
+    }
     // One approved contact sheet, decoded once. Source rectangles exclude its
     // decorative card borders and captions; real card controls remain native.
     private static let images: [String: NSImage] = {
@@ -269,6 +290,7 @@ enum SketchCardArt {
     }()
     static func image(_ symbol: String) -> NSImage? {
         if symbol == "chart.xyaxis.line" { return systemStatusImage }
+        if symbol == "keyboard.badge.ellipsis" { return radarImage }
         return images[symbol]
     }
 }

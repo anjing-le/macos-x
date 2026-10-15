@@ -90,6 +90,7 @@ final class ToolCard: NSControl {
             enableButton?.isEnabled=isEnabled
             removeButton?.isEnabled=isEnabled
             setAccessibilityEnabled(isEnabled)
+            accessibleEntry?.setAccessibilityEnabled(isEnabled)
             updateAppearance(animated: true)
         }
     }
@@ -395,6 +396,7 @@ final class ToolCard: NSControl {
     init(card:ToolCard,title:String) {
         self.card=card; super.init()
         setAccessibilityRole(.button); setAccessibilityLabel("打开\(title)设置"); setAccessibilityParent(card)
+        setAccessibilityElement(true); setAccessibilityEnabled(card.isEnabled)
     }
     override func accessibilityFrame()->NSRect {
         guard let card,let window=card.window else { return .zero }

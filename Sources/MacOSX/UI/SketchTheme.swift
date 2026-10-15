@@ -79,6 +79,8 @@ enum SketchPencil {
         path.close(); return path
     }
     static func fibers(in path: NSBezierPath) {
+        // AppKit raises NSGenericException when asking an empty path for bounds.
+        guard !path.isEmpty else { return }
         NSGraphicsContext.saveGraphicsState(); defer { NSGraphicsContext.restoreGraphicsState() }
         path.addClip()
         let fibers = NSBezierPath(); fibers.lineWidth = 0.35

@@ -40,7 +40,9 @@ final class ShortcutStore {
         guard CopySymbolicHotKeys(&catalog) == noErr, let array = catalog?.takeRetainedValue() as? [[String: Any]] else {
             return "暂时无法检查系统快捷键，请重试"
         }
-        let mask = UInt32(controlKey | optionKey | shiftKey | cmdKey)
+        // Fn-bearing symbolic hotkeys must not be mistaken for the same chord
+        // without Fn; our assignable binding format intentionally has no Fn bit.
+        let mask = UInt32(controlKey | optionKey | shiftKey | cmdKey | kEventKeyModifierFnMask)
         for item in array where (item[kHISymbolicHotKeyEnabled as String] as? Bool) == true {
             guard let code = item[kHISymbolicHotKeyCode as String] as? NSNumber,
                 let modifiers = item[kHISymbolicHotKeyModifiers as String] as? NSNumber else { continue }

@@ -13,6 +13,8 @@ jobs:
         run: zsh tools/run-menu-bar-regression.sh
       - name: Test core
         run: swift test --disable-keychain
+      - name: Check shortcut radar search, lifecycle and native interactions
+        run: zsh tools/run-shortcut-radar-regression.sh
       - name: Check system monitoring sampling lifecycle and dashboard bounds
         run: zsh tools/run-system-status-regression.sh
       - name: Check screenshot pixel sampling and selection geometry

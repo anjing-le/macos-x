@@ -111,6 +111,8 @@ import AppKit
         addSubview(membership)
         if added { addSubview(previous); addSubview(next) }
         setAccessibilityRole(.group); setAccessibilityLabel("\(tool.title)，\(added ? "已添加" : "未添加")")
+        setAccessibilityElement(true)
+        setAccessibilityChildren(added ? [membership, previous, next] : [membership])
         toolTip = added ? "拖动调整首页位置，也可用左右按钮或方向键" : "点击添加按钮加入首页"
     }
     required init?(coder: NSCoder) { nil }

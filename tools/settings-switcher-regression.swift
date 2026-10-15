@@ -60,6 +60,7 @@ import MacOSXCore
             try require(poolCards.allSatisfy { $0.frame.minX >= 0 && $0.frame.maxX <= width },"Editor cards fit wide and narrow layouts")
         }
         let member=catalog.subviews.compactMap { $0 as? ModuleCatalogCard }.first!
+        try require(member.isAccessibilityElement() && member.accessibilityChildren()?.contains(where: { ($0 as? NSButton) === member.membership }) == true,"Catalog exposes its actual membership button to accessibility")
         member.membership.performClick(nil)
         try require(catalogChanges == 1,"Editor membership button invokes only membership callback")
         for index in [0, 8, 127, 255, 0] {
@@ -201,6 +202,8 @@ import MacOSXCore
         toolCard.updateEnabled(true)
         try require(enableButton.state == .on && toggled == 3,"external state sync does not dispatch again")
         try require(toolCard.accessibilityChildren()?.count == 2,"navigation and toggle both remain accessible")
+        let accessibleEntry = toolCard.accessibilityChildren()?.first as? NSAccessibilityElement
+        try require(accessibleEntry?.isAccessibilityEnabled() == true,"Home navigation proxy is enabled when the card is enabled")
         var removed=0
         toolCard.configureRemoval { removed += 1 }
         toolCard.layoutSubtreeIfNeeded()
@@ -228,6 +231,7 @@ import MacOSXCore
         }
         toolCard.isEnabled=false
         try require(!enableButton.isEnabled,"disabled control cannot toggle")
+        try require(accessibleEntry?.isAccessibilityEnabled() == false,"Disabled home card disables its navigation proxy")
         cardWindow.contentView=nil
         let mouseReceiver=BoardReceiver()
         let mouseChoice=IllustratedSettingChoice(title:"白光边缘",asset:"",slice:.zero,target:mouseReceiver,action:#selector(BoardReceiver.changed(_:)))

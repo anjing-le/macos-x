@@ -271,9 +271,13 @@ final class GlobalInput {
         if registered[action]?.0 == binding { return nil }
         var ref: EventHotKeyRef?
         let status = RegisterEventHotKey(UInt32(binding.keyCode), binding.carbonModifiers,
-            EventHotKeyID(signature: signature, id: 99), GetApplicationEventTarget(), 0, &ref)
+            // Ordinary Carbon registrations can coexist across applications.
+            // Probe exclusively, then release immediately; active bindings keep
+            // their original non-exclusive registration behavior.
+            EventHotKeyID(signature: signature, id: 99), GetApplicationEventTarget(), OptionBits(kEventHotKeyExclusive), &ref)
         if let ref { UnregisterEventHotKey(ref) }
-        return status == noErr ? nil : "快捷键已被占用，请换一个"
+        if status == noErr { return nil }
+        return status == eventHotKeyExistsErr ? "快捷键存在排他登记占用，请换一个" : "暂时无法核对快捷键，请重试"
     }
 
     private func consume(_ action: InputAction) {
