@@ -73,6 +73,7 @@ import AppKit
             view.magnifierVisible = { [weak self] in self?.magnifierVisible ?? false }
             view.rgbFormat = { [weak self] in self?.rgbFormat ?? false }
             view.onPointer = { [weak self] in self?.pointerMoved($0) }
+            view.cursorAt = { [weak self] in self?.cursor(at: $0) }
             view.onDown = { [weak self] point, twice in self?.mouseDown(point, twice: twice) }
             view.onDrag = { [weak self] in self?.mouseDragged($0) }
             view.onUp = { [weak self] in self?.mouseUp($0) }
@@ -86,6 +87,7 @@ import AppKit
         let index = self.frames.firstIndex { $0.screen.frame.contains(pointer) } ?? 0
         panels[index].makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        refreshCursor()
     }
 
     func dismiss() {
@@ -113,7 +115,25 @@ import AppKit
         guard let frame = frames.first(where: { $0.screen.frame.contains(point) }) ?? frames.first else { return CGSize(width: 1, height: 1) }
         return CGSize(width: frame.screen.frame.width / CGFloat(frame.image.width), height: frame.screen.frame.height / CGFloat(frame.image.height))
     }
-    private func redraw() { views.forEach { $0.needsDisplay = true } }
+    private func redraw() { views.forEach { $0.needsDisplay = true }; refreshCursor() }
+    private func cursor(at point: CGPoint) -> NSCursor? {
+        guard acceptsInput else { return nil }
+        if spaceDown, drag != nil { return .closedHand }
+        switch drag {
+        case .move: return .closedHand
+        case let .resize(handle, _, _): return SelectionView.resizeCursor(for: handle)
+        case .create: return .crosshair
+        case nil: break
+        }
+        guard !selection.isNull else { return .crosshair }
+        if let handle = SelectionView.resizeHandle(at: point, in: selection) { return SelectionView.resizeCursor(for: handle) }
+        return selection.contains(point) ? .openHand : .crosshair
+    }
+    private func refreshCursor() {
+        guard acceptsInput, let index = frames.firstIndex(where: { $0.screen.frame.contains(pointer) }),
+              views.indices.contains(index), views[index].window?.isKeyWindow == true else { return }
+        views[index].refreshCursor(at: pointer)
+    }
     private func pointerMoved(_ point: CGPoint) {
         guard acceptsInput else { return }
         pointer = point
@@ -149,6 +169,7 @@ import AppKit
     func resume() {
         guard !panels.isEmpty, completion != nil else { return }
         acceptsInput = true
+        pointer = NSEvent.mouseLocation
         for panel in panels { (panel as? Panel)?.acceptsSelectionInput = true; panel.acceptsMouseMovedEvents = true }
         let index = frames.firstIndex { $0.screen.frame.contains(NSEvent.mouseLocation) } ?? 0
         panels[index].makeKeyAndOrderFront(nil); panels[index].makeFirstResponder(views[index]); redraw()
@@ -169,7 +190,7 @@ import AppKit
         recordingControls?.orderOut(nil)
         if mode == .screenshot, twice { copyPressed(); return }
         onAdjustmentStarted?()
-        if !selection.isNull, let handle = SelectionView.handles(selection).firstIndex(where: { $0.insetBy(dx: -4, dy: -4).contains(point) }) {
+        if !selection.isNull, let handle = SelectionView.resizeHandle(at: point, in: selection) {
             drag = .resize(handle, point, selection)
         } else if !selection.isNull, selection.contains(point) { drag = .move(point, selection) }
         else { drag = .create(point); selection = .null }
@@ -346,11 +367,13 @@ import AppKit
     private let creationTiming = CaptureTiming()
     private var firstDraw = true
     private var tracking: NSTrackingArea?
+    private var cursorTracking: NSTrackingArea?
     var region: (() -> CGRect)?
     var pointer: (() -> CGPoint)?
     var magnifierVisible: (() -> Bool)?
     var rgbFormat: (() -> Bool)?
     var onPointer: ((CGPoint) -> Void)?
+    var cursorAt: ((CGPoint) -> NSCursor?)?
     var onDown: ((CGPoint, Bool) -> Void)?
     var onDrag: ((CGPoint) -> Void)?
     var onUp: ((CGPoint) -> Void)?
@@ -366,19 +389,63 @@ import AppKit
     required init?(coder: NSCoder) { nil }
     override func updateTrackingAreas() {
         super.updateTrackingAreas(); if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
         tracking = area; addTrackingArea(area)
+        if let cursorTracking { removeTrackingArea(cursorTracking) }
+        // AppKit does not support cursorUpdate with activeAlways. Keep cursor
+        // refresh in the key window while movement still works across displays.
+        let cursorArea = NSTrackingArea(rect: .zero, options: [.cursorUpdate, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
+        cursorTracking = cursorArea; addTrackingArea(cursorArea)
     }
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .crosshair) }
+    // Tracking owns hover feedback; a blanket crosshair cursor rect would
+    // overwrite the edge cursor on entry or when AppKit refreshes cursor state.
+    func refreshCursor(at point: CGPoint) { cursorAt?(point)?.set() }
+    override func cursorUpdate(with event: NSEvent) { refreshCursor(at: global(event)) }
+    override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
     private func global(_ event: NSEvent) -> CGPoint { window?.convertPoint(toScreen: event.locationInWindow) ?? .zero }
-    override func mouseMoved(with event: NSEvent) { onPointer?(global(event)) }
-    override func mouseDown(with event: NSEvent) { window?.makeKey(); window?.makeFirstResponder(self); onDown?(global(event), event.clickCount == 2) }
-    override func mouseDragged(with event: NSEvent) { onDrag?(global(event)) }
-    override func mouseUp(with event: NSEvent) { onUp?(global(event)) }
+    override func mouseMoved(with event: NSEvent) { let point = global(event); onPointer?(point); refreshCursor(at: point) }
+    override func mouseDown(with event: NSEvent) { window?.makeKey(); window?.makeFirstResponder(self); onDown?(global(event), event.clickCount == 2); refreshCursor(at: global(event)) }
+    override func mouseDragged(with event: NSEvent) { onDrag?(global(event)); refreshCursor(at: global(event)) }
+    override func mouseUp(with event: NSEvent) { onUp?(global(event)); refreshCursor(at: global(event)) }
     override func rightMouseDown(with event: NSEvent) { onReset?() }
     override func flagsChanged(with event: NSEvent) { onFlags?(event.modifierFlags) }
     override func keyDown(with event: NSEvent) { if onKey?(event) != true { super.keyDown(with: event) } }
     override func keyUp(with event: NSEvent) { onKeyUp?(event) }
+    /// Share this exact hit test with mouseDown so a resize cursor always means
+    /// the same edge can actually be dragged. Corners win over neighboring edges.
+    static func resizeHandle(at point: CGPoint, in rect: CGRect) -> Int? {
+        guard !rect.isNull, !rect.isInfinite, rect.width > 0, rect.height > 0,
+              point.x.isFinite, point.y.isFinite, rect.insetBy(dx: -7, dy: -7).contains(point) else { return nil }
+        let corners: [(Int, CGPoint)] = [(0, CGPoint(x: rect.minX, y: rect.minY)), (2, CGPoint(x: rect.maxX, y: rect.minY)),
+            (4, CGPoint(x: rect.maxX, y: rect.maxY)), (6, CGPoint(x: rect.minX, y: rect.maxY))]
+        if let corner = corners.filter({ abs($0.1.x - point.x) <= 7 && abs($0.1.y - point.y) <= 7 })
+            .min(by: { hypot($0.1.x - point.x, $0.1.y - point.y) < hypot($1.1.x - point.x, $1.1.y - point.y) }) { return corner.0 }
+        let edges: [(Int, CGFloat)] = [(1, abs(point.y - rect.minY)), (3, abs(point.x - rect.maxX)),
+                (5, abs(point.y - rect.maxY)), (7, abs(point.x - rect.minX))]
+        return edges.filter { $0.1 <= 7 }.min { $0.1 < $1.1 }?.0
+    }
+    private static let resizeCursors: [NSCursor] = {
+        if #available(macOS 15.0, *) {
+            let positions: [NSCursor.FrameResizePosition] = [.bottomLeft, .bottom, .bottomRight, .right, .topRight, .top, .topLeft, .left]
+            return positions.map { NSCursor.frameResize(position: $0, directions: .all) }
+        }
+        let rising = diagonalCursor(rising: true), falling = diagonalCursor(rising: false)
+        return [rising, .resizeUpDown, falling, .resizeLeftRight, rising, .resizeUpDown, falling, .resizeLeftRight]
+    }()
+    static func resizeCursor(for handle: Int) -> NSCursor { resizeCursors[handle] }
+    private static func diagonalCursor(rising: Bool) -> NSCursor {
+        let image = NSImage(size: CGSize(width: 24, height: 24), flipped: false) { _ in
+            NSGraphicsContext.saveGraphicsState(); defer { NSGraphicsContext.restoreGraphicsState() }
+            if !rising { let transform = AffineTransform(translationByX: 24, byY: 0); var mirrored = transform; mirrored.scale(x: -1, y: 1); (mirrored as NSAffineTransform).concat() }
+            let path = NSBezierPath(); path.lineCapStyle = .round; path.lineJoinStyle = .round
+            path.move(to: CGPoint(x: 5, y: 5)); path.line(to: CGPoint(x: 19, y: 19))
+            path.move(to: CGPoint(x: 5, y: 11)); path.line(to: CGPoint(x: 5, y: 5)); path.line(to: CGPoint(x: 11, y: 5))
+            path.move(to: CGPoint(x: 13, y: 19)); path.line(to: CGPoint(x: 19, y: 19)); path.line(to: CGPoint(x: 19, y: 13))
+            NSColor.white.setStroke(); path.lineWidth = 4.5; path.stroke()
+            NSColor.black.setStroke(); path.lineWidth = 2; path.stroke(); return true
+        }
+        return NSCursor(image: image, hotSpot: CGPoint(x: 12, y: 12))
+    }
     static func handles(_ rect: CGRect) -> [CGRect] {
         [(rect.minX, rect.minY), (rect.midX, rect.minY), (rect.maxX, rect.minY), (rect.maxX, rect.midY),
          (rect.maxX, rect.maxY), (rect.midX, rect.maxY), (rect.minX, rect.maxY), (rect.minX, rect.midY)]

@@ -33,6 +33,7 @@ import AppKit
         let context = CaptureRaster.context(width: 200, height: 160)!
         context.setFillColor(CGColor(gray: 1, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 200, height: 160))
         let image = context.makeImage()!
+        CaptureSelection.verifyHoverFixture(image: image)
         // Real native input and exported pixels, including the normal 2x
         // screenshot-to-point mapping. No shown window or clipboard writes.
         for displayScale: CGFloat in [1, 0.5] {
@@ -340,5 +341,80 @@ import AppKit
                      "Out-of-range preferences cannot create invalid brush styles")
         bounded.close()
         print("PASS editor interaction: default adjustment, tool lock/toggle, Esc, pending crop, region replacement and pin isolation; no displayed windows, capture or clipboard writes")
+    }
+}
+
+@MainActor private extension CaptureSelection {
+    static func verifyHoverFixture(image: CGImage) {
+        let oldCursor = NSCursor.current
+        defer { oldCursor.set() }
+        let screen = CGRect(x: -500, y: -300, width: 400, height: 300)
+        let snapshot = CaptureFrame(screen: .init(id: 7, frame: screen, scale: 2), image: image)
+        let panel = NSPanel(contentRect: screen, styleMask: .borderless, backing: .buffered, defer: false)
+        panel.isReleasedWhenClosed = false
+        let view = SelectionView(frame: CGRect(origin: .zero, size: screen.size), snapshot: snapshot)
+        panel.contentView = view
+        view.updateTrackingAreas(); view.updateTrackingAreas()
+        precondition(view.trackingAreas.count == 2, "tracking replacement stays bounded across layout updates")
+        precondition(view.trackingAreas.contains { $0.options.contains(.mouseMoved) && $0.options.contains(.activeAlways) }, "inactive display panels still receive hover movement")
+        precondition(view.trackingAreas.filter { $0.options.contains(.cursorUpdate) }.allSatisfy { $0.options.contains(.activeInKeyWindow) && !$0.options.contains(.activeAlways) }, "cursor refresh uses AppKit-supported activation options")
+        let controller = CaptureSelection()
+        let region = CGRect(x: -460, y: -260, width: 220, height: 160)
+        controller.frames = [snapshot]; controller.panels = [panel]; controller.views = [view]
+        controller.selection = region; controller.acceptsInput = true
+        view.cursorAt = { controller.cursor(at: $0) }
+        view.onPointer = { controller.pointerMoved($0) }
+        defer { controller.dismiss() }
+        func hover(_ point: CGPoint) -> NSEvent {
+            NSEvent.mouseEvent(with: .mouseMoved, location: panel.convertPoint(fromScreen: point), modifierFlags: [],
+                timestamp: 0, windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)!
+        }
+        let positions: [(CGPoint, Int)] = [
+            (CGPoint(x: -460, y: -260), 0), (CGPoint(x: -405, y: -260), 1),
+            (CGPoint(x: -240, y: -260), 2), (CGPoint(x: -240, y: -220), 3),
+            (CGPoint(x: -240, y: -100), 4), (CGPoint(x: -355, y: -100), 5),
+            (CGPoint(x: -460, y: -100), 6), (CGPoint(x: -460, y: -180), 7)]
+        for (point, handle) in positions {
+            precondition(SelectionView.resizeHandle(at: point, in: region) == handle, "edges and corners have distinct resize hits")
+            view.mouseMoved(with: hover(point))
+            precondition(controller.drag == nil && NSCursor.current === SelectionView.resizeCursor(for: handle), "hover sets resize cursor before any button press")
+            precondition(controller.selection == region && controller.frames.first?.image === image, "hover leaves the selection and frozen image unchanged")
+            NSCursor.arrow.set(); view.cursorUpdate(with: hover(point))
+            precondition(NSCursor.current === SelectionView.resizeCursor(for: handle), "AppKit cursor refresh cannot restore a blanket crosshair over the edge")
+            controller.mouseDown(point, twice: false)
+            guard case let .resize(actual, _, _) = controller.drag else { preconditionFailure("hover promise must match actual edge dragging") }
+            precondition(actual == handle)
+            controller.drag = nil
+        }
+        let inside = CGPoint(x: -350, y: -180), outside = CGPoint(x: -490, y: -290)
+        view.mouseEntered(with: hover(inside))
+        precondition(NSCursor.current === NSCursor.openHand, "selection interior advertises movement on entry")
+        controller.mouseDown(inside, twice: false)
+        precondition(controller.cursor(at: inside) === NSCursor.closedHand, "held move uses a closed hand")
+        controller.drag = nil
+        view.mouseMoved(with: hover(outside))
+        precondition(NSCursor.current === NSCursor.crosshair, "outside selection remains ready to create a new region")
+        controller.mouseDown(CGPoint(x: -460, y: -180), twice: false)
+        controller.mouseDragged(CGPoint(x: -470, y: -180))
+        precondition(controller.selection == CGRect(x: -470, y: -260, width: 230, height: 160), "whole-edge hit really resizes that side")
+        controller.drag = nil; controller.selection = region
+        controller.setEditing(true)
+        NSCursor.arrow.set(); view.cursorUpdate(with: hover(inside))
+        precondition(controller.cursor(at: inside) == nil && NSCursor.current === NSCursor.arrow, "locked annotation must not receive selection hover cursors")
+        controller.acceptsInput = true; controller.selection = .null; controller.candidates = [region]
+        precondition(controller.cursor(at: inside) === NSCursor.crosshair, "window magnet preview is not already a draggable selection")
+        precondition(SelectionView.resizeHandle(at: CGPoint(x: 1.9, y: 1.9), in: CGRect(x: 0, y: 0, width: 2, height: 2)) == 4,
+                     "tiny selections choose the nearest corner rather than the first overlapping handle")
+        precondition(SelectionView.resizeHandle(at: .zero, in: .null) == nil)
+        SelectionView.verifyLegacyCursorFixture()
+        print("PASS selection hover: all 8 directions before mouseDown, whole-edge drag agreement, cursorUpdate/entry, negative origins, tiny corners, annotation lock and unchanged frozen image")
+    }
+}
+@MainActor private extension SelectionView {
+    static func verifyLegacyCursorFixture() {
+        let first = diagonalCursor(rising: true), second = diagonalCursor(rising: false)
+        precondition(first.image.size == CGSize(width: 24, height: 24) && first.hotSpot == CGPoint(x: 12, y: 12))
+        precondition(first.image.tiffRepresentation != nil && second.image.tiffRepresentation != nil)
+        precondition(first.image.tiffRepresentation != second.image.tiffRepresentation, "macOS 14 fallback diagonals render in different directions")
     }
 }
