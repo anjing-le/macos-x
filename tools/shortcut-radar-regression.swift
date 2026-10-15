@@ -137,9 +137,22 @@ private final class RadarFixtureSurface: SketchSurface { override var isFlipped:
         view.fixtureFilter(0)
         view.update(snapshot: snapshot, icons: [:], enabled: true, busy: false)
         view.fixtureSearch("")
-        for width: CGFloat in [912, 620, 312, 220] { layout(view, width: width); try bounds(view) }
+        let moduleSwitch = ModuleEnableButton(title: "功能", target: nil, action: nil)
+        moduleSwitch.state = .on
+        view.installModuleControls(moduleSwitch)
+        for width: CGFloat in [912, 650, 620, 359, 312, 220] { layout(view, width: width); try bounds(view) }
+        try require(view.subviews.contains { $0 === moduleSwitch }, "the actual module control lives inside the dashboard toolbar")
         layout(view, width: 912)
-        try require(view.intrinsicContentSize.height <= 494, "default 960x640 page fits including shell and enable header")
+        try require(view.intrinsicContentSize.height + 56 + 48 <= 640, "default page fits shell and margins without an extra enable row")
+        let tables = view.subviews.compactMap { ($0 as? NSScrollView)?.documentView as? NSTableView }
+        let scrolls = view.subviews.compactMap { $0 as? NSScrollView }
+        try require(scrolls[0].contentSize.height >= (tables[0].rowHeight + 3) * 7,
+                    "default page has room for seven complete combination rows")
+        try require(scrolls[1].contentSize.height >= (tables[1].rowHeight + 3) * 6,
+                    "default page has room for six complete application and action rows")
+        let search = view.subviews.compactMap { $0 as? NSTextField }.first { $0.isEditable }!
+        try require(abs(search.frame.midY - moduleSwitch.frame.midY) <= 3 && !search.frame.intersects(moduleSwitch.frame),
+                    "module switch shares the search row without covering the field")
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 960, height: 640), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.titlebarAppearsTransparent = true; window.titleVisibility = .hidden
@@ -147,9 +160,9 @@ private final class RadarFixtureSurface: SketchSurface { override var isFlipped:
         let root = RadarFixtureSurface(frame: CGRect(x: 0, y: 0, width: 960, height: 640)); root.edge = nil
         window.contentView = root
         let header = SketchWindowHeader(frame: CGRect(x: 0, y: 0, width: 960, height: 56)); header.title = "快捷键雷达"; header.back.isHidden = false
-        root.addSubview(header); root.addSubview(view); view.frame.origin = CGPoint(x: 24, y: 108)
+        root.addSubview(header); root.addSubview(view); view.frame.origin = CGPoint(x: 24, y: 80)
         let note = NSTextField(labelWithString: "交互预览 · 示例数据"); note.font = .systemFont(ofSize: 11); note.textColor = SketchPalette.muted
-        note.frame = CGRect(x: 26, y: 74, width: 280, height: 22); root.addSubview(note)
+        note.frame = CGRect(x: 540, y: 606, width: 280, height: 22); root.addSubview(note)
         root.layoutSubtreeIfNeeded()
         view.fixtureMove(1)
         try require(view.fixtureSelected?.chord != .init(key: "R", modifiers: 5), "arrow navigation changes selected group")
@@ -173,10 +186,23 @@ private final class RadarFixtureSurface: SketchSurface { override var isFlipped:
         try require(!view.fixtureCapturing, "window blur restores input and ends recording")
         view.fixtureCapture(); view.removeFromSuperview()
         try require(!view.fixtureCapturing && !view.fixtureHasObservers && recordingChanges.suffix(2) == [true, false], "navigation ends capture and releases window observers")
-        root.addSubview(view); view.frame.origin = CGPoint(x: 24, y: 108)
+        root.addSubview(view); view.frame.origin = CGPoint(x: 24, y: 80)
         view.fixtureSearch("")
         if let index = CommandLine.arguments.firstIndex(of: "--output"), CommandLine.arguments.count > index + 1 {
             let out = URL(fileURLWithPath: CommandLine.arguments[index + 1]); try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+            var dense = snapshot
+            dense.accessibility = true
+            let names = ["ChatGPT（示例）", "浏览器（示例）", "编辑器（示例）", "邮件（示例）", "终端（示例）", "笔记（示例）", "表格（示例）", "日历（示例）"]
+            dense.uses = names.enumerated().map { index, name in
+                RadarUse(chord: .init(key: "Z", modifiers: 12), appID: "sample-\(index)", appName: name,
+                         action: "重做", path: "编辑 › 重做", scope: .application, evidence: .menu)
+            }
+            dense.uses += (1...14).map { index in
+                RadarUse(chord: .init(key: "F\(index)", modifiers: 10), appID: "sample-key-\(index)", appName: "示例应用",
+                         action: "示例命令 \(index)", path: "示例菜单", scope: .application, evidence: .menu)
+            }
+            view.update(snapshot: dense, icons: [:], enabled: true, busy: false)
+            layout(view, width: 912); view.frame.origin = CGPoint(x: 24, y: 80)
             if let bitmap = root.bitmapImageRepForCachingDisplay(in: root.bounds) {
                 root.cacheDisplay(in: root.bounds, to: bitmap)
                 try bitmap.representation(using: .png, properties: [:])?.write(to: out.appendingPathComponent("shortcut-radar-wide.png"))

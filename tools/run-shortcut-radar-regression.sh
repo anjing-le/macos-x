@@ -23,6 +23,6 @@ paths = ['Sources/MacOSX/ShortcutRadar/ShortcutRadarScanner.swift',
 <key>LSUIElement</key><true/></dict></plist>''')
 PY
 xcrun swiftc -I "$radar_bin/Modules" "$radar_bin"/MacOSXCore.build/*.swift.o \
-  Sources/MacOSX/UI/SketchTheme.swift Sources/MacOSX/UI/MinimalControls.swift Sources/MacOSX/UI/SketchIcons.swift \
+  Sources/MacOSX/UI/SketchTheme.swift Sources/MacOSX/UI/MinimalControls.swift Sources/MacOSX/UI/SketchIcons.swift Sources/MacOSX/UI/ToolCard.swift \
   "$radar_dir/RadarAndFixture.swift" -o "$radar_dir/Preview.app/Contents/MacOS/Preview"
 "$radar_dir/Preview.app/Contents/MacOS/Preview" "$@"

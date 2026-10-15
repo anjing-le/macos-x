@@ -324,7 +324,12 @@ final class ToolboxWindowController: NSWindowController {
         navigate(.settings(tool), title: tool.title)
         let header = ModuleSettingsHeader(tool: tool, module: modules)
         settingsHeader = header
-        if tool == .systemStatus || tool == .shortcutRadar {
+        if tool == .shortcutRadar, let dashboard = modules.settingsView(for: tool) as? ShortcutRadarDashboard {
+            dashboard.installModuleControls(header)
+            content.showDetail([dashboard])
+            return
+        }
+        if tool == .systemStatus {
             content.showDetail([header, modules.settingsView(for: tool)])
             return
         }

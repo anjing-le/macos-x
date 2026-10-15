@@ -16,14 +16,11 @@ final class ShortcutRadarDashboard: NSView, NSTextFieldDelegate, NSTableViewData
     private let scan = MinimalButton(title: "检测一次", target: nil, action: nil, style: .standard)
     private let permission = MinimalButton(title: "允许辅助功能", target: nil, action: nil, style: .quiet)
     private let coverage = NSTextField(labelWithString: "点击检测，读取已知组合键")
-    private let heading = NSTextField(labelWithString: "拥挤排行")
-    private let order = NSTextField(labelWithString: "占用数 ↓")
-    private let detailHeading = NSTextField(labelWithString: "这个组合键做什么")
+    private let heading = NSTextField(labelWithString: "组合键复用")
+    private let detailHeading = NSTextField(labelWithString: "应用与用途")
     private let keys = RadarKeycapView()
-    private let longName = NSTextField(labelWithString: "")
     private let summary = NSTextField(wrappingLabelWithString: "")
     private let empty = NSTextField(wrappingLabelWithString: "点击“检测一次”，或搜索组合键与用途")
-    private let caveat = NSTextField(wrappingLabelWithString: "后台自行监听的热键可能不可见；未发现不代表未占用。")
     private let footer = NSTextField(labelWithString: "本机按需读取 · 不记录按键历史")
     private let hint = NSTextField(labelWithString: "↑↓ 选择 · Enter 查看")
     private var filters: [MinimalButton] = []
@@ -44,6 +41,7 @@ final class ShortcutRadarDashboard: NSView, NSTextFieldDelegate, NSTableViewData
     private var capturing = false
     private var captureLabels: [UInt16: String] = [:]
     private var observers: [NSObjectProtocol] = []
+    private var moduleControls: NSView?
     private var searchBox = CGRect.zero
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -52,13 +50,13 @@ final class ShortcutRadarDashboard: NSView, NSTextFieldDelegate, NSTableViewData
     override init(frame: NSRect) {
         super.init(frame: frame)
         search.placeholderString = "按组合键，或搜索用途"
-        search.font = .systemFont(ofSize: 17); search.delegate = self
+        search.font = .systemFont(ofSize: 15); search.delegate = self
         search.isBezeled = false; search.isBordered = false; search.drawsBackground = false
         search.focusRingType = .none; search.textColor = SketchPalette.ink
         search.isEditable = true; search.isSelectable = true
         search.cell?.usesSingleLineMode = true; search.cell?.wraps = false; search.cell?.isScrollable = true
         magnifier.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 20, weight: .regular))
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 17, weight: .regular))
         magnifier.contentTintColor = SketchPalette.muted; magnifier.setAccessibilityElement(false)
         clear.target = self; clear.action = #selector(clearSearch); clear.setAccessibilityLabel("清空搜索")
         search.setAccessibilityLabel("搜索组合键、应用或用途")
@@ -68,38 +66,44 @@ final class ShortcutRadarDashboard: NSView, NSTextFieldDelegate, NSTableViewData
         capture.toolTip = "点击后按组合键；Esc 取消。第三方全局快捷键仍可能响应。"
         scan.target = self; scan.action = #selector(refreshScan)
         permission.target = self; permission.action = #selector(allowPermission)
-        scan.font = SketchPalette.heading(18)
+        scan.font = SketchPalette.heading(16)
         for (index, title) in ["全部", "全局", "应用内"].enumerated() {
             let button = MinimalButton(title: title, target: self, action: #selector(changeFilter(_:)), style: .quiet)
-            button.tag = index; button.font = SketchPalette.heading(15)
+            button.tag = index; button.font = SketchPalette.heading(14)
             button.setAccessibilityLabel("筛选\(title)")
             filters.append(button); addSubview(button)
         }
-        for field in [heading, detailHeading] { field.font = SketchPalette.heading(22); field.textColor = SketchPalette.ink }
-        for field in [coverage, order, longName, footer, hint] {
+        for field in [heading, detailHeading] { field.font = SketchPalette.heading(18); field.textColor = SketchPalette.ink }
+        for field in [coverage, footer, hint] {
             field.font = .systemFont(ofSize: 12); field.textColor = SketchPalette.muted
             field.lineBreakMode = .byTruncatingTail
         }
         coverage.toolTip = "只读取运行中应用公开的菜单；有界检测可能得到部分结果，不遍历磁盘配置。"
-        order.alignment = .right; hint.alignment = .right
-        summary.font = .systemFont(ofSize: 14, weight: .medium); summary.maximumNumberOfLines = 2
+        hint.alignment = .right
+        heading.toolTip = "按已知用途数量降序排列；用途多不等于实际冲突多。"
+        summary.font = .systemFont(ofSize: 12, weight: .medium); summary.maximumNumberOfLines = 2
         empty.font = .systemFont(ofSize: 14); empty.textColor = SketchPalette.muted
         empty.maximumNumberOfLines = 3; empty.alignment = .center
-        caveat.font = .systemFont(ofSize: 11); caveat.textColor = SketchPalette.muted; caveat.maximumNumberOfLines = 2
-        for view in [search, magnifier, clear, capture, scan, permission, coverage, heading, order, detailHeading, keys,
-                     longName, summary, empty, caveat, footer, hint, rankingScroll, usesScroll] { addSubview(view) }
-        configureTable(ranking, scroll: rankingScroll, rowHeight: 80, label: "组合键拥挤排行")
-        configureTable(uses, scroll: usesScroll, rowHeight: 82, label: "组合键的应用与用途")
+        for view in [search, magnifier, clear, capture, scan, permission, coverage, heading, detailHeading, keys,
+                     summary, empty, footer, hint, rankingScroll, usesScroll] { addSubview(view) }
+        configureTable(ranking, scroll: rankingScroll, rowHeight: 46, label: "组合键复用排行")
+        configureTable(uses, scroll: usesScroll, rowHeight: 50, label: "组合键的应用与用途")
         filters[0].state = .on
         update(snapshot: nil, icons: [:], enabled: false, busy: false)
     }
     required init?(coder: NSCoder) { nil }
 
+    /// Reuse the real module switch in the toolbar instead of consuming a separate row.
+    func installModuleControls(_ controls: NSView) {
+        moduleControls?.removeFromSuperview()
+        moduleControls = controls; addSubview(controls); needsLayout = true
+    }
+
     private func configureTable(_ table: NSTableView, scroll: NSScrollView, rowHeight: CGFloat, label: String) {
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("content"))
         column.resizingMask = .autoresizingMask; table.addTableColumn(column)
         table.headerView = nil; table.backgroundColor = .clear
-        table.rowHeight = rowHeight; table.intercellSpacing = CGSize(width: 0, height: 5)
+        table.rowHeight = rowHeight; table.intercellSpacing = CGSize(width: 0, height: 3)
         table.style = .plain; table.focusRingType = .none; table.selectionHighlightStyle = .regular
         table.allowsEmptySelection = false; table.allowsMultipleSelection = false
         table.delegate = self; table.dataSource = self
@@ -173,13 +177,14 @@ final class ShortcutRadarDashboard: NSView, NSTextFieldDelegate, NSTableViewData
     private func showSelection(_ row: Int) {
         selected = groups.indices.contains(row) ? groups[row] : nil
         keys.chord = selected?.chord
-        longName.stringValue = selected?.chord.longName ?? ""
+        keys.toolTip = selected?.chord.longName
         summary.stringValue = selected?.explanation ?? "选择左侧组合键，查看应用与用途"
         summary.textColor = selected?.isPotentialConflict == true ? SketchPalette.coral : SketchPalette.muted
         if let selected, let probe, selected.chord == probe.chord {
             summary.stringValue = probe.message
             if probe.result == .occupied { summary.textColor = SketchPalette.coral }
         }
+        summary.toolTip = summary.stringValue
         uses.reloadData()
         usesScroll.contentView.scroll(to: .zero)
         needsDisplay = true
@@ -210,7 +215,7 @@ final class ShortcutRadarDashboard: NSView, NSTextFieldDelegate, NSTableViewData
         } else if let selected, selected.uses.indices.contains(row) {
             let entry = selected.uses[row]
             cell.group = nil; cell.use = entry; cell.icon = icons[entry.appID]
-            cell.toolTip = entry.path + "\n" + entry.sourceLabel
+            cell.toolTip = entry.appName + "\n" + entry.path + "\n" + entry.sourceLabel
             cell.setAccessibilityLabel("\(entry.appName)，\(entry.action)。\(entry.sourceLabel)。\(entry.path)")
         }
         cell.needsDisplay = true
@@ -243,7 +248,7 @@ final class ShortcutRadarDashboard: NSView, NSTextFieldDelegate, NSTableViewData
     private func configureCaptureIcon() {
         capture.title = ""; capture.imagePosition = .imageOnly
         capture.image = NSImage(systemSymbolName: "keyboard", accessibilityDescription: "按组合键搜索")?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 20, weight: .regular))
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 17, weight: .regular))
     }
     override func keyDown(with event: NSEvent) {
         guard capturing else {
@@ -282,34 +287,47 @@ final class ShortcutRadarDashboard: NSView, NSTextFieldDelegate, NSTableViewData
     override func layout() {
         super.layout()
         let w = max(220, bounds.width), compact = w < 650
-        searchBox = CGRect(x: 0, y: 0, width: w - 122, height: 44)
-        magnifier.frame = CGRect(x: 9, y: 11, width: 22, height: 22)
-        search.frame = CGRect(x: 36, y: 11, width: max(1, w - 244), height: 24)
-        clear.frame = CGRect(x: w - 204, y: 8, width: 26, height: 28)
-        capture.frame = CGRect(x: w - 170, y: 4, width: 40, height: 36)
-        scan.frame = CGRect(x: w - 110, y: 0, width: 110, height: 44)
-        coverage.frame = CGRect(x: 2, y: 50, width: w - (permission.isHidden ? 2 : 128), height: 22)
-        permission.frame = CGRect(x: w - 126, y: 48, width: 126, height: 26)
-        let left: CGFloat = compact ? w : max(250, floor(w * 0.38))
-        heading.frame = CGRect(x: 0, y: 88, width: left - 90, height: 28)
-        order.frame = CGRect(x: left - 88, y: 92, width: 84, height: 22)
-        let filterWidth = (left - 16) / 3
-        for (i, button) in filters.enumerated() { button.frame = CGRect(x: CGFloat(i) * (filterWidth + 8), y: 124, width: filterWidth, height: 30) }
-        rankingScroll.frame = CGRect(x: 0, y: 166, width: left, height: compact ? 260 : 258)
-        empty.frame = rankingScroll.frame.insetBy(dx: 14, dy: 60)
-        let x: CGFloat = compact ? 0 : left + 34
-        let top: CGFloat = compact ? 452 : 88
+        let controlsWidth: CGFloat = moduleControls == nil ? 0 : 80
+        moduleControls?.frame = CGRect(x: 0, y: 3, width: 68, height: 30)
+        let searchX: CGFloat = w < 360 ? 0 : controlsWidth
+        let searchY: CGFloat = w < 360 && moduleControls != nil ? 40 : 0
+        searchBox = CGRect(x: searchX, y: searchY, width: w - searchX - 106, height: 36)
+        magnifier.frame = CGRect(x: searchX + 9, y: searchY + 9, width: 18, height: 18)
+        search.frame = CGRect(x: searchX + 33, y: searchY + 8, width: max(1, searchBox.width - 103), height: 21)
+        clear.frame = CGRect(x: searchBox.maxX - 66, y: searchY + 4, width: 26, height: 28)
+        capture.frame = CGRect(x: searchBox.maxX - 38, y: searchY + 2, width: 34, height: 32)
+        scan.frame = CGRect(x: w - 96, y: searchY, width: 96, height: 36)
+        let statusY = searchY + 42
+        coverage.frame = CGRect(x: 2, y: statusY, width: w - (permission.isHidden ? 2 : 132), height: 18)
+        permission.frame = CGRect(x: w - 126, y: statusY - 4, width: 126, height: 26)
+        let top = statusY + 32
+        let left: CGFloat = compact ? w : max(300, floor(w * 0.42))
+        heading.frame = CGRect(x: 0, y: top, width: max(1, left - 194), height: 24)
+        // Compact columns keep the three scope choices together on a second line.
+        let stackedFilters = compact && w < 360
+        let filterY = top + (stackedFilters ? 30 : 0)
+        let filterWidth: CGFloat = stackedFilters ? (left - 12) / 3 : 58
+        for (i, button) in filters.enumerated() {
+            button.frame = CGRect(x: stackedFilters ? CGFloat(i) * (filterWidth + 6) : left - 186 + CGFloat(i) * 64,
+                                  y: filterY, width: filterWidth, height: 26)
+        }
+        heading.frame.size.width = stackedFilters ? left : max(1, left - 194)
+        let listY = filterY + 36
+        rankingScroll.frame = CGRect(x: 0, y: listY, width: left, height: compact ? 245 : 378)
+        empty.frame = rankingScroll.frame.insetBy(dx: 14, dy: 48)
+        let x: CGFloat = compact ? 0 : left + 24
+        let detailY = compact ? rankingScroll.frame.maxY + 18 : top
         let right = w - x
-        detailHeading.frame = CGRect(x: x, y: top, width: right, height: 28)
-        keys.frame = CGRect(x: x + 4, y: top + 40, width: right - 8, height: 50)
-        longName.frame = CGRect(x: x + 4, y: top + 96, width: right - 8, height: 18)
-        summary.frame = CGRect(x: x + 2, y: top + 122, width: right - 4, height: 30)
-        usesScroll.frame = CGRect(x: x, y: top + 160, width: right, height: compact ? 230 : 174)
-        caveat.frame = CGRect(x: x + 2, y: usesScroll.frame.maxY + 8, width: right - 4, height: 28)
-        let bottom = max(rankingScroll.frame.maxY, caveat.frame.maxY) + 10
-        footer.frame = CGRect(x: 0, y: bottom, width: compact ? w : w - 180, height: 18)
+        detailHeading.frame = CGRect(x: x, y: detailY + 3, width: 108, height: 24)
+        keys.frame = CGRect(x: x + 112, y: detailY - 1, width: max(1, right - 114), height: 30)
+        summary.frame = CGRect(x: x + 2, y: detailY + 36, width: right - 4, height: 30)
+        usesScroll.frame = CGRect(x: x, y: detailY + 70, width: right,
+                                 height: compact ? 265 : rankingScroll.frame.maxY - detailY - 70)
+        let bottom = max(rankingScroll.frame.maxY, usesScroll.frame.maxY) + 10
+        footer.frame = CGRect(x: 0, y: bottom, width: compact ? w : w - 174, height: 18)
+        footer.toolTip = "后台自行监听的热键可能不可见；未发现不代表未占用。\n" + footer.stringValue
         hint.isHidden = compact
-        hint.frame = CGRect(x: w - 180, y: bottom, width: 180, height: 18)
+        hint.frame = CGRect(x: w - 174, y: bottom, width: 174, height: 18)
         for (table, scroll) in [(ranking, rankingScroll), (uses, usesScroll)] {
             table.tableColumns.first?.width = max(1, scroll.contentSize.width)
             table.sizeLastColumnToFit()
@@ -318,12 +336,12 @@ final class ShortcutRadarDashboard: NSView, NSTextFieldDelegate, NSTableViewData
         if height != measuredHeight { measuredHeight = height; invalidateIntrinsicContentSize(); superview?.needsLayout = true }
     }
     override func draw(_ dirtyRect: NSRect) {
-        let outline = SketchPencil.outline(in: searchBox.insetBy(dx: 1.5, dy: 1.5), radius: 10)
+        let outline = SketchPencil.outline(in: searchBox.insetBy(dx: 1.5, dy: 1.5), radius: 9)
         SketchPalette.paper.setFill(); outline.fill()
         SketchPencil.stroke(outline, color: search.currentEditor() == nil ? SketchPalette.line : SketchPalette.yellow, width: 1)
         guard bounds.width >= 650 else { return }
-        let x = max(250, floor(bounds.width * 0.38)) + 17
-        let path = NSBezierPath(); path.move(to: CGPoint(x: x, y: 88)); path.line(to: CGPoint(x: x, y: 422))
+        let x = rankingScroll.frame.maxX + 12
+        let path = NSBezierPath(); path.move(to: CGPoint(x: x, y: heading.frame.minY)); path.line(to: CGPoint(x: x, y: rankingScroll.frame.maxY))
         SketchPencil.stroke(path, color: SketchPalette.line.withAlphaComponent(0.3), width: 0.8)
     }
 }
@@ -349,7 +367,7 @@ private final class RadarKeycapView: NSView {
     override init(frame: NSRect) { super.init(frame: frame); setAccessibilityRole(.staticText) }
     required init?(coder: NSCoder) { nil }
     override func draw(_ dirtyRect: NSRect) {
-        if let chord { RadarDrawing.keycaps(chord, in: bounds, fontSize: 26) }
+        if let chord { RadarDrawing.keycaps(chord, in: bounds, fontSize: 18) }
     }
 }
 
@@ -408,11 +426,11 @@ private final class RadarTableCell: NSTableCellView {
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
         if let group {
-            let countWidth: CGFloat = 106, keyWidth = max(50, bounds.width - countWidth - 28)
-            RadarDrawing.keycaps(group.chord, in: CGRect(x: 12, y: 21, width: keyWidth, height: 36), fontSize: 18)
+            let countWidth: CGFloat = 82, keyWidth = max(50, bounds.width - countWidth - 22)
+            RadarDrawing.keycaps(group.chord, in: CGRect(x: 10, y: 7, width: keyWidth, height: 30), fontSize: 16)
             let x = bounds.width - countWidth
-            RadarDrawing.text(group.uses.isEmpty ? "归属未知" : "\(group.uses.count) 处使用", in: CGRect(x: x, y: 18, width: countWidth - 6, height: 22), size: 15, color: SketchPalette.ink, weight: .medium)
-            let bar = CGRect(x: x, y: 49, width: countWidth - 12, height: 8)
+            RadarDrawing.text(group.uses.isEmpty ? "归属未知" : "\(group.uses.count) 项用途", in: CGRect(x: x, y: 7, width: countWidth - 6, height: 20), size: 13, color: SketchPalette.ink, weight: .medium)
+            let bar = CGRect(x: x, y: 31, width: countWidth - 12, height: 5)
             SketchPalette.line.withAlphaComponent(0.09).setFill(); NSBezierPath(roundedRect: bar, xRadius: 4, yRadius: 4).fill()
             var amount = bar; amount.size.width *= CGFloat(group.uses.count) / CGFloat(max(1, maximumCount))
             if amount.width > 0 {
@@ -420,16 +438,15 @@ private final class RadarTableCell: NSTableCellView {
                     color: (group.isPotentialConflict ? SketchPalette.coral : group.hasGlobal ? SketchPalette.purple : SketchPalette.green).withAlphaComponent(0.65))
             }
         } else if let use {
-            if let icon { icon.draw(in: CGRect(x: 5, y: 18, width: 32, height: 32), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil) }
+            if let icon { icon.draw(in: CGRect(x: 7, y: 11, width: 26, height: 26), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil) }
             else {
-                let path = SketchPencil.outline(in: CGRect(x: 5, y: 18, width: 32, height: 32), radius: 7)
+                let path = SketchPencil.outline(in: CGRect(x: 7, y: 11, width: 26, height: 26), radius: 7)
                 SketchPalette.fill(path, color: (use.scope == .global ? SketchPalette.purple : SketchPalette.blue).withAlphaComponent(0.22))
-                RadarDrawing.text(use.appName == "macOS" ? "⌘" : String(use.appName.prefix(1)), in: CGRect(x: 12, y: 22, width: 24, height: 25), size: 19, color: SketchPalette.ink)
+                RadarDrawing.text(use.appName == "macOS" ? "⌘" : String(use.appName.prefix(1)), in: CGRect(x: 12, y: 12, width: 22, height: 23), size: 19, color: SketchPalette.ink)
             }
-            RadarDrawing.text(use.appName, in: CGRect(x: 49, y: 9, width: max(30, bounds.width - 132), height: 21), size: 15, color: SketchPalette.ink, weight: .medium)
-            RadarDrawing.text(use.action, in: CGRect(x: 49, y: 33, width: max(1, bounds.width - 56), height: 19), size: 13, color: SketchPalette.ink)
-            RadarDrawing.text(use.sourceLabel, in: CGRect(x: 49, y: 57, width: max(1, bounds.width - 56), height: 17), size: 10, color: SketchPalette.muted)
-            let badge = CGRect(x: max(0, bounds.width - 78), y: 8, width: 72, height: 22)
+            RadarDrawing.text(use.appName, in: CGRect(x: 43, y: 5, width: max(30, bounds.width - 126), height: 19), size: 14, color: SketchPalette.ink, weight: .medium)
+            RadarDrawing.text(use.action, in: CGRect(x: 43, y: 26, width: max(1, bounds.width - 50), height: 18), size: 12, color: SketchPalette.ink)
+            let badge = CGRect(x: max(0, bounds.width - 78), y: 4, width: 72, height: 20)
             let shape = NSBezierPath(roundedRect: badge, xRadius: 10, yRadius: 10)
             SketchPalette.fill(shape, color: (use.isConfirmed ? SketchPalette.purple : SketchPalette.blue).withAlphaComponent(0.12))
             RadarDrawing.text(use.scope == .application ? "应用内" : use.isConfirmed ? "已登记" : "待核对",
