@@ -277,6 +277,7 @@ final class ToolboxWindowController: NSWindowController {
 
     private func navigate(_ page: Page, title: String) {
         if case .home=page {} else { homeCards.removeAll() }
+        content.header.accessory = nil
         self.page = page
         window?.title = title
         content.header.title = title
@@ -324,9 +325,9 @@ final class ToolboxWindowController: NSWindowController {
         navigate(.settings(tool), title: tool.title)
         let header = ModuleSettingsHeader(tool: tool, module: modules)
         settingsHeader = header
+        header.placeEnableControl(in: content.header)
         if tool == .shortcutRadar, let dashboard = modules.settingsView(for: tool) as? ShortcutRadarDashboard {
-            dashboard.installModuleControls(header)
-            content.showDetail([dashboard])
+            content.showDetail([header, dashboard])
             return
         }
         if tool == .systemStatus {

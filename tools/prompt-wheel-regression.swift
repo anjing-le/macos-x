@@ -124,9 +124,21 @@ final class CountingPromptDefaults: UserDefaults {
             try bitmap.representation(using:.png,properties:[:])?.write(to:URL(fileURLWithPath:output).appendingPathComponent("prompts-compact.png"))
         }
         let board=SettingsBoardView(kind:"kaomoji",settings:promptSettings,shortcuts:[NSTextField(labelWithString:"双击 Option")])
-        board.frame.size=CGSize(width:912,height:490); board.layoutSubtreeIfNeeded()
+        board.frame.size=CGSize(width:912,height:board.intrinsicContentSize.height); board.layoutSubtreeIfNeeded()
+        board.frame.size.height = board.intrinsicContentSize.height; board.layoutSubtreeIfNeeded()
         precondition(board.bounds.contains(promptSettings.frame) && promptSettings.frame.height == 440, "The default page gives the prompt editor its complete readable canvas")
-        precondition(56+48+30+12+board.frame.height <= 640, "Header, padding, enable row and board fit the default window")
+        precondition(board.frame.height == 440 && 56+48+board.frame.height <= 640, "Prompt shortcut shares its toolbar instead of adding a full page row")
+        let embeddedShortcut = promptSettings.subviews.compactMap { $0 as? ShortcutSettingsRow }.first!
+        precondition(promptSettings.bounds.contains(embeddedShortcut.frame), "Real shortcut remains clickable inside editor toolbar")
+        let editorArea = promptSettings.subviews.compactMap { $0 as? NSScrollView }.first { $0.documentView is NSTextView }!
+        precondition(editorArea.frame.height >= 250, "Compacted editor headings give the body more readable space")
+        for width: CGFloat in [740, 312] {
+            board.frame.size.width = width; board.needsLayout = true; board.layoutSubtreeIfNeeded()
+            board.frame.size.height = board.intrinsicContentSize.height; board.needsLayout = true; board.layoutSubtreeIfNeeded()
+            precondition(board.bounds.contains(promptSettings.frame) && promptSettings.bounds.contains(embeddedShortcut.frame), "Hosted shortcut and editor survive wide/narrow transitions")
+        }
+        board.frame.size.width = 912; board.needsLayout = true; board.layoutSubtreeIfNeeded()
+        board.frame.size.height = board.intrinsicContentSize.height; board.needsLayout = true; board.layoutSubtreeIfNeeded()
         for styleIndex in 0...1 {
             styleControl.selectItem(at:styleIndex); ringControl.selectItem(at:10); listControl.selectItem(at:10)
             precondition(NSApp.sendAction(styleControl.action!,to:styleControl.target,from:styleControl))

@@ -139,9 +139,7 @@ private final class RadarFixtureSurface: SketchSurface { override var isFlipped:
         view.fixtureSearch("")
         let moduleSwitch = ModuleEnableButton(title: "功能", target: nil, action: nil)
         moduleSwitch.state = .on
-        view.installModuleControls(moduleSwitch)
         for width: CGFloat in [912, 650, 620, 359, 312, 220] { layout(view, width: width); try bounds(view) }
-        try require(view.subviews.contains { $0 === moduleSwitch }, "the actual module control lives inside the dashboard toolbar")
         layout(view, width: 912)
         try require(view.intrinsicContentSize.height + 56 + 48 <= 640, "default page fits shell and margins without an extra enable row")
         let tables = view.subviews.compactMap { ($0 as? NSScrollView)?.documentView as? NSTableView }
@@ -150,16 +148,13 @@ private final class RadarFixtureSurface: SketchSurface { override var isFlipped:
                     "default page has room for seven complete combination rows")
         try require(scrolls[1].contentSize.height >= (tables[1].rowHeight + 3) * 6,
                     "default page has room for six complete application and action rows")
-        let search = view.subviews.compactMap { $0 as? NSTextField }.first { $0.isEditable }!
-        try require(abs(search.frame.midY - moduleSwitch.frame.midY) <= 3 && !search.frame.intersects(moduleSwitch.frame),
-                    "module switch shares the search row without covering the field")
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 960, height: 640), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.titlebarAppearsTransparent = true; window.titleVisibility = .hidden
         for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] { window.standardWindowButton(kind)?.isHidden = true }
         let root = RadarFixtureSurface(frame: CGRect(x: 0, y: 0, width: 960, height: 640)); root.edge = nil
         window.contentView = root
-        let header = SketchWindowHeader(frame: CGRect(x: 0, y: 0, width: 960, height: 56)); header.title = "快捷键雷达"; header.back.isHidden = false
+        let header = SketchWindowHeader(frame: CGRect(x: 0, y: 0, width: 960, height: 56)); header.title = "快捷键雷达"; header.back.isHidden = false; header.accessory = moduleSwitch
         root.addSubview(header); root.addSubview(view); view.frame.origin = CGPoint(x: 24, y: 80)
         let note = NSTextField(labelWithString: "交互预览 · 示例数据"); note.font = .systemFont(ofSize: 11); note.textColor = SketchPalette.muted
         note.frame = CGRect(x: 540, y: 606, width: 280, height: 22); root.addSubview(note)

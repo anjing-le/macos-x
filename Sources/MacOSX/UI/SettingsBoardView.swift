@@ -1,5 +1,9 @@
 import AppKit
 
+@MainActor protocol SettingsShortcutHost: AnyObject {
+    func installSettingsShortcut(_ control: NSView)
+}
+
 /// Native settings controls with bounded, shared artwork. Images explain the action;
 /// the button state and saved values remain native and accessible.
 @MainActor final class IllustratedSettingChoice: MinimalButton {
@@ -159,10 +163,11 @@ import AppKit
     private var art: [NSView] = []
     private var layoutArtwork: [NSImageView] = []
     private var layoutCaptions: [NSTextField] = []
+    private var hostsShortcut: Bool { kind == "kaomoji" && settings is SettingsShortcutHost }
     private var layoutFooterY: CGFloat {
         let columns = compact ? 2 : 4
         let width = (bounds.width - CGFloat(columns - 1) * 16) / CGFloat(columns)
-        return CGFloat(4 / columns) * (min(190, max(80, width * 0.9)) + 78) + 24
+        return CGFloat(4 / columns) * (min(158, max(80, width * 0.76)) + 66) + 24
     }
     private var selectors: [IllustratedSettingChoice] = []
     private var sourceToggle: NSButton?
@@ -187,7 +192,8 @@ import AppKit
     private var compact: Bool { bounds.width < 740 }
     override var isFlipped: Bool { true }
     private var bodyHeight: CGFloat {
-        if kind == "windowLayout" { return max(380,layoutFooterY+settings.fittingSize.height) }
+        if hostsShortcut { return max(0, settings.intrinsicContentSize.height) }
+        if kind == "windowLayout" { return layoutFooterY + settings.fittingSize.height }
         if usesBackdrop { return kind == "capture" ? max(backdropHeight,backdropHeight*0.838+settings.fittingSize.height) : backdropHeight }
         return kind == "kaomoji" ? max(compact ? 848 : 490,50+settings.fittingSize.height) : (kind == "capture" ? max(compact ? 864 : 440,(compact ? 664 : 352)+settings.fittingSize.height) : (compact ? 550 : 410))
     }
@@ -200,6 +206,9 @@ import AppKit
         super.init(frame: CGRect(x:0,y:0,width:840,height:410))
         settingsWidth.isActive=true
         addSubview(settings); for shortcut in self.shortcuts { addSubview(shortcut) }
+        if let host = settings as? SettingsShortcutHost, kind == "kaomoji", let shortcut = self.shortcuts.first {
+            host.installSettingsShortcut(shortcut)
+        }
         shortcutIssue.font = .systemFont(ofSize:13); shortcutIssue.textColor=SketchPalette.ink
         shortcutIssue.isSelectable=true; shortcutIssue.maximumNumberOfLines=0; shortcutIssue.isHidden=true
         shortcutIssue.identifier = .init("shortcut-board-issue"); addSubview(shortcutIssue)
@@ -377,17 +386,23 @@ import AppKit
     }
     override func layout() {
         super.layout()
+        if hostsShortcut {
+            settingsWidth.constant = bounds.width
+            settings.frame.size.width = bounds.width
+            settings.frame = CGRect(x: 0, y: 0, width: bounds.width, height: settings.intrinsicContentSize.height)
+            settings.layoutSubtreeIfNeeded(); updateSettingsHeight(); layoutShortcutIssue(); return
+        }
         if kind == "windowLayout" {
             let w=bounds.width
             let columns = compact ? 2 : 4
             let width = (w - CGFloat(columns - 1) * 16) / CGFloat(columns)
-            let height = min(190, max(80, width * 0.9)), rowHeight = height + 78
+            let height = min(158, max(80, width * 0.76)), rowHeight = height + 66
             for (i, view) in layoutArtwork.enumerated() {
                 let x = CGFloat(i % columns) * (width + 16), y = CGFloat(i / columns) * rowHeight
                 view.frame = CGRect(x: x, y: y, width: width, height: height)
                 layoutCaptions[i].frame = CGRect(x: x, y: y + height + 4, width: width, height: 26)
                 if shortcuts.indices.contains(i) {
-                    shortcuts[i].frame = CGRect(x: x + max(0, (width - 132) / 2), y: y + height + 32, width: min(132, width), height: 40)
+                    shortcuts[i].frame = CGRect(x: x + max(0, (width - 132) / 2), y: y + height + 28, width: min(132, width), height: 34)
                     shortcuts[i].layoutSubtreeIfNeeded()
                 }
             }

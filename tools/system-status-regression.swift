@@ -240,6 +240,7 @@ extension SystemStatusModule {
         for width: CGFloat in [912, 312] {
             layout(view, width: width)
             try assertBounds(view, name: "dashboard \(Int(width))")
+            if width == 912 { try require(view.intrinsicContentSize.height < 400, "compact monitor keeps live cards within a smaller page") }
             let charts = descendants(view).compactMap { $0 as? SystemStatusHistoryChart }
             try require(charts.count == 3, "dashboard exposes three native metric charts")
             try require(charts.allSatisfy { ($0.accessibilityLabel() ?? "").contains("最多 31 个采样点") },

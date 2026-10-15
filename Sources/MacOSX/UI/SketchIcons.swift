@@ -129,6 +129,9 @@ final class SketchWindowHeader: SketchSurface {
     private let expand = WindowControl(.expand, color: SketchPalette.green)
     let back = MinimalButton(title: "", target: nil, action: nil, style: .quiet)
     let update = MinimalButton(title: "", target: nil, action: nil, style: .quiet)
+    var accessory: NSView? {
+        didSet { oldValue?.removeFromSuperview(); if let accessory { addSubview(accessory) }; needsLayout = true }
+    }
     var onBack: (() -> Void)?
     var onUpdate: (() -> Void)?
     var compact = false { didSet { close.showsGlyph = compact; needsLayout = true } }
@@ -160,7 +163,9 @@ final class SketchWindowHeader: SketchSurface {
         update.frame = NSRect(x: bounds.width - 58, y: (bounds.height - 38) / 2, width: 38, height: 38)
         let leading = compact ? close.frame.maxX + 8 : [close, minimize, expand, back]
             .filter { !$0.isHidden }.map { $0.frame.maxX }.max().map { $0 + 12 } ?? 20
-        let trailing = compact || update.isHidden ? bounds.width - 24 : update.frame.minX - 12
+        accessory?.isHidden = compact
+        accessory?.frame = NSRect(x: bounds.width - 140, y: (bounds.height - 30) / 2, width: 68, height: 30)
+        let trailing = compact || update.isHidden ? bounds.width - 24 : (accessory?.frame.minX ?? update.frame.minX) - 12
         let width = min(max(0, trailing - leading), ceil(titleLabel.intrinsicContentSize.width) + 12)
         let x = min(max(leading, bounds.midX - width / 2), trailing - width)
         titleLabel.frame = NSRect(x: x, y: y - 2, width: width, height: 24)

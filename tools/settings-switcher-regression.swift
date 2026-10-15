@@ -82,6 +82,18 @@ import MacOSXCore
         for rect in [CGRect.zero, CGRect(x:0,y:0,width:CGFloat.infinity,height:20), CGRect(x:CGFloat.nan,y:0,width:20,height:20)] {
             try require(SketchPencil.outline(in:rect,radius:8).isEmpty,"transient invalid drawing bounds are safe")
         }
+        let pageHeader = SketchWindowHeader(frame: CGRect(x: 0, y: 0, width: 960, height: 56))
+        let pageToggle = ModuleEnableButton(title: "测试功能", target: nil, action: nil)
+        pageHeader.accessory = pageToggle; pageHeader.back.isHidden = false
+        for width: CGFloat in [960, 740, 360] {
+            pageHeader.frame.size.width = width; pageHeader.title = "截图录屏"
+            pageHeader.needsLayout = true; pageHeader.layoutSubtreeIfNeeded()
+            let title = pageHeader.subviews.compactMap { $0 as? NSTextField }.first!
+            try require(pageHeader.bounds.contains(pageToggle.frame) && !pageToggle.frame.intersects(pageHeader.update.frame), "header enable control fits without covering updates")
+            try require(!title.frame.intersects(pageToggle.frame) && !title.frame.intersects(pageHeader.back.frame), "title stays clear of module switch and navigation at narrow widths")
+        }
+        pageHeader.accessory = nil
+        try require(pageToggle.superview == nil, "leaving settings removes the old enable control")
         let output = ProcessInfo.processInfo.environment["MACOSX_SETTINGS_PREVIEW"]
         let layoutModule = WindowLayoutModule()
         let layoutActions: [ShortcutAction] = [.layoutLeft, .layoutRight, .layoutUp, .layoutDown]

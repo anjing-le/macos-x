@@ -83,8 +83,8 @@ final class SystemStatusDashboardView: NSView {
         activity.frame = CGRect(x: inset + 14, y: 3, width: max(1, contentWidth - 174), height: 22)
         updated.frame = CGRect(x: max(inset, width - inset - 155), y: 3, width: min(155, contentWidth), height: 22)
         let cards = [cpu, memory, network]
-        let top: CGFloat = 32, gap: CGFloat = 14
-        let cardHeight: CGFloat = compact ? 320 : 344
+        let top: CGFloat = 30, gap: CGFloat = 12
+        let cardHeight: CGFloat = compact ? 280 : 310
         var footerY: CGFloat
         if compact {
             for (index, card) in cards.enumerated() {
@@ -156,7 +156,7 @@ private final class SystemStatusMetricCard: NSView {
         self.kind = kind
         super.init(frame: .zero)
         heading.stringValue = kind == .cpu ? "CPU" : (kind == .memory ? "内存" : "网络")
-        heading.font = SketchPalette.heading(22)
+        heading.font = SketchPalette.heading(20)
         heading.textColor = SketchPalette.ink
         value.font = .monospacedDigitSystemFont(ofSize: kind == .cpu ? 42 : 34, weight: .semibold)
         value.textColor = kind == .network ? SketchPalette.blue : SketchPalette.ink
@@ -258,16 +258,16 @@ private final class SystemStatusMetricCard: NSView {
         super.layout()
         let inset: CGFloat = 18
         let width = max(1, bounds.width - inset * 2)
-        heading.frame = CGRect(x: inset + 43, y: 18, width: max(1, width - 43), height: 28)
-        value.font = .monospacedDigitSystemFont(ofSize: kind == .cpu ? 42 : (kind == .network ? 29 : 34), weight: .semibold)
-        value.frame = CGRect(x: inset, y: 61, width: width, height: 49)
-        secondary.frame = CGRect(x: inset, y: kind == .network ? 107 : 113, width: width, height: kind == .network ? 30 : 22)
+        heading.frame = CGRect(x: inset + 43, y: 14, width: max(1, width - 43), height: 26)
+        value.font = .monospacedDigitSystemFont(ofSize: kind == .cpu ? 36 : (kind == .network ? 27 : 30), weight: .semibold)
+        value.frame = CGRect(x: inset, y: 50, width: width, height: 44)
+        secondary.frame = CGRect(x: inset, y: kind == .network ? 96 : 99, width: width, height: kind == .network ? 30 : 22)
         detail.frame = CGRect(x: inset, y: bounds.height - 37, width: width, height: 20)
-        let chartTop: CGFloat = 177
+        let chartTop: CGFloat = 159
         chart.frame = CGRect(x: inset, y: chartTop, width: width, height: max(40, bounds.height - chartTop - 51))
-        caption.frame = CGRect(x: inset, y: 160, width: max(1, width - (kind == .network ? 119 : 0)), height: 17)
-        downloadLegend.frame = CGRect(x: max(inset, bounds.width - inset - 115), y: 160, width: 57, height: 17)
-        uploadLegend.frame = CGRect(x: max(inset, bounds.width - inset - 54), y: 160, width: 54, height: 17)
+        caption.frame = CGRect(x: inset, y: 141, width: max(1, width - (kind == .network ? 119 : 0)), height: 17)
+        downloadLegend.frame = CGRect(x: max(inset, bounds.width - inset - 115), y: 141, width: 57, height: 17)
+        uploadLegend.frame = CGRect(x: max(inset, bounds.width - inset - 54), y: 141, width: 54, height: 17)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -282,13 +282,13 @@ private final class SystemStatusMetricCard: NSView {
         SketchPalette.paper.setFill(); outline.fill()
         NSGraphicsContext.saveGraphicsState()
         outline.addClip()
-        let wash = NSBezierPath(roundedRect: CGRect(x: 7, y: 7, width: max(1, bounds.width - 14), height: 126), xRadius: 10, yRadius: 10)
+        let wash = NSBezierPath(roundedRect: CGRect(x: 7, y: 7, width: max(1, bounds.width - 14), height: 114), xRadius: 10, yRadius: 10)
         SketchPalette.fill(wash, color: accent.withAlphaComponent(0.1))
         NSGraphicsContext.restoreGraphicsState()
         SketchPencil.stroke(outline, color: SketchPalette.line.withAlphaComponent(0.56), width: 1.2)
-        drawIcon(in: CGRect(x: 18, y: 18, width: 32, height: 30))
+        drawIcon(in: CGRect(x: 18, y: 14, width: 32, height: 28))
         if let ratio {
-            let area = CGRect(x: 18, y: 142, width: max(1, bounds.width - 36), height: 8)
+            let area = CGRect(x: 18, y: 124, width: max(1, bounds.width - 36), height: 8)
             let bar = SketchPencil.outline(in: area, radius: 4)
             SketchPalette.line.withAlphaComponent(0.08).setFill(); bar.fill()
             NSGraphicsContext.saveGraphicsState(); bar.addClip()

@@ -41,7 +41,6 @@ final class ShortcutRadarDashboard: NSView, NSTextFieldDelegate, NSTableViewData
     private var capturing = false
     private var captureLabels: [UInt16: String] = [:]
     private var observers: [NSObjectProtocol] = []
-    private var moduleControls: NSView?
     private var searchBox = CGRect.zero
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -92,12 +91,6 @@ final class ShortcutRadarDashboard: NSView, NSTextFieldDelegate, NSTableViewData
         update(snapshot: nil, icons: [:], enabled: false, busy: false)
     }
     required init?(coder: NSCoder) { nil }
-
-    /// Reuse the real module switch in the toolbar instead of consuming a separate row.
-    func installModuleControls(_ controls: NSView) {
-        moduleControls?.removeFromSuperview()
-        moduleControls = controls; addSubview(controls); needsLayout = true
-    }
 
     private func configureTable(_ table: NSTableView, scroll: NSScrollView, rowHeight: CGFloat, label: String) {
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("content"))
@@ -287,10 +280,7 @@ final class ShortcutRadarDashboard: NSView, NSTextFieldDelegate, NSTableViewData
     override func layout() {
         super.layout()
         let w = max(220, bounds.width), compact = w < 650
-        let controlsWidth: CGFloat = moduleControls == nil ? 0 : 80
-        moduleControls?.frame = CGRect(x: 0, y: 3, width: 68, height: 30)
-        let searchX: CGFloat = w < 360 ? 0 : controlsWidth
-        let searchY: CGFloat = w < 360 && moduleControls != nil ? 40 : 0
+        let searchX: CGFloat = 0, searchY: CGFloat = 0
         searchBox = CGRect(x: searchX, y: searchY, width: w - searchX - 106, height: 36)
         magnifier.frame = CGRect(x: searchX + 9, y: searchY + 9, width: 18, height: 18)
         search.frame = CGRect(x: searchX + 33, y: searchY + 8, width: max(1, searchBox.width - 103), height: 21)

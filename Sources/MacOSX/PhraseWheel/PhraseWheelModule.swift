@@ -92,7 +92,7 @@ import MacOSXCore
     override var undoManager: UndoManager? { history }
 }
 
-@MainActor private final class PromptSettingsView: NSView, NSSearchFieldDelegate, NSTextViewDelegate, NSTableViewDataSource, NSTableViewDelegate {
+@MainActor private final class PromptSettingsView: NSView, SettingsShortcutHost, NSSearchFieldDelegate, NSTextViewDelegate, NSTableViewDataSource, NSTableViewDelegate {
     var onChange: ((PromptCollection) -> Void)?
     var onPreview: (() -> Void)?
     var onPresentationChange: ((PromptPresentation) -> Void)?
@@ -119,6 +119,7 @@ import MacOSXCore
     private var exportTask: Task<Void, Never>?
     private var exportPanel: NSSavePanel?
     private var closeObserver: NSObjectProtocol?
+    private var settingsShortcut: NSView?
     private let presentationHost = NSView()
     private var presentationPreview: PromptWheelView?
     private let wheelTab = MinimalButton(title: "常用", target: nil, action: nil, style: .quiet)
@@ -197,12 +198,17 @@ import MacOSXCore
         listScroll.documentView = table; listScroll.hasVerticalScroller = true; listScroll.autohidesScrollers = true; listScroll.drawsBackground = false
         status.font = .systemFont(ofSize:11); status.textColor = .secondaryLabelColor; status.maximumNumberOfLines = 2
         for view in [picker,placement,titleField,scroll,search,listScroll,status] { addSubview(view) }
-        editorHeading.font=SketchPalette.heading(20); editorHeading.textColor=SketchPalette.ink
+        editorHeading.font=SketchPalette.heading(18); editorHeading.textColor=SketchPalette.ink
         editorHint.font = .systemFont(ofSize:12); editorHint.textColor=SketchPalette.muted; editorHint.maximumNumberOfLines=2
         for view in [editorHeading,editorHint] { addSubview(view) }
         selectSlot(0)
     }
     required init?(coder: NSCoder) { nil }
+    func installSettingsShortcut(_ control: NSView) {
+        settingsShortcut?.removeFromSuperview(); settingsShortcut = control
+        control.removeFromSuperview(); addSubview(control)
+        control.setAccessibilityLabel("提示词唤起快捷键"); needsLayout = true
+    }
     override func draw(_ dirtyRect: NSRect) {
         SketchPalette.paper.setFill(); bounds.fill()
         guard let artwork else { return }
@@ -218,39 +224,42 @@ import MacOSXCore
         }
     }
     private func layoutArtwork() {
-        for (index,button) in styleButtons.enumerated() {
-            button.backdropOnly=true
-            button.frame=CGRect(x:16+CGFloat(index)*116,y:bounds.height-66,width:110,height:64)
+        let editorX = bounds.width * 0.46, editorWidth = bounds.width - editorX - 16
+        for (index, button) in styleButtons.enumerated() {
+            button.backdropOnly = true
+            button.frame = CGRect(x: 12 + CGFloat(index) * 90, y: bounds.height - 56, width: 84, height: 52)
         }
-        let editorX=bounds.width*0.49, editorWidth=bounds.width-editorX-16
-        editorHeading.frame=CGRect(x:editorX,y:bounds.height-32,width:editorWidth,height:26)
-        editorHint.frame=CGRect(x:editorX,y:bounds.height-64,width:editorWidth,height:20)
-        let countX:CGFloat=250
-        ringCountLabel.frame=CGRect(x:countX,y:bounds.height-30,width:52,height:20)
-        ringCount.frame=CGRect(x:countX+54,y:bounds.height-34,width:58,height:28)
-        listCountLabel.frame=CGRect(x:countX,y:bounds.height-66,width:52,height:20)
-        listCount.frame=CGRect(x:countX+54,y:bounds.height-70,width:58,height:28)
-        let leftWidth=editorX-32, tabY=bounds.height-96
-        wheelTab.frame=CGRect(x:16,y:tabY,width:54,height:28)
-        libraryTab.frame=CGRect(x:74,y:tabY,width:54,height:28)
-        // Navigation stays with the preview; content actions stay with the editor.
-        add.title = "+ 新建"; add.frame=CGRect(x:editorX,y:tabY,width:64,height:28)
-        delete.frame=CGRect(x:editorX+74,y:tabY,width:54,height:28)
-        undoDelete.frame=CGRect(x:editorX+138,y:tabY,width:80,height:28)
-        presentationHost.frame=CGRect(x:16,y:62,width:leftWidth,height:tabY-70); layoutPreview()
-        search.frame=CGRect(x:16,y:tabY-40,width:leftWidth,height:30)
-        listScroll.frame=CGRect(x:16,y:66,width:leftWidth,height:tabY-114)
-        picker.frame=CGRect(x:editorX,y:bounds.height-124,width:editorWidth,height:28); placement.frame=picker.frame
-        titleField.frame=CGRect(x:editorX,y:bounds.height-168,width:editorWidth,height:32)
-        scroll.frame=CGRect(x:editorX,y:66,width:editorWidth,height:bounds.height-248)
-        scroll.layer?.backgroundColor=NSColor.clear.cgColor
-        body.frame.size.width=scroll.contentSize.width
-        importer.frame=CGRect(x:16,y:28,width:100,height:28)
-        format.frame=CGRect(x:122,y:28,width:42,height:28); cancelImport.frame=format.frame
-        exporter.frame=CGRect(x:170,y:28,width:86,height:28)
-        preview.frame=CGRect(x:bounds.width-76,y:28,width:60,height:28)
-        status.frame=CGRect(x:16,y:0,width:bounds.width-32,height:26)
-        table.tableColumns.first?.width=max(80,listScroll.contentSize.width)
+        // Style and count stay together; remove the duplicate editor-help row.
+        let countX: CGFloat = 200
+        ringCountLabel.frame = CGRect(x: countX, y: bounds.height - 25, width: 32, height: 18)
+        ringCount.frame = CGRect(x: countX + 34, y: bounds.height - 30, width: 52, height: 26)
+        listCountLabel.frame = CGRect(x: countX, y: bounds.height - 53, width: 32, height: 18)
+        listCount.frame = CGRect(x: countX + 34, y: bounds.height - 58, width: 52, height: 26)
+        editorHeading.frame = CGRect(x: editorX, y: bounds.height - 28, width: 100, height: 24)
+        editorHint.isHidden = true
+        editorHeading.toolTip = "拖到常用位置；已有位置可互换。"
+        let tabY = bounds.height - 86, leftWidth = editorX - 28
+        wheelTab.frame = CGRect(x: 12, y: tabY, width: 54, height: 28)
+        libraryTab.frame = CGRect(x: 70, y: tabY, width: 54, height: 28)
+        add.title = "+ 新建"; add.frame = CGRect(x: editorX + 108, y: bounds.height - 30, width: 64, height: 28)
+        delete.frame = CGRect(x: editorX + 176, y: bounds.height - 30, width: 54, height: 28)
+        undoDelete.frame = CGRect(x: editorX + 232, y: bounds.height - 30, width: 80, height: 28)
+        presentationHost.frame = CGRect(x: 12, y: 60, width: leftWidth, height: tabY - 68); layoutPreview()
+        search.frame = CGRect(x: 12, y: tabY - 38, width: leftWidth, height: 30)
+        listScroll.frame = CGRect(x: 12, y: 60, width: leftWidth, height: tabY - 106)
+        picker.frame = CGRect(x: editorX, y: bounds.height - 68, width: editorWidth, height: 28); placement.frame = picker.frame
+        titleField.frame = CGRect(x: editorX, y: bounds.height - 108, width: editorWidth, height: 32)
+        scroll.frame = CGRect(x: editorX, y: 60, width: editorWidth, height: bounds.height - 182)
+        scroll.layer?.backgroundColor = NSColor.clear.cgColor
+        body.frame.size.width = scroll.contentSize.width
+        importer.frame = CGRect(x: 12, y: 24, width: 100, height: 28)
+        format.frame = CGRect(x: 118, y: 24, width: 42, height: 28); cancelImport.frame = format.frame
+        exporter.frame = CGRect(x: 166, y: 24, width: 86, height: 28)
+        preview.frame = CGRect(x: bounds.width - 76, y: 24, width: 60, height: 28)
+        settingsShortcut?.frame = CGRect(x: bounds.width - 338, y: 20, width: 250, height: 36)
+        settingsShortcut?.layoutSubtreeIfNeeded()
+        status.frame = CGRect(x: 12, y: 0, width: bounds.width - 24, height: 20)
+        table.tableColumns.first?.width = max(80, listScroll.contentSize.width)
     }
     override func layout() {
         super.layout()
@@ -297,6 +306,12 @@ import MacOSXCore
         exporter.frame=CGRect(x:154,y:28,width:82,height:28)
         cancelImport.frame = format.frame
         preview.frame = NSRect(x:bounds.width-60,y:28,width:60,height:28)
+        if let settingsShortcut {
+            settingsShortcut.frame = CGRect(x: 0, y: 66, width: bounds.width, height: 36)
+            settingsShortcut.layoutSubtreeIfNeeded()
+            scroll.frame.origin.y = 114
+            scroll.frame.size.height = max(60, editTop - 160)
+        }
         status.frame = NSRect(x:0,y:0,width:bounds.width,height:26)
         table.tableColumns.first?.width = max(80,listScroll.contentSize.width)
         if wasCompact != compact { wasCompact = compact; invalidateIntrinsicContentSize() }

@@ -153,11 +153,11 @@ import MacOSXCore
     }
     private func updateStatus(_ value:String) { status.stringValue=value; status.isHidden=value.isEmpty; onStatusChange?() }
     private func makeSettings()->NSView {
-        let stack=NSStackView(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing=16
+        let stack=NSStackView(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing=8
         let heading=NSTextField(labelWithString:"拖到边缘，松手落位")
-        heading.font=SketchPalette.heading(22); heading.textColor=SketchPalette.ink
+        heading.font=SketchPalette.heading(18); heading.textColor=SketchPalette.ink
         let description=NSTextField(wrappingLabelWithString:"左、右、上、下边缘：对应半屏\n四个角：四分之一屏　·　预览出现后松手")
-        description.font = .systemFont(ofSize:14); description.textColor=SketchPalette.muted
+        description.font = .systemFont(ofSize:12); description.textColor=SketchPalette.muted
         status.font = .systemFont(ofSize:12); status.textColor=SketchPalette.muted; status.maximumNumberOfLines=2
         for view in [heading,description,status] { stack.addArrangedSubview(view) }
         description.widthAnchor.constraint(equalTo:stack.widthAnchor).isActive=true

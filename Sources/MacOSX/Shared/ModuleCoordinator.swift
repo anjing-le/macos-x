@@ -318,6 +318,11 @@ final class ModuleSettingsHeader: NSStackView {
         refresh()
     }
     required init?(coder: NSCoder) { nil }
+    func placeEnableControl(in header: SketchWindowHeader) {
+        removeArrangedSubview(toggle); toggle.removeFromSuperview()
+        header.accessory = toggle
+        refresh()
+    }
     func refresh() {
         let active = module.isEnabled(tool)
         toggle.state = active ? .on : .off
@@ -325,6 +330,7 @@ final class ModuleSettingsHeader: NSStackView {
         screenCapture.isHidden = !active || !module.needsScreenCapture(tool)
         issue.stringValue = module.issue(for: tool) ?? ""
         issue.isHidden = issue.stringValue.isEmpty
+        isHidden = toggle.superview !== self && accessibility.isHidden && screenCapture.isHidden && issue.isHidden
     }
     @objc private func changeEnabled() { module.setEnabled(toggle.state == .on, tool: tool); refresh() }
     @objc private func allowAccessibility() { module.requestAccessibility() }
