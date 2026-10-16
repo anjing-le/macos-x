@@ -58,6 +58,8 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
     }
     private let toolbar: NSPanel
     private var toolbarVisible = true
+    private var annotationEditingSuspended = false
+    private var suspendedTool: CaptureTool?
     private var localMonitor: Any?
     private var toolButtons = [CaptureToolButton]()
     private let canvas: CaptureCanvas
@@ -204,7 +206,8 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
             }
         case 1 where command: saveImage()
         case 17 where command: editingPin ? confirm() : pinImage()
-        case 6 where command: event.modifierFlags.contains(.shift) ? redoAction() : undoAction()
+        case 6 where command:
+            if !annotationEditingSuspended { event.modifierFlags.contains(.shift) ? redoAction() : undoAction() }
         case 13 where command: close()
         case 15 where command && !editingPin: reselect()
         case 36, 76: confirm()
@@ -214,11 +217,11 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
             if editingPin {
                 confirm()
             } else {
-                toolbarVisible.toggle()
-                if toolbarVisible { positionToolbar() } else { toolbar.orderOut(nil) }
+                toggleAnnotationEditing()
             }
         default:
-            guard !command, !event.modifierFlags.contains(.control), let key = event.charactersIgnoringModifiers else { return false }
+            guard !annotationEditingSuspended, !command, !event.modifierFlags.contains(.control),
+                  let key = event.charactersIgnoringModifiers else { return false }
             if event.modifierFlags.contains(.option) {
                 switch key {
                 case "1": selectTool(.ellipse)
@@ -243,6 +246,20 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
             }
         }
         return true
+    }
+    private func toggleAnnotationEditing() {
+        guard !closed, !exporting, !adjustingRegion else { return }
+        if annotationEditingSuspended {
+            annotationEditingSuspended = false; canvas.tool = suspendedTool; suspendedTool = nil
+            toolbarVisible = true
+        } else {
+            finishText(commit: true); canvas.commitDraft(); cancelRecognition()
+            colorPopover?.close(); wheelRemainder = 0
+            suspendedTool = canvas.tool; canvas.tool = nil; annotationEditingSuspended = true
+            toolbarVisible = false; toolbar.orderOut(nil)
+        }
+        updateToolButtons(); updateSelectionInput()
+        if toolbarVisible, window.isVisible { positionToolbar() }
     }
     /// Only the active drawing tool consumes wheel input. No global listener or idle timer.
     func handleThicknessScroll(_ event: NSEvent) -> Bool {
@@ -301,7 +318,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         regionWasVisible = false; refresh(); updateSelectionInput()
     }
     private func updateSelectionInput() {
-        canvas.inputEnabled = !closed && !exporting && !adjustingRegion
+        canvas.inputEnabled = !closed && !exporting && !adjustingRegion && !annotationEditingSuspended
         guard !editingPin else { return }
         let editing = canvas.tool != nil
         window.ignoresMouseEvents = !editing
@@ -344,7 +361,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
     }
     @objc private func reselect() { guard !exporting else { return }; onReselect?() }
     private func selectTool(_ tool: CaptureTool) {
-        guard !closed, !exporting, !adjustingRegion else { return }
+        guard !closed, !exporting, !adjustingRegion, !annotationEditingSuspended else { return }
         finishText(commit: true); canvas.cancelDraft(); wheelRemainder = 0
         canvas.tool = canvas.tool == tool ? nil : tool
         if status.stringValue.hasPrefix("笔刷 ") || (status.stringValue.hasPrefix("粗细 ") && (canvas.tool == nil || canvas.tool == .text || canvas.tool == .mosaic || canvas.tool == .blur || canvas.tool == .eraser)) {

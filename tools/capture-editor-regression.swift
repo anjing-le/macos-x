@@ -16,6 +16,60 @@ import AppKit
     }
     func finishTextFixture(commit: Bool) { finishText(commit: commit) }
     var fixtureTextMark: CaptureAnnotation? { annotations.last }
+    func verifySpaceModeFixture() {
+        func key(_ code: UInt16,_ value: String,repeat repeated: Bool = false) -> NSEvent {
+            NSEvent.keyEvent(with: .keyDown,location: .zero,modifierFlags: [],timestamp: 0,
+                windowNumber: window.windowNumber,context: nil,characters: value,charactersIgnoringModifiers: value,
+                isARepeat: repeated,keyCode: code)!
+        }
+        func click() {
+            let event = NSEvent.mouseEvent(with: .leftMouseDown,location: CGPoint(x: 80,y: 50),modifierFlags: [],timestamp: 0,
+                windowNumber: window.windowNumber,context: nil,eventNumber: 1,clickCount: 1,pressure: 1)!
+            canvas.mouseDown(with: event); canvas.mouseUp(with: event)
+        }
+        var editing = true
+        onEditingChanged = { editing = $0 }
+        for tool in [CaptureTool.text,.rectangle,.arrow,.pen,.mosaic] {
+            canvas.tool = nil; selectTool(tool)
+            let count = annotations.count
+            precondition(handleSelectionKey(key(49," ")))
+            precondition(annotationEditingSuspended && !toolbarVisible && canvas.tool == nil && !canvas.inputEnabled &&
+                         window.ignoresMouseEvents && !editing,
+                         "Space must disable annotation input and unlock real selection dragging, not only hide the toolbar")
+            click()
+            _ = handleSelectionKey(key(21,"4"))
+            precondition(textInput == nil && annotations.count == count && canvas.tool == nil,
+                         "Clicks and hidden tool keys cannot write or draw in movement mode")
+            precondition(handleSelectionKey(key(49," ",repeat: true)) && annotationEditingSuspended,
+                         "Holding Space cannot re-enter editing")
+            precondition(handleSelectionKey(key(49," ")) && !annotationEditingSuspended && toolbarVisible && canvas.tool == tool &&
+                         canvas.inputEnabled && !window.ignoresMouseEvents && editing,
+                         "The next Space restores the previous tool and its input routing")
+        }
+        canvas.tool = .pen
+        func stroke(_ type: NSEvent.EventType,_ point: CGPoint) -> NSEvent {
+            NSEvent.mouseEvent(with: type,location: point,modifierFlags: [],timestamp: 0,
+                windowNumber: window.windowNumber,context: nil,eventNumber: 1,clickCount: 1,pressure: 1)!
+        }
+        canvas.mouseDown(with: stroke(.leftMouseDown,CGPoint(x: 20,y: 40)))
+        canvas.mouseDragged(with: stroke(.leftMouseDragged,CGPoint(x: 90,y: 40)))
+        _ = handleSelectionKey(key(49," "))
+        canvas.mouseUp(with: stroke(.leftMouseUp,CGPoint(x: 90,y: 40)))
+        precondition(annotations.count == 1 && annotations[0].tool == .pen,
+                     "Exiting commits an in-flight stroke exactly once; mouseUp cannot resume drawing")
+        _ = handleSelectionKey(key(49," ")); undoAction()
+        precondition(annotations.isEmpty,"The committed stroke retains normal undo after resuming")
+        canvas.tool = .text
+        let input = beginTextFixture(point: CGPoint(x: 30,y: 100),width: 2,ink: .red)
+        input.insertText("hello",replacementRange: NSRange(location: 0,length: 0))
+        precondition(!handleSelectionKey(key(49," ")) && textInput === input,
+                     "Native text input and IME must keep their ordinary Space key")
+        finishText(commit: true)
+        precondition(handleSelectionKey(key(49," ")) && textInput == nil && textMoveHandle == nil)
+        click(); precondition(textInput == nil && annotations.count == 1,"Exiting after a text commit cannot leave T active")
+        precondition(!window.isVisible && !toolbar.isVisible,"Regression stays isolated without displayed windows")
+    }
+    var fixtureClosed: Bool { closed }
     func verifyMovableTextFixture() {
         canvas.tool = .text
         let input = beginTextFixture(point: CGPoint(x: 40,y: 120),width: 2,ink: .red)
@@ -79,6 +133,8 @@ import AppKit
         let context = CaptureRaster.context(width: 200, height: 160)!
         context.setFillColor(CGColor(gray: 1, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 200, height: 160))
         let image = context.makeImage()!
+        let spaceEditor = CaptureEditor(image: image,selectionFrame: CGRect(x: 0,y: 0,width: 200,height: 160),defaults: defaults)
+        spaceEditor.verifySpaceModeFixture(); spaceEditor.close()
         CaptureSelection.verifyHoverFixture(image: image)
         // Real native input and exported pixels, including the normal 2x
         // screenshot-to-point mapping. No shown window or clipboard writes.
@@ -360,6 +416,19 @@ import AppKit
         pin.beginRegionAdjustment(); pin.replaceSelectionImage(image, at: next)
         precondition(pin.selectionFrame == region, "Pinned-image editing cannot recrop the desktop")
         pin.close()
+        let spacePin = CaptureEditor(image: image,selectionFrame: region,editingPin: true,defaults: defaults)
+        let spaceCanvas = spacePin.window.contentView as! CaptureCanvas
+        precondition(spacePin.handleSelectionKey(key(21,"4")))
+        let pending = spacePin.beginTextFixture(point: CGPoint(x: 20,y: 100),width: 2,ink: .red)
+        pending.insertText("已提交",replacementRange: NSRange(location: 0,length: 0))
+        spacePin.finishTextFixture(commit: true)
+        var appliedPin: CGImage?
+        spacePin.onApply = { appliedPin = $0 }
+        precondition(spacePin.handleSelectionKey(key(49," ")) && !spaceCanvas.inputEnabled)
+        let pinDeadline = Date().addingTimeInterval(4)
+        while appliedPin == nil && Date() < pinDeadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+        precondition(appliedPin != nil && spacePin.fixtureClosed && !spaceCanvas.inputEnabled,
+                     "F3 Space applies the edit and closes its editor, leaving no live drawing canvas")
         let activeExport = CaptureEditor(image: image, selectionFrame: CGRect(x: 0, y: 0, width: 200, height: 160), defaults: defaults)
         let activeCanvas = activeExport.window.contentView as! CaptureCanvas
         activeCanvas.lineWidth = 3
