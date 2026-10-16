@@ -65,7 +65,7 @@ import AppKit
         precondition(!handleSelectionKey(key(49," ")) && textInput === input,
                      "Native text input and IME must keep their ordinary Space key")
         finishText(commit: true)
-        precondition(handleSelectionKey(key(49," ")) && textInput == nil && textMoveHandle == nil)
+        precondition(handleSelectionKey(key(49," ")) && textInput == nil && textEditingFrame == nil)
         click(); precondition(textInput == nil && annotations.count == 1,"Exiting after a text commit cannot leave T active")
         precondition(!window.isVisible && !toolbar.isVisible,"Regression stays isolated without displayed windows")
     }
@@ -77,7 +77,34 @@ import AppKit
         textDidChange(Notification(name: NSText.didChangeNotification,object: input))
         input.setSelectedRange(NSRange(location: 1,length: 0))
         let selected = input.selectedRange(), original = textAnnotation!, container = input.textContainer!.size
-        let handle = textMoveHandle!, start = CGPoint(x: 20,y: 80)
+        let handle = textEditingFrame!
+        let savedCursor = NSCursor.current
+        defer { savedCursor.set() }
+        let edges = [CGPoint(x: 2,y: handle.bounds.midY),CGPoint(x: handle.bounds.maxX - 2,y: handle.bounds.midY),
+                     CGPoint(x: handle.bounds.midX,y: 2),CGPoint(x: handle.bounds.midX,y: handle.bounds.maxY - 2),
+                     CGPoint(x: 2,y: 2),CGPoint(x: handle.bounds.maxX - 2,y: 2),
+                     CGPoint(x: 2,y: handle.bounds.maxY - 2),CGPoint(x: handle.bounds.maxX - 2,y: handle.bounds.maxY - 2)]
+        for edge in edges {
+            let point = handle.convert(edge,to: canvas)
+            precondition(canvas.hitTest(point) === handle,"Every visible edge and corner must accept border dragging")
+        }
+        let interior = handle.convert(CGPoint(x: handle.bounds.midX,y: handle.bounds.midY),to: canvas)
+        precondition(handle.hitTest(interior) == nil && canvas.hitTest(interior) === input,
+                     "The frame interior passes through to native typing and selection")
+        let start = handle.convert(edges[0],to: nil)
+        handle.updateTrackingAreas()
+        precondition(handle.trackingAreas.count == 4,"Hover tracks only the four border strips")
+        let hover = NSEvent.enterExitEvent(with: .mouseEntered,location: start,modifierFlags: [],timestamp: 0,
+            windowNumber: window.windowNumber,context: nil,eventNumber: 1,trackingNumber: 0,userData: nil)!
+        NSCursor.arrow.set(); handle.mouseEntered(with: hover)
+        precondition(NSCursor.current == .openHand && textDrag == nil,"Border hover shows the movement cursor before pressing")
+        if let directory = ProcessInfo.processInfo.environment["MACOSX_TEXT_FRAME_EVIDENCE_DIRECTORY"] {
+            let target = URL(fileURLWithPath: directory,isDirectory: true)
+            try! FileManager.default.createDirectory(at: target,withIntermediateDirectories: true)
+            let bitmap = canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds)!
+            canvas.cacheDisplay(in: canvas.bounds,to: bitmap)
+            try! bitmap.representation(using: .png,properties: [:])!.write(to: target.appendingPathComponent("text-frame-\(canvas.scale).png"))
+        }
         func event(_ type: NSEvent.EventType,_ point: CGPoint) -> NSEvent {
             NSEvent.mouseEvent(with: type,location: point,modifierFlags: [],timestamp: 0,
                 windowNumber: window.windowNumber,context: nil,eventNumber: 1,clickCount: 1,pressure: 1)!
@@ -99,13 +126,15 @@ import AppKit
         handle.mouseDragged(with: event(.leftMouseDragged,CGPoint(x: -1000,y: 1000)))
         precondition(input.hasMarkedText() && textInput === input && textAnnotation!.points[0].x == 0 && textAnnotation!.points[0].y == 160,
                      "Dragging clamps inside the image and preserves IME composition")
+        precondition(canvas.bounds.contains(handle.frame) && !handle.frame.isEmpty,
+                     "The editing border remains visible and hittable when text touches image edges")
         handle.mouseUp(with: event(.leftMouseUp,end)); input.unmarkText()
         let expected = textAnnotation!.points[0], value = input.string
         let outside = canvas.convert(CGPoint(x: input.bounds.maxX - 1,y: 1),from: input)
         precondition(input.hitTest(outside) == nil,"Blank wrapping-container space must let the canvas finish text editing")
         canvas.mouseDown(with: event(.leftMouseDown,CGPoint(x: 190,y: 10)))
-        precondition(textInput == nil && textMoveHandle == nil && handle.superview == nil && annotations.count == 1,
-                     "A background click commits once, removes the handle and does not create another text editor")
+        precondition(textInput == nil && textEditingFrame == nil && handle.superview == nil && annotations.count == 1,
+                     "A background click commits once, removes the border and does not create another text editor")
         precondition(annotations[0].points[0] == expected && annotations[0].text == value &&
                      annotations[0].textLayoutWidth == original.textLayoutWidth,
                      "Commit retains the moved position, text and exact wrapping")
@@ -148,7 +177,7 @@ import AppKit
             let ink = CaptureInk(red: 0.1,green: 0.6,blue: 0.9,alpha: 1)
             let input = textEditor.beginTextFixture(point: CGPoint(x: 16,y: 140),width: 3,ink: ink)
             precondition(!input.drawsBackground && input.backgroundColor == .clear && input.textContainerInset == .zero,
-                         "The active text input is transparent and has no padded field or border")
+                         "The active text input is transparent and has no padded or opaque text field")
             let sampleText = "Ab中文 🙂 自动换行一致\n第二行"
             input.insertText(sampleText,replacementRange: NSRange(location: 0,length: 0))
             textEditor.textDidChange(Notification(name: NSText.didChangeNotification,object: input))

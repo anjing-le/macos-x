@@ -13,31 +13,44 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
             return super.hitTest(point)
         }
     }
-    private final class TextMoveHandle: NSView {
+    /// An edit-only overlay. Only its border participates in hit testing;
+    /// native text selection and input pass through the transparent interior.
+    private final class TextEditingFrame: NSView {
         var onBegin: ((CGPoint) -> Void)?
         var onMove: ((CGPoint) -> Void)?
         var onEnd: (() -> Void)?
+        private var borderRects: [CGRect] {
+            let x = min(5,bounds.width / 2), y = min(5,bounds.height / 2)
+            return [CGRect(x: 0,y: 0,width: bounds.width,height: y),
+                    CGRect(x: 0,y: bounds.maxY - y,width: bounds.width,height: y),
+                    CGRect(x: 0,y: y,width: x,height: max(0,bounds.height - y * 2)),
+                    CGRect(x: bounds.maxX - x,y: y,width: x,height: max(0,bounds.height - y * 2))]
+        }
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            let local = convert(point,from: superview)
+            return borderRects.contains(where: { $0.contains(local) }) ? self : nil
+        }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-        override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
+        override func resetCursorRects() {
+            for rect in borderRects { addCursorRect(rect,cursor: .openHand) }
+        }
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            for area in trackingAreas { removeTrackingArea(area) }
+            for rect in borderRects {
+                addTrackingArea(NSTrackingArea(rect: rect,options: [.mouseEnteredAndExited,.activeAlways],owner: self,userInfo: nil))
+            }
+        }
+        override func mouseEntered(with event: NSEvent) { NSCursor.openHand.set() }
+        override func cursorUpdate(with event: NSEvent) { NSCursor.openHand.set() }
         override func mouseDown(with event: NSEvent) { NSCursor.closedHand.set(); onBegin?(event.locationInWindow) }
         override func mouseDragged(with event: NSEvent) { onMove?(event.locationInWindow) }
         override func mouseUp(with event: NSEvent) { onMove?(event.locationInWindow); onEnd?(); NSCursor.openHand.set() }
         override func draw(_ dirtyRect: NSRect) {
-            NSColor.white.withAlphaComponent(0.9).setFill()
-            let plate = NSBezierPath(ovalIn: bounds.insetBy(dx: 1, dy: 1)); plate.fill()
-            NSColor.darkGray.setStroke(); plate.lineWidth = 0.7; plate.stroke()
-            let path = NSBezierPath()
-            for (a, b) in [(CGPoint(x: 5,y: 11),CGPoint(x: 17,y: 11)),
-                           (CGPoint(x: 11,y: 5),CGPoint(x: 11,y: 17))] {
-                path.move(to: a); path.line(to: b)
-            }
-            for (tip, a, b) in [(CGPoint(x: 5,y: 11),CGPoint(x: 8,y: 8),CGPoint(x: 8,y: 14)),
-                                (CGPoint(x: 17,y: 11),CGPoint(x: 14,y: 8),CGPoint(x: 14,y: 14)),
-                                (CGPoint(x: 11,y: 5),CGPoint(x: 8,y: 8),CGPoint(x: 14,y: 8)),
-                                (CGPoint(x: 11,y: 17),CGPoint(x: 8,y: 14),CGPoint(x: 14,y: 14))] {
-                path.move(to: a); path.line(to: tip); path.line(to: b)
-            }
-            path.lineWidth = 1; path.stroke()
+            let path = NSBezierPath(rect: bounds.insetBy(dx: 1.5,dy: 1.5))
+            NSColor.white.withAlphaComponent(0.85).setStroke(); path.lineWidth = 3; path.stroke()
+            SketchPalette.blue.setStroke(); path.lineWidth = 1
+            path.setLineDash([4,3],count: 2,phase: 0); path.stroke()
         }
     }
     let window: NSWindow
@@ -82,7 +95,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
     private var textInput: NSTextView?
     private var textLayout: CaptureTextLayout?
     private var textAnnotation: CaptureAnnotation?
-    private var textMoveHandle: TextMoveHandle?
+    private var textEditingFrame: TextEditingFrame?
     private var textDrag: (pointer: CGPoint, anchor: CGPoint)?
     private let lifetime = CaptureImageService.Ticket()
     private var preview: CaptureImageService.Ticket?
@@ -350,7 +363,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         colorPopover?.close(); colorPopover = nil
         toolbar.orderOut(nil); toolbar.close()
         textInput?.delegate = nil; textInput?.removeFromSuperview(); textInput = nil; textAnnotation = nil; textLayout = nil
-        textMoveHandle?.removeFromSuperview(); textMoveHandle = nil; textDrag = nil
+        textEditingFrame?.removeFromSuperview(); textEditingFrame = nil; textDrag = nil
         let callback = onClose; onClose = nil; onExport = nil; onCopied = nil; onPin = nil
         onEditingChanged = nil; onReselect = nil; colorAtPointer = nil; onApply = nil; callback?()
     }
@@ -476,16 +489,16 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         input.insertionPointColor = input.textColor ?? .black
         input.delegate = self; input.setAccessibilityLabel("截图文字")
         canvas.addSubview(input); textInput = input; textLayout = layout; textAnnotation = annotation
-        let handle = TextMoveHandle(frame: CGRect(x: 0,y: 0,width: 22,height: 22))
-        handle.toolTip = "拖动文字 · 点击空白处完成编辑"
-        handle.setAccessibilityLabel("移动截图文字")
-        handle.onBegin = { [weak self] point in
+        let frameView = TextEditingFrame(frame: .zero)
+        frameView.toolTip = "拖动边框移动文字 · 点击框外完成编辑"
+        frameView.setAccessibilityLabel("文字编辑边框，可拖动")
+        frameView.onBegin = { [weak self] point in
             guard let self, let anchor = self.textAnnotation?.points.first else { return }
             self.textDrag = (point, anchor)
         }
-        handle.onMove = { [weak self] point in self?.moveText(to: point) }
-        handle.onEnd = { [weak self] in self?.textDrag = nil }
-        canvas.addSubview(handle); textMoveHandle = handle
+        frameView.onMove = { [weak self] point in self?.moveText(to: point) }
+        frameView.onEnd = { [weak self] in self?.textDrag = nil }
+        canvas.addSubview(frameView); textEditingFrame = frameView
         layoutTextInput()
         window.makeFirstResponder(input)
     }
@@ -497,12 +510,14 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         input.frame = CGRect(x: location.x, y: location.y - size.height * scale,
                              width: size.width * scale, height: size.height * scale)
         input.bounds = CGRect(origin: .zero, size: size)
-        (input as? TextInput)?.editableWidth = max(44, layout.size.width + 6)
-        // Keep the handle alongside the actual glyphs, not the full wrapping
-        // container. It never takes first responder away from native input.
-        let handleX = location.x >= 24 ? location.x - 24 : min(canvas.bounds.maxX - 22, location.x + layout.size.width * scale + 4)
-        textMoveHandle?.setFrameOrigin(CGPoint(x: max(0,handleX), y: max(0,min(canvas.bounds.maxY - 22, location.y - 22))))
-        window.invalidateCursorRects(for: textMoveHandle ?? input)
+        let textWidth = min(input.frame.width,max(44,(layout.size.width + 6) * scale))
+        (input as? TextInput)?.editableWidth = textWidth / max(0.01,scale)
+        let textRect = CGRect(x: input.frame.minX,y: input.frame.minY,width: textWidth,height: input.frame.height)
+        // Padding belongs to the overlay only; glyph coordinates, wrapping and
+        // exported pixels remain exactly those of the transparent NSTextView.
+        textEditingFrame?.frame = textRect.insetBy(dx: -6,dy: -6).intersection(canvas.bounds)
+        textEditingFrame?.needsDisplay = true
+        window.invalidateCursorRects(for: textEditingFrame ?? input)
     }
     private func moveText(to pointer: CGPoint) {
         guard let drag = textDrag, var annotation = textAnnotation, let layout = textLayout else { return }
@@ -525,7 +540,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         let annotation = textAnnotation
         let value = String(input.string.prefix(1000))
         textInput = nil; textAnnotation = nil; textLayout = nil; input.delegate = nil; input.removeFromSuperview()
-        textMoveHandle?.removeFromSuperview(); textMoveHandle = nil; textDrag = nil
+        textEditingFrame?.removeFromSuperview(); textEditingFrame = nil; textDrag = nil
         window.makeFirstResponder(canvas)
         if commit, !value.isEmpty, var annotation { annotation.text = value; append(annotation) }
     }
