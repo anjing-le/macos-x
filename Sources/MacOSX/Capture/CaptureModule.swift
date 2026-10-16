@@ -96,6 +96,12 @@ final class CaptureModule: NSObject {
                     self.selection.present(frames, previousRegion: self.lastRegion,
                                            windows: frames.first?.windows ?? []) { [weak self] result in
                         guard let self, self.running, self.generation == expected, self.captureRevision == captureRevision else { return }
+                        if case .copy = result {
+                            // A click on another magnetized window copies that
+                            // window directly, replacing any previous crop UI.
+                            self.editor?.onClose = nil; self.editor?.close(); self.editor = nil
+                            self.editorPending = false; self.pinAfterEditor = false
+                        }
                         if let target = self.selection.completedWindow {
                             switch result {
                             case .copy, .pin, .edit:

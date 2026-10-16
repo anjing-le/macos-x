@@ -29,6 +29,7 @@ import AppKit
     private var snappedWindow: CaptureWindow?
     private(set) var completedWindow: CaptureWindow?
     private var drag: Drag?
+    private var dragMoved = false
     private var spaceDown = false
     private var spaceAnchor = CGPoint.zero
     private var spaceRegion = CGRect.null
@@ -67,14 +68,14 @@ import AppKit
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             panel.isReleasedWhenClosed = false; panel.acceptsMouseMovedEvents = true
             let view = SelectionView(frame: CGRect(origin: .zero, size: frame.screen.frame.size), snapshot: frame)
-            view.hint = mode == .recording ? "Enter 开始 · Esc 取消" : "⌘C 复制 · ⌥C 取色 · Esc 退出"
+            view.hint = mode == .recording ? "Enter 开始 · Esc 取消" : "点击 / Enter / ⌘C 复制 · 拖动调整 · Esc 退出"
             view.region = { [weak self] in self?.visibleRegion ?? .null }
             view.pointer = { [weak self] in self?.pointer ?? .zero }
             view.magnifierVisible = { [weak self] in self?.magnifierVisible ?? false }
             view.rgbFormat = { [weak self] in self?.rgbFormat ?? false }
             view.onPointer = { [weak self] in self?.pointerMoved($0) }
             view.cursorAt = { [weak self] in self?.cursor(at: $0) }
-            view.onDown = { [weak self] point, twice in self?.mouseDown(point, twice: twice) }
+            view.onDown = { [weak self] point in self?.mouseDown(point) }
             view.onDrag = { [weak self] in self?.mouseDragged($0) }
             view.onUp = { [weak self] in self?.mouseUp($0) }
             view.onReset = { [weak self] in self?.resetOrCancel() }
@@ -96,7 +97,7 @@ import AppKit
         recordingControls?.orderOut(nil); recordingControls?.close(); recordingControls = nil
         panels.forEach { $0.orderOut(nil); $0.close() }
         panels.removeAll(); views.removeAll(); frames.removeAll(); candidates.removeAll()
-        drag = nil; spaceDown = false; spaceRegion = .null; selection = .null; previousRegion = nil
+        drag = nil; dragMoved = false; spaceDown = false; spaceRegion = .null; selection = .null; previousRegion = nil
     }
 
     func pinCurrentSelection() {
@@ -156,7 +157,7 @@ import AppKit
     }
     private func retainBackdrop() {
         // Keep the frozen desktop visible until the editor/pin is ready.
-        acceptsInput = false; drag = nil; spaceDown = false; spaceRegion = .null
+        acceptsInput = false; drag = nil; dragMoved = false; spaceDown = false; spaceRegion = .null
         for panel in panels { (panel as? Panel)?.acceptsSelectionInput = false; panel.acceptsMouseMovedEvents = false }
         redraw()
     }
@@ -184,12 +185,13 @@ import AppKit
         return !value.isNull && value.width >= unit.width && value.height >= unit.height ? value : nil
     }
 
-    private func mouseDown(_ point: CGPoint, twice: Bool) {
+    private func mouseDown(_ point: CGPoint) {
         guard acceptsInput else { return }
         pointer = point
         recordingControls?.orderOut(nil)
-        if mode == .screenshot, twice { copyPressed(); return }
-        onAdjustmentStarted?()
+        // A click confirms on release. Do not hide/lock the existing editor
+        // until this gesture actually becomes a drag.
+        dragMoved = false
         if !selection.isNull, let handle = SelectionView.resizeHandle(at: point, in: selection) {
             drag = .resize(handle, point, selection)
         } else if !selection.isNull, selection.contains(point) { drag = .move(point, selection) }
@@ -197,10 +199,21 @@ import AppKit
         redraw()
     }
     private func mouseDragged(_ point: CGPoint) {
-        guard acceptsInput else { return }
+        guard acceptsInput, let drag else { return }
         pointer = point
+        if !dragMoved {
+            let start: CGPoint
+            switch drag {
+            case .create(let point), .move(let point, _), .resize(_, let point, _): start = point
+            }
+            let distance = hypot(point.x - start.x, point.y - start.y)
+            if case .resize = drag {
+                guard distance > 0 else { return } // Keep single-pixel edge adjustments.
+            } else if distance < 3 { return }
+            dragMoved = true; onAdjustmentStarted?()
+        }
         snappedWindow = nil
-        if spaceDown, drag != nil, !spaceRegion.isNull {
+        if spaceDown, !spaceRegion.isNull {
             selection = CaptureSelectionGeometry.moved(spaceRegion, dx: point.x - spaceAnchor.x, dy: point.y - spaceAnchor.y, in: desktop)
             redraw(); return
         }
@@ -216,24 +229,35 @@ import AppKit
             if [0, 6, 7].contains(handle) { x0 += dx }; if [2, 3, 4].contains(handle) { x1 += dx }
             if [0, 1, 2].contains(handle) { y0 += dy }; if [4, 5, 6].contains(handle) { y1 += dy }
             selection = CaptureSelectionGeometry.clamped(CGRect(x: min(x0, x1), y: min(y0, y1), width: abs(x1 - x0), height: abs(y1 - y0)), to: desktop)
-        case nil: return
         }
         redraw()
     }
     private func mouseUp(_ point: CGPoint) {
-        guard let drag else { return }
+        guard acceptsInput, let drag else { return }
         mouseDragged(point)
-        if case let .create(start) = drag, hypot(point.x - start.x, point.y - start.y) < 3 {
+        let wasMoved = dragMoved
+        if case .create = drag, !wasMoved {
             selection = hovered; snappedWindow = targetWindow(for: selection)
         }
-        self.drag = nil
+        self.drag = nil; dragMoved = false
         spaceDown = false; spaceRegion = .null
+        if mode == .screenshot, !wasMoved {
+            switch drag {
+            case .create:
+                // A newly magnetized window may differ from the old editor's
+                // crop. Route it through capture, never copy the stale editor.
+                if let region = validRegion() { finish(.copy(region)) }
+            case .move: copyPressed()
+            case .resize: redraw() // An edge click alone does not confirm.
+            }
+            return
+        }
         let unit = step(at: point)
         if !selection.isNull && (selection.width < unit.width || selection.height < unit.height) { selection = .null }
         if snappedWindow == nil, let frame = frames.first(where: { $0.screen.frame.contains(selection) }) {
             selection = CaptureSelectionGeometry.pixelAligned(selection,in:frame.screen.frame,width:frame.image.width,height:frame.image.height)
         }
-        redraw(); beginInlineEditing()
+        redraw(); beginInlineEditing(adjustmentStarted: wasMoved)
     }
     private func resetOrCancel() {
         guard acceptsInput else { return }
@@ -317,10 +341,10 @@ import AppKit
         return true
     }
 
-    private func beginInlineEditing() {
+    private func beginInlineEditing(adjustmentStarted: Bool = false) {
         guard drag == nil, !selection.isNull, let region = validRegion() else { return }
         if mode == .recording { showRecordingControls(at: region); return }
-        onAdjustmentStarted?()
+        if !adjustmentStarted { onAdjustmentStarted?() }
         // Keep the complete tool strip while replacing the crop from frozen pixels.
         finish(.edit(region))
     }
@@ -374,7 +398,7 @@ import AppKit
     var rgbFormat: (() -> Bool)?
     var onPointer: ((CGPoint) -> Void)?
     var cursorAt: ((CGPoint) -> NSCursor?)?
-    var onDown: ((CGPoint, Bool) -> Void)?
+    var onDown: ((CGPoint) -> Void)?
     var onDrag: ((CGPoint) -> Void)?
     var onUp: ((CGPoint) -> Void)?
     var onReset: (() -> Void)?
@@ -404,7 +428,7 @@ import AppKit
     override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
     private func global(_ event: NSEvent) -> CGPoint { window?.convertPoint(toScreen: event.locationInWindow) ?? .zero }
     override func mouseMoved(with event: NSEvent) { let point = global(event); onPointer?(point); refreshCursor(at: point) }
-    override func mouseDown(with event: NSEvent) { window?.makeKey(); window?.makeFirstResponder(self); onDown?(global(event), event.clickCount == 2); refreshCursor(at: global(event)) }
+    override func mouseDown(with event: NSEvent) { window?.makeKey(); window?.makeFirstResponder(self); onDown?(global(event)); refreshCursor(at: global(event)) }
     override func mouseDragged(with event: NSEvent) { onDrag?(global(event)); refreshCursor(at: global(event)) }
     override func mouseUp(with event: NSEvent) { onUp?(global(event)); refreshCursor(at: global(event)) }
     override func rightMouseDown(with event: NSEvent) { onReset?() }

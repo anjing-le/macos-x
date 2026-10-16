@@ -627,6 +627,23 @@ private struct CheckFailure: Error { let message: String }
             try await wait({ CapturePins.frames.count == copiedPins + 2 }, "external clipboard pin")
             try require(CapturePins.frames.last! == nil, "changed clipboard must not reuse unrelated screenshot placement")
             placementModule.stop(); NSPasteboard.general.fixturePNG = nil; CaptureClipboard.fixtureImage = nil
+            let clickModule = CaptureModule(); clickModule.start(); clickModule.capture()
+            try await succeedImage(image)
+            try await wait({ CaptureSelection.lastCompletion != nil }, "selection before another-window click")
+            CaptureSelection.lastCompletion?(.edit(region))
+            try await wait({ CaptureEditor.current != nil }, "editable crop before another-window click")
+            let beforeClickDismissals = CaptureSelection.dismissals
+            var clickStatus = ""
+            clickModule.onStatusChange = { clickStatus = $0 }
+            CaptureSelection.lastCompletion?(.copy(region.insetBy(dx: 60,dy: 40)))
+            try require(CaptureEditor.current == nil && CaptureSelection.dismissals == beforeClickDismissals,
+                        "a direct copy of a new magnetized region closes the old editor without its stale close callback")
+            // This fixture intentionally rejects PNG encoding before any board
+            // write. The copy failure must still leave no old editable crop.
+            try await wait({ clickStatus == "截图编码失败，未修改剪贴板。" }, "bounded copy failure without clipboard writes")
+            try require(CaptureEditor.current == nil && MockCapture.pendingContent == 0 && MockCapture.pendingImage == 0,
+                        "new-region copy cannot revive the old editor or start another desktop capture")
+            clickModule.stop()
             try require(MockCapture.preflightCalls == 0, "all active paths avoid advisory checks")
             try require(CGPreflightScreenCaptureAccess() == false, "mock advisory really returns false")
             let snapshotModule = CaptureModule(); snapshotModule.start()

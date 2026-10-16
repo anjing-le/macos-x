@@ -165,6 +165,7 @@ import AppKit
         let spaceEditor = CaptureEditor(image: image,selectionFrame: CGRect(x: 0,y: 0,width: 200,height: 160),defaults: defaults)
         spaceEditor.verifySpaceModeFixture(); spaceEditor.close()
         CaptureSelection.verifyHoverFixture(image: image)
+        CaptureSelection.verifyClickCopyFixture(image: image)
         // Real native input and exported pixels, including the normal 2x
         // screenshot-to-point mapping. No shown window or clipboard writes.
         for displayScale: CGFloat in [1, 0.5] {
@@ -492,6 +493,109 @@ import AppKit
 }
 
 @MainActor private extension CaptureSelection {
+    static func verifyClickCopyFixture(image: CGImage) {
+        let screen = CaptureScreen(id: 7,frame: CGRect(x: -400,y: -200,width: 200,height: 160),scale: 1)
+        let region = CGRect(x: -380,y: -180,width: 120,height: 100)
+        let target = CaptureWindow(id: 42,frame: region)
+        let snapshot = CaptureFrame(screen: screen,image: image,windows: [region],windowTargets: [target])
+        let inside = CGPoint(x: region.midX,y: region.midY)
+        var results = [Result](), copies = 0, adjustments = 0
+        func make(selected: Bool = false, editor: Bool = false) -> CaptureSelection {
+            results.removeAll(); copies = 0; adjustments = 0
+            let controller = CaptureSelection()
+            controller.frames = [snapshot]; controller.candidates = [region]; controller.pointer = inside
+            controller.acceptsInput = true; controller.selection = selected ? region : .null
+            controller.snappedWindow = selected ? target : nil
+            controller.completion = { results.append($0) }
+            controller.onAdjustmentStarted = { adjustments += 1 }
+            if editor { controller.onEditorCopy = { copies += 1 } }
+            return controller
+        }
+        func key(_ code: UInt16,_ text: String,command: Bool = false) -> NSEvent {
+            NSEvent.keyEvent(with: .keyDown,location: .zero,modifierFlags: command ? .command : [],timestamp: 0,
+                windowNumber: 0,context: nil,characters: text,charactersIgnoringModifiers: text,isARepeat: false,keyCode: code)!
+        }
+        let click = make()
+        click.mouseDown(inside)
+        precondition(results.isEmpty && adjustments == 0,"Mouse-down must not copy or lock a crop before drag intent is known")
+        let jitter = CGPoint(x: inside.x + 1,y: inside.y + 1)
+        click.mouseDragged(jitter); click.mouseUp(jitter)
+        guard results.count == 1, case .copy(let clicked) = results[0] else { preconditionFailure("Single magnet click copies directly") }
+        precondition(clicked == region && click.completedWindow?.id == target.id && adjustments == 0,
+                     "A magnet click retains the isolated-window identity and tolerates slight pointer jitter")
+        click.mouseUp(jitter); precondition(results.count == 1,"Release is consumed exactly once")
+        for event in [key(8,"c",command: true),key(36,"\r")] {
+            let keyboard = make()
+            precondition(keyboard.keyDown(event))
+            guard results.count == 1, case .copy(let rect) = results[0] else { preconditionFailure("Keyboard copies magnet preview") }
+            precondition(rect == clicked && keyboard.completedWindow?.id == target.id,
+                         "Click, Enter and Command-C use the same region and isolated window capture")
+        }
+        let edited = make(selected: true,editor: true)
+        edited.mouseDown(inside); edited.mouseUp(inside)
+        precondition(copies == 1 && results.isEmpty && adjustments == 0,
+                     "Clicking an existing selection exports its annotated editor without starting an adjustment")
+        _ = edited.keyDown(key(8,"c",command: true)); _ = edited.keyDown(key(36,"\r"))
+        precondition(copies == 3 && results.isEmpty,"Existing edited click and keyboard share the annotation export callback")
+        edited.dismiss()
+        for returnsToStart in [false,true] {
+            let moved = make(selected: true,editor: true)
+            moved.mouseDown(inside)
+            let end = CGPoint(x: inside.x + 10,y: inside.y + 8)
+            moved.mouseDragged(end); moved.mouseUp(returnsToStart ? inside : end)
+            guard results.count == 1, case .edit(let rect) = results[0] else { preconditionFailure("A drag adjusts instead of copying") }
+            precondition(rect == (returnsToStart ? region : region.offsetBy(dx: 10,dy: 8)) && copies == 0 && adjustments == 1,
+                         "Dragging, including returning to the start, never confirms a click")
+            precondition(moved.completedWindow == nil && moved.frames.first?.image === image,
+                         "Changed regions keep frozen pixels and cannot retain stale window identity")
+            moved.dismiss()
+        }
+        for handle in SelectionView.handles(region) {
+            let edge = CGPoint(x: handle.midX,y: handle.midY)
+            let resized = make(selected: true,editor: true)
+            resized.mouseDown(edge); resized.mouseUp(edge)
+            precondition(results.isEmpty && copies == 0 && adjustments == 0,"An edge click alone cannot accidentally copy")
+            resized.mouseDown(edge); resized.mouseDragged(CGPoint(x: edge.x + 8,y: edge.y + 8))
+            resized.mouseUp(CGPoint(x: edge.x + 8,y: edge.y + 8))
+            guard results.count == 1, case .edit = results[0] else { preconditionFailure("All eight borders remain adjustable") }
+            precondition(copies == 0 && adjustments == 1)
+            resized.dismiss()
+        }
+        let precise = make(selected: true,editor: true)
+        let left = CGPoint(x: region.minX,y: region.midY)
+        precise.mouseDown(left); precise.mouseUp(CGPoint(x: left.x - 1,y: left.y))
+        guard results.count == 1, case .edit(let preciseRect) = results[0] else { preconditionFailure("One-pixel edge changes remain possible") }
+        precondition(preciseRect == CGRect(x: region.minX - 1,y: region.minY,width: region.width + 1,height: region.height) && copies == 0)
+        precise.dismiss()
+        let free = make()
+        let blank = CGPoint(x: -395,y: -195), end = CGPoint(x: -350,y: -150)
+        free.mouseDown(blank); free.mouseDragged(end); free.mouseUp(end)
+        guard results.count == 1, case .edit(let drawn) = results[0] else { preconditionFailure("Drawing still opens inline annotation") }
+        precondition(drawn == CGRect(x: -395,y: -195,width: 45,height: 45) && copies == 0)
+        free.dismiss()
+        let empty = make(); empty.mouseDown(blank); empty.mouseUp(blank)
+        precondition(results.isEmpty && empty.acceptsInput,"A blank click without a window cannot copy an invalid region")
+        empty.dismiss()
+        let changed = make(selected: true,editor: true)
+        let other = CaptureWindow(id: 43,frame: CGRect(x: -250,y: -180,width: 40,height: 80))
+        changed.frames = [CaptureFrame(screen: screen,image: image,windows: [region,other.frame],windowTargets: [target,other])]
+        changed.candidates = [region,other.frame]
+        let another = CGPoint(x: other.frame.midX,y: other.frame.midY)
+        changed.mouseDown(another); changed.mouseUp(another)
+        guard results.count == 1, case .copy(let newRect) = results[0] else { preconditionFailure("Another magnetized window copies directly") }
+        precondition(newRect == other.frame && changed.completedWindow?.id == other.id && copies == 0,
+                     "A new window click cannot export the previous editor's crop")
+        let locked = make(selected: true,editor: true); locked.acceptsInput = false
+        locked.mouseDown(inside); locked.mouseUp(inside)
+        precondition(results.isEmpty && copies == 0 && locked.selection == region,"Active annotation input cannot trigger selection copy")
+        locked.dismiss()
+        let recording = make(); recording.mode = .recording
+        recording.copyPressed(); precondition(results.isEmpty,"Recording never uses screenshot copy")
+        _ = recording.keyDown(key(36,"\r"))
+        guard results.count == 1, case .edit(let recorded) = results[0] else { preconditionFailure("Recording Enter still confirms recording") }
+        precondition(recorded == region)
+        print("PASS click confirmation: magnet click/Enter/Command-C, annotated export routing, jitter, eight resize edges, drag return, new-window identity, blank clicks and recording separation")
+    }
     static func verifyHoverFixture(image: CGImage) {
         let oldCursor = NSCursor.current
         defer { oldCursor.set() }
@@ -528,7 +632,7 @@ import AppKit
             precondition(controller.selection == region && controller.frames.first?.image === image, "hover leaves the selection and frozen image unchanged")
             NSCursor.arrow.set(); view.cursorUpdate(with: hover(point))
             precondition(NSCursor.current === SelectionView.resizeCursor(for: handle), "AppKit cursor refresh cannot restore a blanket crosshair over the edge")
-            controller.mouseDown(point, twice: false)
+            controller.mouseDown(point)
             guard case let .resize(actual, _, _) = controller.drag else { preconditionFailure("hover promise must match actual edge dragging") }
             precondition(actual == handle)
             controller.drag = nil
@@ -536,12 +640,12 @@ import AppKit
         let inside = CGPoint(x: -350, y: -180), outside = CGPoint(x: -490, y: -290)
         view.mouseEntered(with: hover(inside))
         precondition(NSCursor.current === NSCursor.openHand, "selection interior advertises movement on entry")
-        controller.mouseDown(inside, twice: false)
+        controller.mouseDown(inside)
         precondition(controller.cursor(at: inside) === NSCursor.closedHand, "held move uses a closed hand")
         controller.drag = nil
         view.mouseMoved(with: hover(outside))
         precondition(NSCursor.current === NSCursor.crosshair, "outside selection remains ready to create a new region")
-        controller.mouseDown(CGPoint(x: -460, y: -180), twice: false)
+        controller.mouseDown(CGPoint(x: -460, y: -180))
         controller.mouseDragged(CGPoint(x: -470, y: -180))
         precondition(controller.selection == CGRect(x: -470, y: -260, width: 230, height: 160), "whole-edge hit really resizes that side")
         controller.drag = nil; controller.selection = region
