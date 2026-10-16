@@ -235,6 +235,7 @@ final class CaptureCanvas: NSView {
     var inputEnabled = true
     var onErase: ((CGPoint, CGFloat) -> Void)?
     var onText: ((CGPoint, CGFloat, CaptureInk) -> Void)?
+    var onBackgroundClick: (() -> Bool)?
     var onCopy: (() -> Void)?
     var onUndo: (() -> Void)?
     var onRedo: (() -> Void)?
@@ -357,6 +358,7 @@ final class CaptureCanvas: NSView {
     }
     override func mouseDown(with event: NSEvent) {
         guard inputEnabled else { return }
+        if onBackgroundClick?() == true { return }
         window?.makeFirstResponder(self)
         guard let tool, imageRect.contains(convert(event.locationInWindow, from: nil)) else { return }
         let point = imagePoint(event), width = (tool == .mosaic ? mosaicDiameter : lineWidth) / max(scale, 0.01)

@@ -5,6 +5,41 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
+    private final class TextInput: NSTextView {
+        var editableWidth: CGFloat = 44
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            let local = convert(point, from: superview)
+            guard local.x <= editableWidth else { return nil }
+            return super.hitTest(point)
+        }
+    }
+    private final class TextMoveHandle: NSView {
+        var onBegin: ((CGPoint) -> Void)?
+        var onMove: ((CGPoint) -> Void)?
+        var onEnd: (() -> Void)?
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+        override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
+        override func mouseDown(with event: NSEvent) { NSCursor.closedHand.set(); onBegin?(event.locationInWindow) }
+        override func mouseDragged(with event: NSEvent) { onMove?(event.locationInWindow) }
+        override func mouseUp(with event: NSEvent) { onMove?(event.locationInWindow); onEnd?(); NSCursor.openHand.set() }
+        override func draw(_ dirtyRect: NSRect) {
+            NSColor.white.withAlphaComponent(0.9).setFill()
+            let plate = NSBezierPath(ovalIn: bounds.insetBy(dx: 1, dy: 1)); plate.fill()
+            NSColor.darkGray.setStroke(); plate.lineWidth = 0.7; plate.stroke()
+            let path = NSBezierPath()
+            for (a, b) in [(CGPoint(x: 5,y: 11),CGPoint(x: 17,y: 11)),
+                           (CGPoint(x: 11,y: 5),CGPoint(x: 11,y: 17))] {
+                path.move(to: a); path.line(to: b)
+            }
+            for (tip, a, b) in [(CGPoint(x: 5,y: 11),CGPoint(x: 8,y: 8),CGPoint(x: 8,y: 14)),
+                                (CGPoint(x: 17,y: 11),CGPoint(x: 14,y: 8),CGPoint(x: 14,y: 14)),
+                                (CGPoint(x: 11,y: 5),CGPoint(x: 8,y: 8),CGPoint(x: 14,y: 8)),
+                                (CGPoint(x: 11,y: 17),CGPoint(x: 8,y: 14),CGPoint(x: 14,y: 14))] {
+                path.move(to: a); path.line(to: tip); path.line(to: b)
+            }
+            path.lineWidth = 1; path.stroke()
+        }
+    }
     let window: NSWindow
     private final class Panel: NSPanel {
         var onCopy: (() -> Void)?
@@ -45,6 +80,8 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
     private var textInput: NSTextView?
     private var textLayout: CaptureTextLayout?
     private var textAnnotation: CaptureAnnotation?
+    private var textMoveHandle: TextMoveHandle?
+    private var textDrag: (pointer: CGPoint, anchor: CGPoint)?
     private let lifetime = CaptureImageService.Ticket()
     private var preview: CaptureImageService.Ticket?
     var onPin: ((CGImage) -> Void)?
@@ -119,6 +156,10 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         canvas.onDraftBegan = { [weak self] in self?.cancelRecognition() }
         canvas.onErase = { [weak self] point, radius in self?.erase(point, radius) }
         canvas.onText = { [weak self] point, width, ink in self?.addText(point, width, ink) }
+        canvas.onBackgroundClick = { [weak self] in
+            guard let self, self.textInput != nil else { return false }
+            self.finishText(commit: true); return true
+        }
         canvas.onCopy = { [weak self] in self?.copyImage(closeAfter: self?.editingPin != true) }
         canvas.onUndo = { [weak self] in self?.undoAction() }
         canvas.onRedo = { [weak self] in self?.redoAction() }
@@ -292,6 +333,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         colorPopover?.close(); colorPopover = nil
         toolbar.orderOut(nil); toolbar.close()
         textInput?.delegate = nil; textInput?.removeFromSuperview(); textInput = nil; textAnnotation = nil; textLayout = nil
+        textMoveHandle?.removeFromSuperview(); textMoveHandle = nil; textDrag = nil
         let callback = onClose; onClose = nil; onExport = nil; onCopied = nil; onPin = nil
         onEditingChanged = nil; onReselect = nil; colorAtPointer = nil; onApply = nil; callback?()
     }
@@ -404,7 +446,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
                                      y: max(min(lineHeight, CGFloat(canvas.base.height)), point.y))]
         annotation.textLayoutWidth = max(1, CGFloat(canvas.base.width) - annotation.points[0].x)
         let layout = CaptureTextLayout(annotation: annotation)
-        let input = NSTextView(frame: .zero, textContainer: layout.container)
+        let input = TextInput(frame: .zero, textContainer: layout.container)
         input.isRichText = false; input.importsGraphics = false; input.usesFontPanel = false; input.allowsUndo = true
         input.drawsBackground = false; input.backgroundColor = .clear; input.focusRingType = .none
         input.textContainerInset = .zero
@@ -417,6 +459,16 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         input.insertionPointColor = input.textColor ?? .black
         input.delegate = self; input.setAccessibilityLabel("截图文字")
         canvas.addSubview(input); textInput = input; textLayout = layout; textAnnotation = annotation
+        let handle = TextMoveHandle(frame: CGRect(x: 0,y: 0,width: 22,height: 22))
+        handle.toolTip = "拖动文字 · 点击空白处完成编辑"
+        handle.setAccessibilityLabel("移动截图文字")
+        handle.onBegin = { [weak self] point in
+            guard let self, let anchor = self.textAnnotation?.points.first else { return }
+            self.textDrag = (point, anchor)
+        }
+        handle.onMove = { [weak self] point in self?.moveText(to: point) }
+        handle.onEnd = { [weak self] in self?.textDrag = nil }
+        canvas.addSubview(handle); textMoveHandle = handle
         layoutTextInput()
         window.makeFirstResponder(input)
     }
@@ -428,6 +480,20 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         input.frame = CGRect(x: location.x, y: location.y - size.height * scale,
                              width: size.width * scale, height: size.height * scale)
         input.bounds = CGRect(origin: .zero, size: size)
+        (input as? TextInput)?.editableWidth = max(44, layout.size.width + 6)
+        // Keep the handle alongside the actual glyphs, not the full wrapping
+        // container. It never takes first responder away from native input.
+        let handleX = location.x >= 24 ? location.x - 24 : min(canvas.bounds.maxX - 22, location.x + layout.size.width * scale + 4)
+        textMoveHandle?.setFrameOrigin(CGPoint(x: max(0,handleX), y: max(0,min(canvas.bounds.maxY - 22, location.y - 22))))
+        window.invalidateCursorRects(for: textMoveHandle ?? input)
+    }
+    private func moveText(to pointer: CGPoint) {
+        guard let drag = textDrag, var annotation = textAnnotation, let layout = textLayout else { return }
+        let scale = max(0.01,canvas.scale), size = layout.size
+        annotation.points = [CGPoint(
+            x: min(max(0,CGFloat(canvas.base.width) - size.width),max(0,drag.anchor.x + (pointer.x - drag.pointer.x) / scale)),
+            y: min(CGFloat(canvas.base.height),max(min(size.height,CGFloat(canvas.base.height)),drag.anchor.y + (pointer.y - drag.pointer.y) / scale)))]
+        textAnnotation = annotation; layoutTextInput()
     }
     func textDidChange(_ notification: Notification) {
         guard let input = textInput, notification.object as? NSTextView === input else { return }
@@ -442,10 +508,14 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         let annotation = textAnnotation
         let value = String(input.string.prefix(1000))
         textInput = nil; textAnnotation = nil; textLayout = nil; input.delegate = nil; input.removeFromSuperview()
+        textMoveHandle?.removeFromSuperview(); textMoveHandle = nil; textDrag = nil
         window.makeFirstResponder(canvas)
         if commit, !value.isEmpty, var annotation { annotation.text = value; append(annotation) }
     }
-    func textDidEndEditing(_ notification: Notification) { finishText(commit: true) }
+    func textDidEndEditing(_ notification: Notification) {
+        guard notification.object as? NSTextView === textInput else { return }
+        finishText(commit: true)
+    }
     func textView(_ textView: NSTextView, doCommandBy command: Selector) -> Bool {
         if textView.hasMarkedText() { return false }
         if command == #selector(NSResponder.insertNewline(_:)) { finishText(commit: true); return true }

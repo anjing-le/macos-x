@@ -16,6 +16,52 @@ import AppKit
     }
     func finishTextFixture(commit: Bool) { finishText(commit: commit) }
     var fixtureTextMark: CaptureAnnotation? { annotations.last }
+    func verifyMovableTextFixture() {
+        canvas.tool = .text
+        let input = beginTextFixture(point: CGPoint(x: 40,y: 120),width: 2,ink: .red)
+        input.insertText("移动",replacementRange: NSRange(location: 0,length: 0))
+        textDidChange(Notification(name: NSText.didChangeNotification,object: input))
+        input.setSelectedRange(NSRange(location: 1,length: 0))
+        let selected = input.selectedRange(), original = textAnnotation!, container = input.textContainer!.size
+        let handle = textMoveHandle!, start = CGPoint(x: 20,y: 80)
+        func event(_ type: NSEvent.EventType,_ point: CGPoint) -> NSEvent {
+            NSEvent.mouseEvent(with: type,location: point,modifierFlags: [],timestamp: 0,
+                windowNumber: window.windowNumber,context: nil,eventNumber: 1,clickCount: 1,pressure: 1)!
+        }
+        handle.mouseDown(with: event(.leftMouseDown,start))
+        let end = CGPoint(x: start.x + 12 * canvas.scale,y: start.y - 15 * canvas.scale)
+        handle.mouseDragged(with: event(.leftMouseDragged,end))
+        handle.mouseUp(with: event(.leftMouseUp,end))
+        precondition(textInput === input && window.firstResponder === input && annotations.isEmpty && input.selectedRange() == selected && textDrag == nil,
+                     "Dragging keeps the same native editor, caret, draft and no history entry")
+        precondition(textAnnotation!.points[0] == CGPoint(x: 52,y: 105) && input.textContainer!.size == container,
+                     "Movement maps points to image pixels without resizing or rewrapping")
+        let location = canvas.viewPoint(for: textAnnotation!.points[0])
+        precondition(abs(input.frame.minX - location.x) < 0.001 && abs(input.frame.maxY - location.y) < 0.001)
+        // Native editing, including an active input-method composition, must
+        // survive a move. Cancelling composition still belongs to NSTextView.
+        input.setMarkedText("中",selectedRange: NSRange(location: 1,length: 0),replacementRange: NSRange(location: NSNotFound,length: 0))
+        handle.mouseDown(with: event(.leftMouseDown,start))
+        handle.mouseDragged(with: event(.leftMouseDragged,CGPoint(x: -1000,y: 1000)))
+        precondition(input.hasMarkedText() && textInput === input && textAnnotation!.points[0].x == 0 && textAnnotation!.points[0].y == 160,
+                     "Dragging clamps inside the image and preserves IME composition")
+        handle.mouseUp(with: event(.leftMouseUp,end)); input.unmarkText()
+        let expected = textAnnotation!.points[0], value = input.string
+        let outside = canvas.convert(CGPoint(x: input.bounds.maxX - 1,y: 1),from: input)
+        precondition(input.hitTest(outside) == nil,"Blank wrapping-container space must let the canvas finish text editing")
+        canvas.mouseDown(with: event(.leftMouseDown,CGPoint(x: 190,y: 10)))
+        precondition(textInput == nil && textMoveHandle == nil && handle.superview == nil && annotations.count == 1,
+                     "A background click commits once, removes the handle and does not create another text editor")
+        precondition(annotations[0].points[0] == expected && annotations[0].text == value &&
+                     annotations[0].textLayoutWidth == original.textLayoutWidth,
+                     "Commit retains the moved position, text and exact wrapping")
+        undoAction(); precondition(annotations.isEmpty,"Input and its repositioning undo together")
+        redoAction(); precondition(annotations.count == 1 && annotations[0].points[0] == expected)
+        let next = beginTextFixture(point: CGPoint(x: 30,y: 70),width: 2,ink: .red)
+        textDidEndEditing(Notification(name: NSText.didEndEditingNotification,object: input))
+        precondition(textInput === next,"A stale end-editing notification cannot commit a new text draft")
+        finishText(commit: false)
+    }
 }
 
 @MainActor private extension PinEntry {
@@ -37,6 +83,9 @@ import AppKit
         // Real native input and exported pixels, including the normal 2x
         // screenshot-to-point mapping. No shown window or clipboard writes.
         for displayScale: CGFloat in [1, 0.5] {
+            let movable = CaptureEditor(image: image,
+                selectionFrame: CGRect(x: 0,y: 0,width: 200 * displayScale,height: 160 * displayScale),defaults: defaults)
+            movable.verifyMovableTextFixture(); movable.close()
             let textEditor = CaptureEditor(image: image,
                 selectionFrame: CGRect(x: 0,y: 0,width: 200 * displayScale,height: 160 * displayScale),defaults: defaults)
             let textCanvas = textEditor.window.contentView as! CaptureCanvas
