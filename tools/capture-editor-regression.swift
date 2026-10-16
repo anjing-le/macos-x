@@ -70,6 +70,26 @@ import AppKit
         precondition(!window.isVisible && !toolbar.isVisible,"Regression stays isolated without displayed windows")
     }
     var fixtureClosed: Bool { closed }
+    func verifyCopyWithTextFocusFixture() {
+        let input = beginTextFixture(point: CGPoint(x: 20,y: 120),width: 2,ink: .red)
+        input.insertText("正文 ABC",replacementRange: NSRange(location: 0,length: 0))
+        input.setSelectedRange(NSRange(location: 0,length: 2))
+        let event = NSEvent.keyEvent(with: .keyDown,location: .zero,modifierFlags: .command,timestamp: 0,
+            windowNumber: window.windowNumber,context: nil,characters: "c",charactersIgnoringModifiers: "c",isARepeat: false,keyCode: 8)!
+        if editingPin {
+            precondition(!handleSelectionKey(event) && textInput === input,
+                         "F3 text editing keeps its native selected-text copy behavior")
+        } else {
+            // Stop render work until the editor is closed, so this exercises
+            // the real key/export entry without touching the real clipboard.
+            let gate = DispatchSemaphore(value: 0)
+            queue.async { _ = gate.wait(timeout: .now() + 5) }
+            precondition(handleSelectionKey(event) && exporting && textInput == nil && textEditingFrame == nil,
+                         "F1 Command-C exports the screenshot even with a native text selection")
+            precondition(annotations.last?.text == "正文 ABC","Image copy commits the complete input, not only its selected substring")
+            close(); gate.signal()
+        }
+    }
     func verifyMovableTextFixture() {
         canvas.tool = .text
         let input = beginTextFixture(point: CGPoint(x: 40,y: 120),width: 2,ink: .red)
@@ -162,6 +182,11 @@ import AppKit
         let context = CaptureRaster.context(width: 200, height: 160)!
         context.setFillColor(CGColor(gray: 1, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 200, height: 160))
         let image = context.makeImage()!
+        CaptureSelection.verifySessionCopyFixture(image: image)
+        for pin in [false,true] {
+            let focused = CaptureEditor(image: image,selectionFrame: CGRect(x: 0,y: 0,width: 200,height: 160),editingPin: pin,defaults: defaults)
+            focused.verifyCopyWithTextFocusFixture(); focused.close()
+        }
         let spaceEditor = CaptureEditor(image: image,selectionFrame: CGRect(x: 0,y: 0,width: 200,height: 160),defaults: defaults)
         spaceEditor.verifySpaceModeFixture(); spaceEditor.close()
         CaptureSelection.verifyHoverFixture(image: image)
@@ -493,6 +518,77 @@ import AppKit
 }
 
 @MainActor private extension CaptureSelection {
+    static func verifySessionCopyFixture(image: CGImage) {
+        let region = CGRect(x: 20,y: 20,width: 150,height: 120)
+        let frame = CaptureFrame(screen: .init(id: 7,frame: CGRect(x: 0,y: 0,width: 200,height: 160),scale: 1),
+                                 image: image,windows: [region],windowTargets: [.init(id: 42,frame: region)])
+        var results = [Result](), copies = 0
+        func make(selected: Bool = true) -> CaptureSelection {
+            results.removeAll(); copies = 0
+            let controller = CaptureSelection()
+            controller.frames = [frame]; controller.candidates = [region]; controller.pointer = CGPoint(x: 80,y: 80)
+            controller.selection = selected ? region : .null; controller.acceptsInput = true
+            controller.completion = { results.append($0) }
+            return controller
+        }
+        func key(_ code: UInt16 = 8,_ text: String = "c",flags: NSEvent.ModifierFlags = .command,repeat repeated: Bool = false) -> NSEvent {
+            NSEvent.keyEvent(with: .keyDown,location: .zero,modifierFlags: flags,timestamp: 0,windowNumber: 0,
+                context: nil,characters: text,charactersIgnoringModifiers: text,isARepeat: repeated,keyCode: code)!
+        }
+        let native = make()
+        native.onEditorCopy = { copies += 1 }; native.acceptsInput = false
+        let previousMenu = NSApp.mainMenu
+        let menu = NSMenu(), item = NSMenuItem(), edit = NSMenu(title: "Edit")
+        edit.addItem(NSMenuItem(title: "Copy",action: NSSelectorFromString("copy:"),keyEquivalent: "c"))
+        item.submenu = edit; menu.addItem(item); NSApp.mainMenu = menu
+        NSApp.sendEvent(key())
+        precondition(copies == 0,"The native menu can consume Command-C without a key-window copy target")
+        native.installCopyMonitor(); native.installCopyMonitor()
+        NSApp.sendEvent(key())
+        precondition(copies == 1 && native.copyMonitor != nil,
+                     "Real NSApplication dispatch reaches F1 once, before menu processing, even without a key-window target")
+        NSApp.sendEvent(key(repeat: true)); precondition(copies == 1,"Repeats do not duplicate a pending copy")
+        precondition(!native.handleCopyShortcut(key(flags: [.command,.shift])) && !native.handleCopyShortcut(key(flags: .control)),
+                     "OCR and unrelated keyboard combinations retain their original routing")
+        native.dismiss(); NSApp.sendEvent(key())
+        precondition(copies == 1 && native.copyMonitor == nil,"Closing F1 removes the session monitor")
+        let raw = make(selected: false); raw.installCopyMonitor(); NSApp.sendEvent(key())
+        guard results.count == 1, case .copy(let rawRect) = results[0] else { preconditionFailure("A native Command-C copies the magnet preview without an editor") }
+        precondition(rawRect == region && raw.copyMonitor == nil,"Direct copy can release its own local monitor during dispatch")
+        NSApp.mainMenu = previousMenu
+        let pending = make(selected: false)
+        _ = pending.keyDown(key(49," ",flags: []))
+        precondition(pending.awaitingEditor && pending.selection == region && pending.completedWindow?.id == 42,
+                     "Space freezes the magnetized range before opening its editor")
+        pending.pointer = .zero
+        for _ in 0..<3 { precondition(pending.keyDown(key())) }
+        precondition(pending.pendingCopy && results.count == 1 && copies == 0,"Copy waits for the new image, coalescing repeated requests")
+        pending.onEditorCopy = { copies += 1 }
+        precondition(pending.editorDidBecomeReady() && copies == 1 && !pending.pendingCopy)
+        precondition(!pending.editorDidBecomeReady() && copies == 1,"The ready callback drains the copy exactly once")
+        pending.acceptsInput = false; precondition(pending.keyDown(key()) && copies == 2,"Annotation lock does not block Command-C")
+        pending.dismiss()
+        let cancelled = make(selected: false)
+        _ = cancelled.keyDown(key(49," ",flags: [])); _ = cancelled.keyDown(key())
+        cancelled.dismiss(); precondition(!cancelled.editorDidBecomeReady() && copies == 0,"Cancelled deferred copies cannot fire in a later session")
+        let moving = make(); moving.onEditorCopy = { copies += 1 }
+        let start = CGPoint(x: 80,y: 80), end = CGPoint(x: 90,y: 85)
+        moving.mouseDown(start); moving.mouseDragged(end)
+        precondition(moving.keyDown(key()) && moving.drag == nil && moving.awaitingEditor && moving.pendingCopy && copies == 0)
+        guard results.count == 1, case .edit(let moved) = results[0] else { preconditionFailure("Copy finalizes the live selection first") }
+        precondition(moved == region.offsetBy(dx: 10,dy: 5),"Copy uses the currently dragged range, not the old editor crop")
+        precondition(moving.editorDidBecomeReady() && copies == 1)
+        moving.mouseUp(end); precondition(copies == 1,"A later physical mouse-up cannot copy twice")
+        moving.dismiss()
+        let locked = make(); locked.acceptsInput = false
+        precondition(locked.keyDown(key()))
+        guard results.count == 1, case .copy(let copied) = results[0] else { preconditionFailure("A retained F1 range without an editor remains copyable") }
+        precondition(copied == region)
+        let recording = make(); recording.mode = .recording; recording.installCopyMonitor()
+        precondition(recording.copyMonitor == nil && !recording.handleCopyShortcut(key()),"Recording does not acquire F1's copy interception")
+        recording.dismiss()
+        print("PASS F1 session copy: native application/menu dispatch, no key-window target, text focus, drag/crop readiness, coalescing, cancellation and listener release")
+    }
     static func verifyClickCopyFixture(image: CGImage) {
         let screen = CaptureScreen(id: 7,frame: CGRect(x: -400,y: -200,width: 200,height: 160),scale: 1)
         let region = CGRect(x: -380,y: -180,width: 120,height: 100)

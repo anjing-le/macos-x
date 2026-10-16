@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 @MainActor final class CaptureSelection: NSObject {
     enum Mode { case screenshot, recording }
@@ -44,6 +45,36 @@ import AppKit
     private var acceptsInput = false
     private var mode: Mode = .screenshot
     private var recordingControls: NSPanel?
+    private var copyMonitor: Any?
+    private var awaitingEditor = false
+    private var pendingCopy = false
+    private static let copyLog = Logger(subsystem: "cc.anjing.macos-x",category: "capture-copy")
+
+    private func installCopyMonitor() {
+        guard mode == .screenshot, copyMonitor == nil else { return }
+        // F1 owns Command-C for this session, before menu key equivalents or
+        // a text field can consume it. No global listener or idle polling.
+        copyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let handled = MainActor.assumeIsolated { self?.handleCopyShortcut(event) ?? false }
+            return handled ? nil : event
+        }
+    }
+    private func handleCopyShortcut(_ event: NSEvent) -> Bool {
+        guard mode == .screenshot, completion != nil, !frames.isEmpty, event.keyCode == 8,
+              event.modifierFlags.intersection([.command,.control,.option,.shift]) == .command else { return false }
+        if !event.isARepeat {
+            Self.copyLog.info("shortcut accepted waiting=\(self.awaitingEditor,privacy: .public) dragging=\(self.drag != nil,privacy: .public) valid_region=\(self.validRegion() != nil,privacy: .public)")
+            copyPressed()
+        }
+        return true
+    }
+    @discardableResult func editorDidBecomeReady() -> Bool {
+        awaitingEditor = false
+        guard pendingCopy else { return false }
+        pendingCopy = false
+        copyPressed()
+        return true
+    }
 
     func present(_ frames: [CaptureFrame], mode: Mode = .screenshot, previousRegion: CGRect? = nil, windows: [CGRect] = [],
                  completion: @escaping (Result) -> Void) {
@@ -87,11 +118,13 @@ import AppKit
         }
         let index = self.frames.firstIndex { $0.screen.frame.contains(pointer) } ?? 0
         panels[index].makeKeyAndOrderFront(nil)
+        installCopyMonitor()
         NSApp.activate(ignoringOtherApps: true)
         refreshCursor()
     }
 
     func dismiss() {
+        if let copyMonitor { NSEvent.removeMonitor(copyMonitor); self.copyMonitor = nil }
         completion = nil; acceptsInput = false
         clearEditorCallbacks()
         recordingControls?.orderOut(nil); recordingControls?.close(); recordingControls = nil
@@ -142,13 +175,17 @@ import AppKit
         if selection.isNull || magnifierVisible { redraw() }
     }
     private func finish(_ result: Result) {
-        guard acceptsInput else { return }
+        if !acceptsInput {
+            guard mode == .screenshot, completion != nil, !frames.isEmpty else { return }
+            guard case .copy = result else { return }
+        }
         let callback = completion
         if mode == .screenshot {
             let region = visibleRegion
             completedWindow = selection.isNull ? targetWindow(for: region) : snappedWindow
         }
         if case .edit = result {
+            awaitingEditor = true
             retainBackdrop()
         } else if case .pin = result {
             retainBackdrop()
@@ -163,6 +200,7 @@ import AppKit
     }
     func clearEditorCallbacks() {
         onEditorKey = nil; onEditorCopy = nil; onEditorCancel = nil; onAdjustmentStarted = nil
+        awaitingEditor = false; pendingCopy = false
     }
     func setEditing(_ editing: Bool) {
         if editing { retainBackdrop() } else { resume() }
@@ -293,6 +331,7 @@ import AppKit
         shiftDown = nextShift; redraw()
     }
     private func keyDown(_ event: NSEvent) -> Bool {
+        if handleCopyShortcut(event) { return true }
         guard acceptsInput else { return false }
         if mode == .screenshot, drag == nil, onEditorKey?(event) == true { return true }
         let command = event.modifierFlags.contains(.command), shift = event.modifierFlags.contains(.shift)
@@ -325,7 +364,10 @@ import AppKit
                 if !spaceDown { spaceDown = true; spaceAnchor = pointer; spaceRegion = selection }
             } else if let region = validRegion() {
                 if mode == .recording { selection = region; beginInlineEditing() }
-                else { finish(.edit(region)) }
+                else {
+                    if selection.isNull { selection = region; snappedWindow = targetWindow(for: region) }
+                    finish(.edit(region))
+                }
             }
         case 123...126:
             snappedWindow = nil
@@ -379,7 +421,15 @@ import AppKit
         panel.makeKeyAndOrderFront(nil)
     }
     private func copyPressed() {
-        guard mode == .screenshot, let region = validRegion() else { return }
+        guard mode == .screenshot, completion != nil, let region = validRegion() else { return }
+        if drag != nil {
+            pendingCopy = true
+            mouseUp(pointer)
+            if pendingCopy, !awaitingEditor { copyPressed() }
+            return
+        }
+        if awaitingEditor { pendingCopy = true; return }
+        pendingCopy = false
         if let onEditorCopy { onEditorCopy() } else { finish(.copy(region)) }
     }
 }

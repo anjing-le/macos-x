@@ -141,6 +141,7 @@ final class NSSavePanel {
     var onEditorKey: ((AppKit.NSEvent) -> Bool)?, onEditorCopy: (() -> Void)?, onEditorCancel: (() -> Void)?, onAdjustmentStarted: (() -> Void)?
     func clearEditorCallbacks() {}
     func setEditing(_ editing: Bool) {}
+    func editorDidBecomeReady() -> Bool { false }
     var completedWindow: CaptureWindow? { nil }
     enum Result { case copy(CGRect), pin(CGRect), edit(CGRect), color(String), cancel }
     static weak var current: CaptureSelection?

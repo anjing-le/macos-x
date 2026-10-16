@@ -207,7 +207,9 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
     // Selection backdrop owns pointer input while no annotation tool is active.
     @discardableResult func handleSelectionKey(_ event: NSEvent) -> Bool {
         guard !closed, !adjustingRegion, window.attachedSheet == nil else { return false }
-        if textInput != nil { return false }
+        let screenshotCopy = !editingPin && event.keyCode == 8 &&
+            event.modifierFlags.intersection([.command,.control,.option,.shift]) == .command
+        if textInput != nil && !screenshotCopy { return false }
         let command = event.modifierFlags.contains(.command)
         switch event.keyCode {
         case 8 where command && event.modifierFlags.contains(.shift): copyRecognizedText()

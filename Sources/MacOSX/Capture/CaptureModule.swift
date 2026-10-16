@@ -185,6 +185,7 @@ final class CaptureModule: NSObject {
                 case .edit:
                     self.openEditor(image, at: region)
                     self.editorPending = false
+                    if self.selection.editorDidBecomeReady() { self.pinAfterEditor = false }
                     if self.pinAfterEditor { self.pinAfterEditor = false; self.editor?.pinCurrentImage() }
                 case .color, .cancel: break
                 }
