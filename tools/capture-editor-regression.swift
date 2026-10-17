@@ -70,6 +70,37 @@ import AppKit
         precondition(!window.isVisible && !toolbar.isVisible,"Regression stays isolated without displayed windows")
     }
     var fixtureClosed: Bool { closed }
+    func verifyCursorOwnershipFixture() {
+        let old = NSCursor.current
+        defer { old.set() }
+        let point = CGPoint(x: 80,y: 50)
+        let event = NSEvent.mouseEvent(with: .mouseMoved,location: point,modifierFlags: [],timestamp: 0,
+            windowNumber: window.windowNumber,context: nil,eventNumber: 1,clickCount: 0,pressure: 0)!
+        for _ in 0..<5 {
+            canvas.tool = nil; updateSelectionInput()
+            precondition(!canvas.pointerActive && !window.areCursorRectsEnabled && canvas.trackingAreas.isEmpty && !window.acceptsMouseMovedEvents,
+                         "A pass-through editor must relinquish native cursor rects, hover areas and movement events")
+            NSCursor.resizeLeftRight.set(); canvas.mouseMoved(with: event); canvas.cursorUpdate(with: event)
+            precondition(NSCursor.current === NSCursor.resizeLeftRight,"Inactive canvas events cannot overwrite the selection edge cursor")
+            for tool in [CaptureTool.rectangle,.arrow,.pen,.mosaic,.text] {
+                canvas.tool = tool; updateSelectionInput(); canvas.updateTrackingAreas()
+                precondition(canvas.pointerActive && window.areCursorRectsEnabled && canvas.trackingAreas.count == 2 && window.acceptsMouseMovedEvents,
+                             "Only the active editing layer owns bounded pointer tracking")
+                canvas.mouseMoved(with: event)
+                precondition(NSCursor.current === (tool == .text ? NSCursor.iBeam : NSCursor.crosshair))
+            }
+        }
+        let button = toolButtons[0]
+        let hover = NSEvent.enterExitEvent(with: .mouseEntered,location: .zero,modifierFlags: [],timestamp: 0,
+            windowNumber: toolbar.windowNumber,context: nil,eventNumber: 1,trackingNumber: 0,userData: nil)!
+        NSCursor.crosshair.set(); button.mouseEntered(with: hover)
+        precondition(NSCursor.current === NSCursor.arrow,"Tool buttons clear the canvas cursor on entry")
+        close()
+        precondition(!canvas.pointerActive && canvas.trackingAreas.isEmpty,"Close releases editor pointer tracking")
+        NSCursor.arrow.set(); canvas.mouseMoved(with: event)
+        precondition(NSCursor.current === NSCursor.arrow,"Closed editor events cannot revive its cursor")
+        print("PASS cursor ownership: repeated selection/edit transitions, native cursor rects, bounded tracking, tool cursors, toolbar and close")
+    }
     func verifyCopyWithTextFocusFixture() {
         let input = beginTextFixture(point: CGPoint(x: 20,y: 120),width: 2,ink: .red)
         input.insertText("正文 ABC",replacementRange: NSRange(location: 0,length: 0))
@@ -118,6 +149,12 @@ import AppKit
             windowNumber: window.windowNumber,context: nil,eventNumber: 1,trackingNumber: 0,userData: nil)!
         NSCursor.arrow.set(); handle.mouseEntered(with: hover)
         precondition(NSCursor.current == .openHand && textDrag == nil,"Border hover shows the movement cursor before pressing")
+        canvas.mouseMoved(with: hover); canvas.cursorUpdate(with: hover)
+        precondition(NSCursor.current === NSCursor.openHand,"Canvas tracking cannot overwrite its native text border")
+        canvas.pointerActive = false
+        NSCursor.arrow.set(); handle.mouseEntered(with: hover)
+        precondition(NSCursor.current === NSCursor.arrow,"Inactive text borders cannot override selection mode")
+        canvas.pointerActive = true
         if let directory = ProcessInfo.processInfo.environment["MACOSX_TEXT_FRAME_EVIDENCE_DIRECTORY"] {
             let target = URL(fileURLWithPath: directory,isDirectory: true)
             try! FileManager.default.createDirectory(at: target,withIntermediateDirectories: true)
@@ -130,6 +167,8 @@ import AppKit
                 windowNumber: window.windowNumber,context: nil,eventNumber: 1,clickCount: 1,pressure: 1)!
         }
         handle.mouseDown(with: event(.leftMouseDown,start))
+        handle.mouseEntered(with: hover); canvas.mouseMoved(with: hover)
+        precondition(NSCursor.current === NSCursor.closedHand,"Tracking updates cannot turn an active text drag back into hover")
         let end = CGPoint(x: start.x + 12 * canvas.scale,y: start.y - 15 * canvas.scale)
         handle.mouseDragged(with: event(.leftMouseDragged,end))
         handle.mouseUp(with: event(.leftMouseUp,end))
@@ -189,6 +228,8 @@ import AppKit
         }
         let spaceEditor = CaptureEditor(image: image,selectionFrame: CGRect(x: 0,y: 0,width: 200,height: 160),defaults: defaults)
         spaceEditor.verifySpaceModeFixture(); spaceEditor.close()
+        let cursorEditor = CaptureEditor(image: image,selectionFrame: CGRect(x: 0,y: 0,width: 200,height: 160),defaults: defaults)
+        cursorEditor.verifyCursorOwnershipFixture()
         CaptureSelection.verifyHoverFixture(image: image)
         CaptureSelection.verifyClickCopyFixture(image: image)
         // Real native input and exported pixels, including the normal 2x
@@ -697,7 +738,7 @@ import AppKit
         defer { oldCursor.set() }
         let screen = CGRect(x: -500, y: -300, width: 400, height: 300)
         let snapshot = CaptureFrame(screen: .init(id: 7, frame: screen, scale: 2), image: image)
-        let panel = NSPanel(contentRect: screen, styleMask: .borderless, backing: .buffered, defer: false)
+        let panel = Panel(contentRect: screen, styleMask: .borderless, backing: .buffered, defer: false)
         panel.isReleasedWhenClosed = false
         let view = SelectionView(frame: CGRect(origin: .zero, size: screen.size), snapshot: snapshot)
         panel.contentView = view
@@ -735,9 +776,14 @@ import AppKit
         }
         let inside = CGPoint(x: -350, y: -180), outside = CGPoint(x: -490, y: -290)
         view.mouseEntered(with: hover(inside))
-        precondition(NSCursor.current === NSCursor.openHand, "selection interior advertises movement on entry")
+        precondition(NSCursor.current === NSCursor.arrow, "selection interior keeps a stable normal arrow before dragging")
         controller.mouseDown(inside)
-        precondition(controller.cursor(at: inside) === NSCursor.closedHand, "held move uses a closed hand")
+        precondition(controller.cursor(at: inside) === NSCursor.arrow, "Pressing to confirm does not briefly flash a drag cursor")
+        controller.mouseDragged(CGPoint(x: inside.x + 2,y: inside.y))
+        precondition(controller.cursor(at: inside) === NSCursor.arrow,"Click jitter retains the same arrow")
+        controller.mouseDragged(CGPoint(x: inside.x + 8,y: inside.y))
+        precondition(controller.cursor(at: inside) === NSCursor.closedHand,"Actual selection movement uses a closed hand")
+        controller.selection = region
         controller.drag = nil
         view.mouseMoved(with: hover(outside))
         precondition(NSCursor.current === NSCursor.crosshair, "outside selection remains ready to create a new region")
@@ -746,8 +792,18 @@ import AppKit
         precondition(controller.selection == CGRect(x: -470, y: -260, width: 230, height: 160), "whole-edge hit really resizes that side")
         controller.drag = nil; controller.selection = region
         controller.setEditing(true)
+        precondition(view.trackingAreas.isEmpty && !panel.areCursorRectsEnabled,"Backdrop tracking and native cursor rects are removed when the annotation layer owns the pointer")
         NSCursor.arrow.set(); view.cursorUpdate(with: hover(inside))
         precondition(controller.cursor(at: inside) == nil && NSCursor.current === NSCursor.arrow, "locked annotation must not receive selection hover cursors")
+        controller.acceptsInput = true
+        NSCursor.iBeam.set(); view.mouseEntered(with: hover(inside)); view.mouseMoved(with: hover(inside))
+        precondition(NSCursor.current === NSCursor.iBeam,"Stale backdrop events cannot replace the active editor cursor")
+        for _ in 0..<5 {
+            panel.acceptsSelectionInput = true; panel.acceptsSelectionInput = true; view.tracksPointer = true
+            precondition(panel.areCursorRectsEnabled && view.trackingAreas.count == 2,"Resuming cursor ownership remains balanced")
+            panel.acceptsSelectionInput = false; panel.acceptsSelectionInput = false; view.tracksPointer = false
+            precondition(!panel.areCursorRectsEnabled && view.trackingAreas.isEmpty,"Repeatedly releasing ownership cannot accumulate cursor tracking")
+        }
         controller.acceptsInput = true; controller.selection = .null; controller.candidates = [region]
         precondition(controller.cursor(at: inside) === NSCursor.crosshair, "window magnet preview is not already a draggable selection")
         precondition(SelectionView.resizeHandle(at: CGPoint(x: 1.9, y: 1.9), in: CGRect(x: 0, y: 0, width: 2, height: 2)) == 4,

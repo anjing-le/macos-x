@@ -6,6 +6,7 @@ import AppKit
 final class CaptureToolbarSurface: NSView {
     private var outline: NSBezierPath?
     private var outlineBounds = NSRect.zero
+    override func resetCursorRects() { addCursorRect(bounds,cursor: .arrow) }
     override func draw(_ dirtyRect: NSRect) {
         NSColor(calibratedWhite: 0.995, alpha: 1).setFill()
         let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 10, yRadius: 10)
@@ -45,7 +46,8 @@ final class CaptureToolButton: NSButton {
         let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
         addTrackingArea(area); tracking = area
     }
-    override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
+    override func resetCursorRects() { addCursorRect(bounds,cursor: .arrow) }
+    override func mouseEntered(with event: NSEvent) { NSCursor.arrow.set(); hovered = true; needsDisplay = true }
     override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
     override func draw(_ dirtyRect: NSRect) {
         let selected = state == .on

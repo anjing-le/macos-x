@@ -19,6 +19,8 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         var onBegin: ((CGPoint) -> Void)?
         var onMove: ((CGPoint) -> Void)?
         var onEnd: (() -> Void)?
+        var canTrackPointer: (() -> Bool)?
+        private var dragging = false
         private var borderRects: [CGRect] {
             let x = min(5,bounds.width / 2), y = min(5,bounds.height / 2)
             return [CGRect(x: 0,y: 0,width: bounds.width,height: y),
@@ -38,14 +40,30 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
             super.updateTrackingAreas()
             for area in trackingAreas { removeTrackingArea(area) }
             for rect in borderRects {
-                addTrackingArea(NSTrackingArea(rect: rect,options: [.mouseEnteredAndExited,.activeAlways],owner: self,userInfo: nil))
+                addTrackingArea(NSTrackingArea(rect: rect,options: [.mouseEnteredAndExited,.activeInActiveApp],owner: self,userInfo: nil))
             }
         }
-        override func mouseEntered(with event: NSEvent) { NSCursor.openHand.set() }
-        override func cursorUpdate(with event: NSEvent) { NSCursor.openHand.set() }
-        override func mouseDown(with event: NSEvent) { NSCursor.closedHand.set(); onBegin?(event.locationInWindow) }
-        override func mouseDragged(with event: NSEvent) { onMove?(event.locationInWindow) }
-        override func mouseUp(with event: NSEvent) { onMove?(event.locationInWindow); onEnd?(); NSCursor.openHand.set() }
+        private func refreshCursor(with event: NSEvent) {
+            guard window != nil, canTrackPointer?() == true,
+                  dragging || borderRects.contains(where: { $0.contains(convert(event.locationInWindow,from: nil)) }) else { return }
+            (dragging ? NSCursor.closedHand : NSCursor.openHand).set()
+        }
+        override func mouseEntered(with event: NSEvent) { refreshCursor(with: event) }
+        override func cursorUpdate(with event: NSEvent) { refreshCursor(with: event) }
+        override func mouseDown(with event: NSEvent) {
+            guard canTrackPointer?() == true else { return }
+            dragging = true; NSCursor.closedHand.set(); onBegin?(event.locationInWindow)
+        }
+        override func mouseDragged(with event: NSEvent) {
+            guard dragging, canTrackPointer?() == true else { return }
+            onMove?(event.locationInWindow)
+        }
+        override func mouseUp(with event: NSEvent) {
+            guard dragging else { return }
+            dragging = false
+            if canTrackPointer?() == true { onMove?(event.locationInWindow) }
+            onEnd?(); refreshCursor(with: event)
+        }
         override func draw(_ dirtyRect: NSRect) {
             let path = NSBezierPath(rect: bounds.insetBy(dx: 1.5,dy: 1.5))
             NSColor.white.withAlphaComponent(0.85).setStroke(); path.lineWidth = 3; path.stroke()
@@ -73,6 +91,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
     private var toolbarVisible = true
     private var annotationEditingSuspended = false
     private var suspendedTool: CaptureTool?
+    private var ownsCursor = true
     private var localMonitor: Any?
     private var toolButtons = [CaptureToolButton]()
     private let canvas: CaptureCanvas
@@ -315,6 +334,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         guard !editingPin, !closed, !exporting, !adjustingRegion else { return }
         regionWasVisible = window.isVisible
         adjustingRegion = true
+        canvas.pointerActive = false; window.acceptsMouseMovedEvents = false
         cancelRecognition()
         revision &+= 1; preview?.cancel()
         window.orderOut(nil); toolbar.orderOut(nil)
@@ -334,6 +354,13 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
     }
     private func updateSelectionInput() {
         canvas.inputEnabled = !closed && !exporting && !adjustingRegion && !annotationEditingSuspended
+        let nextOwner = canvas.inputEnabled && (editingPin || canvas.tool != nil)
+        canvas.pointerActive = nextOwner
+        window.acceptsMouseMovedEvents = nextOwner
+        if nextOwner != ownsCursor {
+            ownsCursor = nextOwner
+            if nextOwner { window.enableCursorRects() } else { window.disableCursorRects() }
+        }
         guard !editingPin else { return }
         let editing = canvas.tool != nil
         window.ignoresMouseEvents = !editing
@@ -359,6 +386,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
     func windowWillClose(_ notification: Notification) {
         guard !closed else { return }
         closed = true; revision &+= 1; lifetime.cancel(); preview?.cancel()
+        canvas.pointerActive = false; canvas.inputEnabled = false
         canvas.cancelDraft(); canvas.closeBrushPreview(); window.acceptsMouseMovedEvents = false
         if let localMonitor { NSEvent.removeMonitor(localMonitor); self.localMonitor = nil }
         recognition?.cancel(); recognition = nil
@@ -492,6 +520,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         input.delegate = self; input.setAccessibilityLabel("截图文字")
         canvas.addSubview(input); textInput = input; textLayout = layout; textAnnotation = annotation
         let frameView = TextEditingFrame(frame: .zero)
+        frameView.canTrackPointer = { [weak canvas] in canvas?.pointerActive == true && canvas?.inputEnabled == true }
         frameView.toolTip = "拖动边框移动文字 · 点击框外完成编辑"
         frameView.setAccessibilityLabel("文字编辑边框，可拖动")
         frameView.onBegin = { [weak self] point in
@@ -638,7 +667,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         cancelRecognition()
         finishText(commit: true)
         canvas.commitDraft()
-        exporting = true; canvas.inputEnabled = false; onEditingChanged?(true); return true
+        exporting = true; canvas.inputEnabled = false; canvas.pointerActive = false; onEditingChanged?(true); return true
     }
     @objc private func saveImage() {
         guard beginExport() else { return }

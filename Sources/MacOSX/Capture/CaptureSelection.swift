@@ -5,7 +5,12 @@ import os
     enum Mode { case screenshot, recording }
     enum Result { case copy(CGRect), pin(CGRect), edit(CGRect), color(String), cancel }
     private final class Panel: NSPanel {
-        var acceptsSelectionInput = true
+        var acceptsSelectionInput = true {
+            didSet {
+                guard oldValue != acceptsSelectionInput else { return }
+                if acceptsSelectionInput { enableCursorRects() } else { disableCursorRects() }
+            }
+        }
         var onKey: ((NSEvent) -> Bool)?
         var onCopy: (() -> Void)?
         var onSelectAll: (() -> Void)?
@@ -154,14 +159,14 @@ import os
         guard acceptsInput else { return nil }
         if spaceDown, drag != nil { return .closedHand }
         switch drag {
-        case .move: return .closedHand
+        case .move: return dragMoved ? .closedHand : .arrow
         case let .resize(handle, _, _): return SelectionView.resizeCursor(for: handle)
         case .create: return .crosshair
         case nil: break
         }
         guard !selection.isNull else { return .crosshair }
         if let handle = SelectionView.resizeHandle(at: point, in: selection) { return SelectionView.resizeCursor(for: handle) }
-        return selection.contains(point) ? .openHand : .crosshair
+        return selection.contains(point) ? .arrow : .crosshair
     }
     private func refreshCursor() {
         guard acceptsInput, let index = frames.firstIndex(where: { $0.screen.frame.contains(pointer) }),
@@ -195,6 +200,7 @@ import os
     private func retainBackdrop() {
         // Keep the frozen desktop visible until the editor/pin is ready.
         acceptsInput = false; drag = nil; dragMoved = false; spaceDown = false; spaceRegion = .null
+        views.forEach { $0.tracksPointer = false }
         for panel in panels { (panel as? Panel)?.acceptsSelectionInput = false; panel.acceptsMouseMovedEvents = false }
         redraw()
     }
@@ -209,6 +215,7 @@ import os
         guard !panels.isEmpty, completion != nil else { return }
         acceptsInput = true
         pointer = NSEvent.mouseLocation
+        views.forEach { $0.tracksPointer = true }
         for panel in panels { (panel as? Panel)?.acceptsSelectionInput = true; panel.acceptsMouseMovedEvents = true }
         let index = frames.firstIndex { $0.screen.frame.contains(NSEvent.mouseLocation) } ?? 0
         panels[index].makeKeyAndOrderFront(nil); panels[index].makeFirstResponder(views[index]); redraw()
@@ -442,6 +449,9 @@ import os
     private var firstDraw = true
     private var tracking: NSTrackingArea?
     private var cursorTracking: NSTrackingArea?
+    var tracksPointer = true {
+        didSet { if oldValue != tracksPointer { updateTrackingAreas() } }
+    }
     var region: (() -> CGRect)?
     var pointer: (() -> CGPoint)?
     var magnifierVisible: (() -> Bool)?
@@ -462,10 +472,12 @@ import os
     }
     required init?(coder: NSCoder) { nil }
     override func updateTrackingAreas() {
-        super.updateTrackingAreas(); if let tracking { removeTrackingArea(tracking) }
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking); self.tracking = nil }
+        if let cursorTracking { removeTrackingArea(cursorTracking); self.cursorTracking = nil }
+        guard tracksPointer else { return }
         let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
         tracking = area; addTrackingArea(area)
-        if let cursorTracking { removeTrackingArea(cursorTracking) }
         // AppKit does not support cursorUpdate with activeAlways. Keep cursor
         // refresh in the key window while movement still works across displays.
         let cursorArea = NSTrackingArea(rect: .zero, options: [.cursorUpdate, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
@@ -473,7 +485,7 @@ import os
     }
     // Tracking owns hover feedback; a blanket crosshair cursor rect would
     // overwrite the edge cursor on entry or when AppKit refreshes cursor state.
-    func refreshCursor(at point: CGPoint) { cursorAt?(point)?.set() }
+    func refreshCursor(at point: CGPoint) { if tracksPointer { cursorAt?(point)?.set() } }
     override func cursorUpdate(with event: NSEvent) { refreshCursor(at: global(event)) }
     override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
     private func global(_ event: NSEvent) -> CGPoint { window?.convertPoint(toScreen: event.locationInWindow) ?? .zero }

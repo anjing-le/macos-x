@@ -225,14 +225,15 @@ enum CaptureCrayonStroke {
 final class CaptureCanvas: NSView {
     var base: CGImage
     var image: CGImage { didSet { needsDisplay = true } }
-    var tool: CaptureTool? { didSet { updateBrushPosition(); needsDisplay = true } }
+    var tool: CaptureTool? { didSet { refreshPointerTracking() } }
     var ink = CaptureInk.red
     var lineWidth: CGFloat = 3
     var mosaicDiameter: CGFloat = 32 { didSet { updateBrushPosition(); needsDisplay = true } }
     var imageInset: CGFloat = 12
     var onAnnotation: ((CaptureAnnotation) -> Void)?
     var onDraftBegan: (() -> Void)?
-    var inputEnabled = true
+    var inputEnabled = true { didSet { if oldValue != inputEnabled { refreshPointerTracking() } } }
+    var pointerActive = true { didSet { if oldValue != pointerActive { refreshPointerTracking() } } }
     var onErase: ((CGPoint, CGFloat) -> Void)?
     var onText: ((CGPoint, CGFloat, CaptureInk) -> Void)?
     var onBackgroundClick: (() -> Bool)?
@@ -244,6 +245,7 @@ final class CaptureCanvas: NSView {
     private var draft: CaptureAnnotation?
     private var brushPosition: CGPoint?
     private var brushTracking: NSTrackingArea?
+    private var cursorTracking: NSTrackingArea?
     private var mosaicPreview: CGImage?
     private let brushQueue = DispatchQueue(label: "cc.anjing.macos-x.mosaic-preview", qos: .userInitiated)
     private let brushRenderer = CaptureBrushRenderer()
@@ -299,17 +301,42 @@ final class CaptureCanvas: NSView {
     required init?(coder: NSCoder) { nil }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let brushTracking { removeTrackingArea(brushTracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+        if let brushTracking { removeTrackingArea(brushTracking); self.brushTracking = nil }
+        if let cursorTracking { removeTrackingArea(cursorTracking); self.cursorTracking = nil }
+        guard pointerActive, inputEnabled, tool != nil else { return }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self, userInfo: nil)
         addTrackingArea(area); brushTracking = area
+        let cursorArea = NSTrackingArea(rect: .zero,options: [.cursorUpdate,.activeInKeyWindow,.inVisibleRect],owner: self,userInfo: nil)
+        addTrackingArea(cursorArea); cursorTracking = cursorArea
+    }
+    private func refreshPointerTracking() {
+        updateTrackingAreas(); updateBrushPosition(); window?.invalidateCursorRects(for: self); needsDisplay = true
+    }
+    func cursor(at point: CGPoint) -> NSCursor? {
+        guard pointerActive, inputEnabled, imageRect.contains(point) else { return nil }
+        return tool == .text ? .iBeam : tool == nil ? .arrow : .crosshair
+    }
+    override func resetCursorRects() {
+        if let cursor = cursor(at: CGPoint(x: imageRect.midX,y: imageRect.midY)) { addCursorRect(imageRect,cursor: cursor) }
+    }
+    override func cursorUpdate(with event: NSEvent) {
+        refreshCursor(at: convert(event.locationInWindow,from: nil))
+    }
+    private func refreshCursor(at point: CGPoint) {
+        // Native text and its movable border own their own cursor. A canvas
+        // tracking event may arrive after a child event for the same point.
+        guard hitTest(convert(point,to: superview)) === self else { return }
+        cursor(at: point)?.set()
     }
     private func updateBrushPosition() {
-        guard tool == .mosaic, let window else { brushPosition = nil; return }
+        guard pointerActive, inputEnabled, tool == .mosaic, let window else { brushPosition = nil; return }
         let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
         brushPosition = imageRect.contains(point) ? point : nil
     }
     override func mouseMoved(with event: NSEvent) {
+        guard pointerActive, inputEnabled else { return }
         let point = convert(event.locationInWindow, from: nil)
+        refreshCursor(at: point)
         brushPosition = tool == .mosaic && imageRect.contains(point) ? point : nil
         if tool == .mosaic { needsDisplay = true }
     }
