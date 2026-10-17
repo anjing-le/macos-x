@@ -599,9 +599,11 @@ import AppKit
                      "Direct copy retains the exact visible range and frozen backdrop until the clipboard acknowledges success")
         NSApp.sendEvent(key()); precondition(results.count == 1,"Repeated copy while encoding stays single-flight")
         raw.completeRangeCopy(error: "fixture failure")
-        precondition(!raw.copyingRange && raw.selection == region && raw.copyMonitor != nil,"A failed copy retains the frozen range for retry")
+        precondition(!raw.copyingRange && raw.selection == region && raw.snappedWindow?.id == 42 && raw.copyMonitor != nil,
+                     "A failed magnet copy retains geometry and the isolated-window identity for retry")
         raw.acceptsInput = true; NSApp.sendEvent(key())
         precondition(results.count == 2 && raw.copyingRange,"The same range can be retried")
+        precondition(raw.completedWindow?.id == 42,"Retry must not silently fall back to pixels behind the window")
         raw.completeRangeCopy()
         precondition(raw.copyMonitor == nil && raw.frames.isEmpty,"Only successful copy acknowledgement releases the frozen session")
         NSApp.mainMenu = previousMenu

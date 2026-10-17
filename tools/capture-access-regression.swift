@@ -14,10 +14,11 @@ final class SCWindow {
     let frame = CGRect(x: 0, y: 0, width: 4, height: 4)
 }
 final class SCShareableContent {
-    let windows = [SCWindow()]
+    let windows: [SCWindow]
+    init(windows: [SCWindow] = [SCWindow()]) { self.windows = windows }
     let displays = [SCDisplay(7), SCDisplay(8)]
     static func getExcludingDesktopWindows(_ exclude: Bool, onScreenWindowsOnly: Bool,
-        completionHandler: @escaping (SCShareableContent?, Error?) -> Void) { MockCapture.holdContent(completionHandler) }
+        completionHandler: @escaping (SCShareableContent?, Error?) -> Void) { MockCapture.holdContent(completionHandler,onScreenOnly: onScreenWindowsOnly) }
 }
 final class SCContentFilter {
     static var lastWindowID: UInt32?
@@ -76,6 +77,8 @@ private enum MockCapture {
     static var delayStops = false
     private static var preflights = 0
     private static var recordedConfiguration: SCStreamConfiguration?
+    private static var recordedOnScreenOnly = true
+    static var lastOnScreenOnly: Bool { lock.lock(); defer { lock.unlock() }; return recordedOnScreenOnly }
     static var lastConfiguration: SCStreamConfiguration? { lock.lock(); defer { lock.unlock() }; return recordedConfiguration }
     static func configuration(_ value: SCStreamConfiguration) { lock.lock(); recordedConfiguration = value; lock.unlock() }
     static var pendingContent: Int { lock.lock(); defer { lock.unlock() }; return contents.count }
@@ -84,14 +87,16 @@ private enum MockCapture {
     static var pendingStop: Int { lock.lock(); defer { lock.unlock() }; return stops.count }
     static var preflightCalls: Int { lock.lock(); defer { lock.unlock() }; return preflights }
     static func falsePreflight() -> Bool { lock.lock(); preflights += 1; lock.unlock(); return false }
-    static func holdContent(_ callback: @escaping (SCShareableContent?, Error?) -> Void) { lock.lock(); contents.append(callback); lock.unlock() }
+    static func holdContent(_ callback: @escaping (SCShareableContent?, Error?) -> Void,onScreenOnly: Bool) {
+        lock.lock(); recordedOnScreenOnly = onScreenOnly; contents.append(callback); lock.unlock()
+    }
     static func holdImage(_ callback: @escaping (CGImage?, Error?) -> Void) { lock.lock(); images.append(callback); peakPendingImages = max(peakPendingImages, images.count); lock.unlock() }
     static func holdStart(_ callback: @escaping (Error?) -> Void) { lock.lock(); starts.append(callback); lock.unlock() }
     static func holdStop(_ callback: @escaping (Error?) -> Void) { lock.lock(); stops.append(callback); lock.unlock() }
     static func stopped() { lock.lock(); let callback = stops.removeFirst(); lock.unlock(); callback(nil) }
-    static func content(error: Error? = nil) {
+    static func content(error: Error? = nil,windows: [SCWindow] = [SCWindow()]) {
         lock.lock(); let callback = contents.removeFirst(); lock.unlock()
-        callback(error == nil ? SCShareableContent() : nil, error)
+        callback(error == nil ? SCShareableContent(windows: windows) : nil, error)
     }
     static func image(_ image: CGImage? = nil, error: Error? = nil) {
         lock.lock(); let callback = images.removeFirst(); lock.unlock(); callback(image, error)
@@ -424,6 +429,7 @@ private struct CheckFailure: Error { let message: String }
             let target = CaptureWindow(id: 42, frame: CGRect(x: 0, y: -4, width: 4, height: 4))
             result = nil; service.capture([screen], window: target) { result = $0 }
             try await wait({ MockCapture.pendingContent == 1 }, "isolated window metadata")
+            try require(!MockCapture.lastOnScreenOnly,"An exact window lookup does not exclude a target behind selection panels")
             MockCapture.content()
             try await wait({ MockCapture.pendingImage == 1 }, "isolated window request")
             try require(SCContentFilter.lastWindowID == 42, "window capture must isolate exact ID, not display crop")
@@ -674,29 +680,63 @@ private struct CheckFailure: Error { let message: String }
             frozenContext.setFillColor(CGColor(red: 0,green: 0,blue: 1,alpha: 1)); frozenContext.fill(CGRect(x: 120,y: 80,width: 80,height: 100))
             let frozen = frozenContext.makeImage()!, crop = CGRect(x: -60,y: 70,width: 160,height: 100)
             CaptureEditor.encodesFixturePNG = true; NSPasteboard.general.acceptsFixtureWrites = true
-            for targetID: UInt32 in [42,999] {
-                let direct = CaptureModule(); direct.start(); direct.capture()
-                try await succeedImage(frozen)
-                try await wait({ CaptureSelection.lastCompletion != nil },"direct range selection ready")
-                CaptureSelection.fixtureWindow = CaptureWindow(id: targetID,frame: crop)
-                let succeeded = CaptureSelection.copySucceeded
-                NSPasteboard.general.fixturePNG = nil
-                CaptureSelection.lastCompletion?(.copy(crop))
-                try await wait({ CaptureSelection.copySucceeded == succeeded + 1 },"frozen range reaches clipboard acknowledgement")
-                try require(MockCapture.pendingContent == 0 && MockCapture.pendingImage == 0,
-                            "Direct copy never re-queries or captures the original app, even if its window is now missing")
-                let bytes = NSPasteboard.general.fixturePNG!
-                let png = CGImageSourceCreateWithData(bytes as CFData,nil).flatMap { CGImageSourceCreateImageAtIndex($0,0,nil) }!
-                try require(png.width == 160 && png.height == 100,"PNG dimensions match the currently displayed range")
-                let nativeBoard = AppKit.NSPasteboard.withUniqueName()
-                defer { nativeBoard.releaseGlobally() }
-                try require(nativeBoard.setData(bytes,forType: .png) && NSImage(pasteboard: nativeBoard) != nil,
-                            "A real private AppKit pasteboard can receive and read the copied PNG as a standard image")
-                let actual = CapturePixelSampler(image: png)!, expected = CapturePixelSampler(image: frozen.cropping(to: CGRect(x: 40,y: 80,width: 160,height: 100))!)!
-                try require((0..<100).allSatisfy { y in (0..<160).allSatisfy { x in actual.sample(x: x,y: y) == expected.sample(x: x,y: y) } },
-                            "Every decoded clipboard pixel matches the frozen visible crop")
-                direct.stop()
-            }
+            // Free selection still copies the exact frozen desktop pixels.
+            let direct = CaptureModule(); direct.start(); direct.capture()
+            try await succeedImage(frozen)
+            try await wait({ CaptureSelection.lastCompletion != nil },"free range selection ready")
+            let succeeded = CaptureSelection.copySucceeded
+            NSPasteboard.general.fixturePNG = nil
+            CaptureSelection.lastCompletion?(.copy(crop))
+            try await wait({ CaptureSelection.copySucceeded == succeeded + 1 },"free range copy acknowledgement")
+            try require(MockCapture.pendingContent == 0 && MockCapture.pendingImage == 0,"Free selection does not recapture a window")
+            let bytes = NSPasteboard.general.fixturePNG!
+            let png = CGImageSourceCreateWithData(bytes as CFData,nil).flatMap { CGImageSourceCreateImageAtIndex($0,0,nil) }!
+            try require(png.width == 160 && png.height == 100,"Free PNG dimensions match the visible range")
+            let nativeBoard = AppKit.NSPasteboard.withUniqueName()
+            defer { nativeBoard.releaseGlobally() }
+            try require(nativeBoard.setData(bytes,forType: .png) && NSImage(pasteboard: nativeBoard) != nil,
+                        "A real private AppKit pasteboard receives the copied PNG as an image")
+            let actual = CapturePixelSampler(image: png)!, expected = CapturePixelSampler(image: frozen.cropping(to: CGRect(x: 40,y: 80,width: 160,height: 100))!)!
+            try require((0..<100).allSatisfy { y in (0..<160).allSatisfy { x in actual.sample(x: x,y: y) == expected.sample(x: x,y: y) } },
+                        "Every free-selection PNG pixel matches the frozen crop")
+            direct.stop()
+
+            // Distinct green desktop pixels must never be used as a fallback
+            // for the red window with transparent corners.
+            let desktopContext = CaptureRaster.context(width: 400,height: 300)!
+            desktopContext.setFillColor(CGColor(red: 0,green: 1,blue: 0,alpha: 1)); desktopContext.fill(CGRect(x: 0,y: 0,width: 400,height: 300))
+            let desktop = desktopContext.makeImage()!
+            let magnet = CaptureModule(); magnet.start(); magnet.capture()
+            try await succeedImage(desktop)
+            try await wait({ CaptureSelection.lastCompletion != nil },"magnet range ready")
+            let windowRegion = CGRect(x: 0,y: 246,width: 4,height: 4)
+            CaptureSelection.fixtureWindow = CaptureWindow(id: 42,frame: windowRegion)
+            let previousPNG = Data([11,22,33])
+            NSPasteboard.general.fixturePNG = previousPNG
+            let failed = CaptureSelection.copyFailed, beforeCopy = CaptureSelection.copySucceeded
+            CaptureSelection.lastCompletion?(.copy(windowRegion))
+            try await wait({ MockCapture.pendingContent == 1 },"magnet lookup after copy")
+            try require(!MockCapture.lastOnScreenOnly,"Selected window resolves independently of selection-panel visibility")
+            MockCapture.content(windows: [])
+            try await wait({ CaptureSelection.copyFailed == failed + 1 },"missing-window failure keeps copy range")
+            try require(NSPasteboard.general.fixturePNG == previousPNG && CaptureSelection.copySucceeded == beforeCopy && MockCapture.pendingImage == 0,
+                        "A missing magnet target preserves the clipboard and never copies desktop background")
+            CaptureSelection.lastCompletion?(.copy(windowRegion))
+            try await wait({ MockCapture.pendingContent == 1 },"retry the same magnet identity")
+            MockCapture.content()
+            try await wait({ MockCapture.pendingImage == 1 },"isolated magnet image")
+            try require(SCContentFilter.lastWindowID == 42,"Retry uses the exact isolated window")
+            MockCapture.image(cornerContext.makeImage()!)
+            try await wait({ CaptureSelection.copySucceeded == beforeCopy + 1 },"magnet PNG reaches clipboard acknowledgement")
+            let isolatedBytes = NSPasteboard.general.fixturePNG!
+            let isolatedPNG = CGImageSourceCreateWithData(isolatedBytes as CFData,nil).flatMap { CGImageSourceCreateImageAtIndex($0,0,nil) }!
+            let isolatedPixels = CapturePixelSampler(image: isolatedPNG)!
+            try require(isolatedPNG.width == 8 && isolatedPNG.height == 8,"Magnet PNG retains its window point-to-pixel scale")
+            try require(isolatedPixels.sample(x: 0,y: 0)?.hex == "#FFFFFF" && isolatedPixels.sample(x: 7,y: 0)?.hex == "#FFFFFF" &&
+                        isolatedPixels.sample(x: 0,y: 7)?.hex == "#FFFFFF" && isolatedPixels.sample(x: 7,y: 7)?.hex == "#FFFFFF",
+                        "All four decoded clipboard corners are white, never the green desktop")
+            try require(isolatedPixels.sample(x: 4,y: 4)?.hex == "#FF0000","Copied window content remains red without desktop contamination")
+            magnet.stop()
             CaptureSelection.fixtureWindow = nil
             CaptureEditor.encodesFixturePNG = false; NSPasteboard.general.acceptsFixtureWrites = false
             NSPasteboard.general.fixturePNG = nil

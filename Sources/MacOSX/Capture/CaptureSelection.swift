@@ -192,9 +192,9 @@ import os
         }
         if case .copy(let region) = result {
             copyingRange = true
-            // The frozen pixels and the visible range stay put until the
-            // clipboard write is acknowledged; closing the UI is not success.
-            selection = region; retainBackdrop()
+            // Retain both geometry and window identity for a failed-copy
+            // retry. A magnetized window must never become a desktop crop.
+            selection = region; snappedWindow = completedWindow; retainBackdrop()
         } else if case .edit = result {
             awaitingEditor = true
             retainBackdrop()

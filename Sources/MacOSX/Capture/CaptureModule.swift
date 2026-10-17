@@ -100,10 +100,6 @@ final class CaptureModule: NSObject {
                             // A new visible range replaces any previous crop UI.
                             self.editor?.onClose = nil; self.editor?.close(); self.editor = nil
                             self.editorPending = false; self.pinAfterEditor = false
-                            // Direct F1 copy is a crop of the already-visible
-                            // frozen desktop, not a second capture of an app.
-                            self.finishSelection(result, frames: frames, generation: expected, revision: captureRevision)
-                            return
                         }
                         if let target = self.selection.completedWindow {
                             switch result {
@@ -116,8 +112,12 @@ final class CaptureModule: NSObject {
                                         case .success(let windowFrames):
                                             self.finishSelection(result, frames: windowFrames, generation: expected, revision: captureRevision)
                                         case .failure(let error):
-                                            self.selection.dismiss(); self.captureInProgress = false
-                                            self.editorPending = false; self.pinAfterEditor = false; self.handle(error)
+                                            self.editorPending = false; self.pinAfterEditor = false
+                                            if case .copy = result {
+                                                self.captureInProgress = true
+                                                self.selection.completeRangeCopy(error: "窗口取图失败 · ⌘C 重试，Esc 退出")
+                                            } else { self.selection.dismiss(); self.captureInProgress = false }
+                                            self.handle(error)
                                         }
                                     }
                                 }

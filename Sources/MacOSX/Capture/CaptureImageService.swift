@@ -112,7 +112,10 @@ final class CaptureImageService {
         busy = true
         request.timing.record("request-start")
         let contentTiming = CaptureTiming()
-        SCShareableContent.getExcludingDesktopWindows(true, onScreenWindowsOnly: true) { [weak self] content, error in
+        // An already-selected window may be behind our frozen selection
+        // panels. Resolve its exact ID without an onscreen-only filter;
+        // geometry validation and isolated capture still apply below.
+        SCShareableContent.getExcludingDesktopWindows(true, onScreenWindowsOnly: request.window == nil) { [weak self] content, error in
             self?.queue.async { [weak self] in
                 guard let self else { return }
                 contentTiming.record("shareable-content")
@@ -185,6 +188,7 @@ final class CaptureImageService {
     /// Refuse stale/moved windows; never fall back to pixels from behind rounded corners.
     private func captureWindow(_ request: Request, target: CaptureWindow, content: SCShareableContent) {
         guard let window = content.windows.first(where: { $0.windowID == target.id }) else {
+            request.timing.record("window-target-missing")
             finish(request, .failure(CaptureFailure.message("窗口已关闭，请重新截图。"))); return
         }
         let top = request.screens.first?.frame.maxY ?? 0
@@ -193,6 +197,7 @@ final class CaptureImageService {
         guard abs(current.minX - target.frame.minX) < 1, abs(current.minY - target.frame.minY) < 1,
               abs(current.width - target.frame.width) < 1, abs(current.height - target.frame.height) < 1,
               let screen = request.screens.first(where: { $0.frame.contains(CGPoint(x: current.midX, y: current.midY)) }) ?? request.screens.first else {
+            request.timing.record("window-target-moved")
             finish(request, .failure(CaptureFailure.message("窗口位置已变化，请重新截图。"))); return
         }
         let scale = min(screen.scale, sqrt(8_000_000 / max(1, current.width * current.height)))
@@ -210,6 +215,7 @@ final class CaptureImageService {
                 guard let self else { return }
                 guard request.ticket.valid else { self.finish(request, .failure(CaptureFailure.cancelled)); return }
                 guard let image, let opaque = CaptureRaster.opaqueWhite(image) else {
+                    request.timing.record("window-image-failed")
                     self.finish(request, .failure(error ?? CaptureFailure.unavailable)); return
                 }
                 let frame = CaptureFrame(screen: CaptureScreen(id: screen.id, frame: current, scale: scale), image: opaque)
