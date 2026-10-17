@@ -7,26 +7,49 @@ struct CapturePixelSample: Equatable {
     var rgb: String { "rgb(\(red), \(green), \(blue))" }
 }
 
-/// Initialise on the capture worker. Afterwards sampling reads a bounded, immutable
-/// sRGB raster; mouse movement never decodes the full screenshot again.
+/// Initialise on the capture worker. Frozen desktop screenshots can retain the
+/// immutable image and convert only a 64x64 sRGB tile, instead of delaying F1
+/// with a full-screen colour conversion. Other image clients keep the full raster.
 final class CapturePixelSampler: @unchecked Sendable {
     let width: Int, height: Int, byteCount: Int
     private let context: CGContext
     private let pixels: UnsafeMutablePointer<UInt8>
+    private let source: CGImage?
+    private let rasterWidth: Int, rasterHeight: Int
+    private var tileOrigin: CGPoint?
+    private let lock = NSLock()
 
-    init?(image: CGImage, maximumBytes: Int = 128_000_000) {
+    init?(image: CGImage, maximumBytes: Int = 128_000_000, tiled: Bool = false) {
         let width = image.width, height = image.height
         guard width > 0, height > 0, width <= 16_000, height <= 16_000,
-              maximumBytes >= 4, width <= maximumBytes / 4 / height,
-              let space = CGColorSpace(name: CGColorSpace.sRGB),
-              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
-                  bytesPerRow: width * 4, space: space,
+              maximumBytes >= 4, width <= maximumBytes / 4 / height else { return nil }
+        let rasterWidth = tiled ? min(64,width) : width, rasterHeight = tiled ? min(64,height) : height
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: rasterWidth, height: rasterHeight, bitsPerComponent: 8,
+                  bytesPerRow: rasterWidth * 4, space: space,
                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue),
               let data = context.data else { return nil }
         context.interpolationQuality = .none
-        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-        self.width = width; self.height = height; byteCount = width * height * 4
+        if !tiled { context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height)) }
+        self.width = width; self.height = height; byteCount = rasterWidth * rasterHeight * 4
         self.context = context; pixels = data.assumingMemoryBound(to: UInt8.self)
+        source = tiled ? image : nil; tileOrigin = tiled ? nil : .zero
+        self.rasterWidth = rasterWidth; self.rasterHeight = rasterHeight
+    }
+
+    /// The lock covers both tile replacement and reads. Cropping the immutable
+    /// native screenshot limits conversion to a small region, including ICC and alpha.
+    private func prepareTile(x: Int,y: Int,radius: Int = 16) -> Bool {
+        guard let source else { return true }
+        let wanted = CGRect(x: max(0,x-radius),y: max(0,y-radius),
+            width: min(width-1,x+radius)-max(0,x-radius)+1,height: min(height-1,y+radius)-max(0,y-radius)+1)
+        if let tileOrigin, CGRect(origin: tileOrigin,size: CGSize(width: rasterWidth,height: rasterHeight)).contains(wanted) { return true }
+        let origin = CGPoint(x: min(max(0,x-rasterWidth/2),width-rasterWidth),y: min(max(0,y-rasterHeight/2),height-rasterHeight))
+        guard let patch = source.cropping(to: CGRect(origin: origin,size: CGSize(width: rasterWidth,height: rasterHeight))) else { return false }
+        let bounds = CGRect(x: 0,y: 0,width: rasterWidth,height: rasterHeight)
+        context.clear(bounds); context.draw(patch,in: bounds)
+        tileOrigin = origin
+        return true
     }
 
     /// Coordinates use CGImage's top-left origin, including on negative-origin displays.
@@ -44,7 +67,9 @@ final class CapturePixelSampler: @unchecked Sendable {
 
     func sample(x: Int, y: Int) -> CapturePixelSample? {
         guard x >= 0, y >= 0, x < width, y < height else { return nil }
-        let offset = (y * width + x) * 4, alpha = Int(pixels[offset + 3])
+        lock.lock(); defer { lock.unlock() }
+        guard prepareTile(x: x,y: y), let origin = tileOrigin else { return nil }
+        let offset = ((y-Int(origin.y)) * rasterWidth + x-Int(origin.x)) * 4, alpha = Int(pixels[offset + 3])
         func channel(_ i: Int) -> UInt8 {
             alpha == 0 ? 0 : UInt8(min(255, (Int(pixels[offset + i]) * 255 + alpha / 2) / alpha))
         }
@@ -53,14 +78,17 @@ final class CapturePixelSampler: @unchecked Sendable {
 
     /// Fixed small patch, padded at display edges. The picked pixel stays in the centre.
     func magnifier(sample: CapturePixelSample, radius: Int = 5) -> CGImage? {
-        guard radius >= 0, radius <= 16 else { return nil }
+        guard radius >= 0, radius <= 16, sample.pixelX >= 0, sample.pixelX < width,
+              sample.pixelY >= 0, sample.pixelY < height else { return nil }
+        lock.lock(); defer { lock.unlock() }
+        guard prepareTile(x: sample.pixelX,y: sample.pixelY,radius: radius), let origin = tileOrigin else { return nil }
         let edge = radius * 2 + 1
         var patch = [UInt8](repeating: 0, count: edge * edge * 4)
         for y in 0..<edge {
             for x in 0..<edge {
                 let sourceX = min(width - 1, max(0, sample.pixelX + x - radius))
                 let sourceY = min(height - 1, max(0, sample.pixelY + y - radius))
-                let source = (sourceY * width + sourceX) * 4, target = (y * edge + x) * 4
+                let source = ((sourceY-Int(origin.y)) * rasterWidth + sourceX-Int(origin.x)) * 4, target = (y * edge + x) * 4
                 for c in 0..<4 { patch[target + c] = pixels[source + c] }
             }
         }

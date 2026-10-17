@@ -6,7 +6,7 @@ final class CaptureModule: NSObject {
     var onPermissionNeeded: (() -> Void)?
     var onStatusChange: ((String) -> Void)?
     private let logger = Logger(subsystem:"cc.anjing.macos-x",category:"capture-pin")
-    private let images = CaptureImageService()
+    private let images: CaptureImageService
     private let selection = CaptureSelection()
     private let pins = CapturePins()
     private let recorder = CaptureRecorder()
@@ -37,7 +37,9 @@ final class CaptureModule: NSObject {
     /// Never persisted or inferred from the permission UI/preflight alone.
     private(set) var hasConfirmedScreenCaptureAccess = false
 
-    override init() {
+    override convenience init() { self.init(images: CaptureImageService()) }
+    init(images: CaptureImageService) {
+        self.images = images
         super.init()
         pins.showsOutline = UserDefaults.standard.bool(forKey: "capture.pin-outline")
         pins.onStatus = { [weak self] in self?.setStatus($0) }
@@ -84,7 +86,8 @@ final class CaptureModule: NSObject {
         let timing = CaptureTiming()
         let screens = screenDescriptors()
         setStatus("正在截图…")
-        captureTicket = images.capture(screens, ownWindowIDs: CaptureImageService.localWindowIDs()) { [weak self] result in
+        let priority = screens.first { $0.frame.contains(NSEvent.mouseLocation) }?.id
+        captureTicket = images.capture(screens, ownWindowIDs: CaptureImageService.localWindowIDs(),prioritizing: priority) { [weak self] result in
             MainActor.assumeIsolated {
                 guard let self, self.running, self.generation == expected, self.captureRevision == captureRevision else { return }
                 switch result {

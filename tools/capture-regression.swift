@@ -39,6 +39,7 @@ private struct CaptureRegression {
             var checks = Checks()
             try orientationAndMagnifier(&checks)
             try colorSpaceAndAlpha(&checks)
+            try tiledSampling(&checks)
             try globalMappingAndLimits(&checks)
             try selectionGeometry(&checks)
             try onePixelComposite(&checks)
@@ -149,6 +150,39 @@ private struct CaptureRegression {
         let red = CapturePixelSampler(image: quadrantImage())!.sample(x: 0, y: 0)!
         try checks.require(red.hex == "#FF0000" && red.rgb == "rgb(255, 0, 0)", "RGB and uppercase HEX formatting")
         print("PASS color: sRGB bytes, independent Display-P3 conversion goldens, and transparent alpha")
+    }
+
+    private static func tiledSampling(_ checks: inout Checks) throws {
+        let width = 153, height = 131
+        var rgba = [UInt8]()
+        for i in 0..<width*height {
+            let alpha: UInt8 = i%5 == 0 ? 0 : (i%3 == 0 ? 128 : 255)
+            rgba.append(contentsOf: [UInt8((i%width*11)%256),UInt8((i/width*7)%256),UInt8((i*3)%256),alpha])
+        }
+        for space in [CGColorSpace(name: CGColorSpace.sRGB)!,CGColorSpace(name: CGColorSpace.displayP3)!] {
+            let source = image(width: width,height: height,rgba: rgba,space: space)
+            for base in [source,source.cropping(to: CGRect(x: 13,y: 17,width: 121,height: 97))!] {
+                let full = CapturePixelSampler(image: base)!, tile = CapturePixelSampler(image: base,tiled: true)!
+                try checks.require(tile.byteCount <= 64*64*4 && tile.byteCount < full.byteCount,"F1 sampling allocation stays at most 64x64 pixels")
+                let points = [CGPoint.zero,CGPoint(x: base.width-1,y: 0),CGPoint(x: 0,y: base.height-1),
+                              CGPoint(x: base.width-1,y: base.height-1),CGPoint(x: 31,y: 31),CGPoint(x: 32,y: 32),
+                              CGPoint(x: 63,y: 63),CGPoint(x: 64,y: 64),CGPoint(x: 96,y: 80),CGPoint(x: 17,y: 19)]
+                for point in points.reversed() + points {
+                    let x = Int(point.x), y = Int(point.y)
+                    let actual = tile.sample(x: x,y: y)!, expected = full.sample(x: x,y: y)!
+                    try checks.require(actual == expected,"Tiled ICC/alpha conversion matches an independent full-raster draw at corners and tile boundaries")
+                    let large = CapturePixelSampler(image: tile.magnifier(sample: actual,radius: 16)!)!
+                    let golden = CapturePixelSampler(image: full.magnifier(sample: expected,radius: 16)!)!
+                    try checks.require((0..<33).allSatisfy { y in (0..<33).allSatisfy { x in large.sample(x: x,y: y) == golden.sample(x: x,y: y) } },
+                                       "Moving and edge-clamped magnifiers retain every RGBA pixel after tile replacement")
+                }
+                DispatchQueue.concurrentPerform(iterations: 200) { i in
+                    let x = (i*73)%base.width, y = (i*47)%base.height
+                    precondition(tile.sample(x: x,y: y) == full.sample(x: x,y: y),"Concurrent tile replacement must keep coordinates and colours atomic")
+                }
+            }
+        }
+        print("PASS tiled sampling: bounded allocation, sRGB/P3 and alpha, cropped origins, tile crossings, edge magnifiers and concurrent replacement")
     }
 
     private static func globalMappingAndLimits(_ checks: inout Checks) throws {

@@ -12,7 +12,7 @@ struct CaptureTiming {
     }
 }
 
-struct CaptureScreen {
+struct CaptureScreen: Equatable {
     let id: CGDirectDisplayID
     let frame: CGRect // AppKit global points, including negative display origins
     let scale: CGFloat
@@ -72,6 +72,7 @@ final class CaptureImageService {
         let screens: [CaptureScreen]
         let window: CaptureWindow?
         let ownWindowIDs: Set<CGWindowID>
+        let priorityDisplay: CGDirectDisplayID?
         let ticket: Ticket
         let completion: (Result<[CaptureFrame], Error>) -> Void
     }
@@ -80,6 +81,7 @@ final class CaptureImageService {
     private final class DisplayFrames {
         var frames: [CaptureFrame] = []
         var finished = false
+        var windows = [CaptureWindow]()
     }
     private static let windowBackground = CGColor(gray: 1, alpha: 1)
     private let queue = DispatchQueue(label: "cc.anjing.macos-x.capture.images", qos: .userInitiated)
@@ -87,14 +89,19 @@ final class CaptureImageService {
     private var busy = false
     private var latest: Ticket?
     private let lock = NSLock()
+    private let reuseDisplayMetadata: Bool
+    private var displayCache: (screens: [CaptureScreen], displays: [SCDisplay])?
+
+    init(reuseDisplayMetadata: Bool = true) { self.reuseDisplayMetadata = reuseDisplayMetadata }
 
     @discardableResult
-    func capture(_ screens: [CaptureScreen], window: CaptureWindow? = nil, ownWindowIDs: Set<CGWindowID> = [], completion: @escaping (Result<[CaptureFrame], Error>) -> Void) -> Ticket {
+    func capture(_ screens: [CaptureScreen], window: CaptureWindow? = nil, ownWindowIDs: Set<CGWindowID> = [], prioritizing priorityDisplay: CGDirectDisplayID? = nil,
+                 completion: @escaping (Result<[CaptureFrame], Error>) -> Void) -> Ticket {
         let ticket = Ticket()
         let timing = CaptureTiming()
         lock.lock(); latest?.cancel(); latest = ticket; lock.unlock()
         queue.async { [self] in
-            pending = Request(timing: timing, screens: screens, window: window, ownWindowIDs: ownWindowIDs, ticket: ticket, completion: completion)
+            pending = Request(timing: timing, screens: screens, window: window, ownWindowIDs: ownWindowIDs, priorityDisplay: priorityDisplay, ticket: ticket, completion: completion)
             beginNext()
         }
         return ticket
@@ -102,7 +109,7 @@ final class CaptureImageService {
 
     func cancel() {
         lock.lock(); latest?.cancel(); latest = nil; lock.unlock()
-        queue.async { [self] in pending = nil }
+        queue.async { [self] in pending = nil; displayCache = nil }
     }
 
     private func beginNext() {
@@ -111,6 +118,11 @@ final class CaptureImageService {
         guard request.ticket.valid else { beginNext(); return }
         busy = true
         request.timing.record("request-start")
+        if request.window == nil, let cached = displayCache, cached.screens == request.screens {
+            request.timing.record("display-metadata-reused")
+            captureDisplays(request,displays: cached.displays)
+            return
+        }
         let contentTiming = CaptureTiming()
         // An already-selected window may be behind our frozen selection
         // panels. Resolve its exact ID without an onscreen-only filter;
@@ -125,23 +137,35 @@ final class CaptureImageService {
                     self.captureWindow(request, target: window, content: content)
                     return
                 }
-                let totalPixels = request.screens.reduce(CGFloat(0)) { $0 + $1.frame.width * $1.frame.height * $1.scale * $1.scale }
-                let reduction = min(1, sqrt(32_000_000 / max(1, totalPixels)))
-                let metadataTiming = CaptureTiming()
-                let windows = Self.windowRegions(primaryTop: request.screens.first?.frame.maxY ?? 0, ownWindowIDs: request.ownWindowIDs)
-                metadataTiming.record("window-metadata")
-                self.captureDisplay(request, displays: content.displays, windows: windows,
-                                    index: 0, reduction: reduction, state: DisplayFrames())
+                let displays = content.displays.filter { display in request.screens.contains { $0.id == display.displayID } }
+                if self.reuseDisplayMetadata, request.screens.count <= 16,
+                   request.screens.allSatisfy({ screen in displays.contains { $0.displayID == screen.id } }) {
+                    self.displayCache = (request.screens, displays)
+                }
+                self.captureDisplays(request,displays: displays)
             }
         }
     }
 
-    private func captureDisplay(_ request: Request, displays: [SCDisplay], windows: [CaptureWindow],
+    private func captureDisplays(_ request: Request, displays: [SCDisplay]) {
+        let totalPixels = request.screens.reduce(CGFloat(0)) { $0 + $1.frame.width * $1.frame.height * $1.scale * $1.scale }
+        let reduction = min(1,sqrt(32_000_000 / max(1,totalPixels)))
+        let order = request.screens.filter { $0.id == request.priorityDisplay } + request.screens.filter { $0.id != request.priorityDisplay }
+        let state = DisplayFrames()
+        // Issue the time-sensitive native call first. This metadata query runs
+        // on the same serial worker while macOS obtains the first image.
+        captureDisplay(request,displays: displays,screens: order,index: 0,reduction: reduction,state: state)
+        let timing = CaptureTiming()
+        state.windows = Self.windowRegions(primaryTop: request.screens.first?.frame.maxY ?? 0,ownWindowIDs: request.ownWindowIDs)
+        timing.record("window-metadata")
+    }
+
+    private func captureDisplay(_ request: Request, displays: [SCDisplay], screens: [CaptureScreen],
                                 index: Int, reduction: CGFloat, state: DisplayFrames) {
         guard !state.finished else { return }
         guard request.ticket.valid else { completeDisplay(request, state, .failure(CaptureFailure.cancelled)); return }
-        guard index < request.screens.count else { completeDisplay(request, state, state.frames.isEmpty ? .failure(CaptureFailure.unavailable) : .success(state.frames)); return }
-        let screen = request.screens[index]
+        guard index < screens.count else { completeDisplay(request,state,.failure(CaptureFailure.unavailable)); return }
+        let screen = screens[index]
         guard let display = displays.first(where: { $0.displayID == screen.id }) else {
             completeDisplay(request, state, .failure(CaptureFailure.unavailable)); return
         }
@@ -158,23 +182,25 @@ final class CaptureImageService {
                 screenshotTiming.record("display-screenshot")
                 guard let image else { self.completeDisplay(request, state, .failure(error ?? CaptureFailure.unavailable)); return }
                 guard request.ticket.valid else { self.completeDisplay(request, state, .failure(CaptureFailure.cancelled)); return }
-                let position = state.frames.count
-                state.frames.append(CaptureFrame(screen: screen, image: image, windows: windows.map(\.frame), windowTargets: windows))
-                if index + 1 < request.screens.count {
-                    self.captureDisplay(request, displays: displays, windows: windows, index: index + 1, reduction: reduction, state: state)
-                }
-                guard !state.finished else { return }
-                guard request.ticket.valid else {
-                    // A previously issued next display owns the completion. On
-                    // the final display there is no callback left to drain it.
-                    if index + 1 == request.screens.count { self.completeDisplay(request, state, .failure(CaptureFailure.cancelled)) }
+                if index == 0 { request.timing.record("first-display-pixels") }
+                state.frames.append(CaptureFrame(screen: screen,image: image))
+                if index + 1 < screens.count {
+                    self.captureDisplay(request,displays: displays,screens: screens,index: index + 1,reduction: reduction,state: state)
                     return
                 }
-                let samplingTiming = CaptureTiming()
-                let sampler = CapturePixelSampler(image: image)
-                samplingTiming.record("pixel-sampler")
-                state.frames[position] = CaptureFrame(screen: screen, image: image, windows: windows.map(\.frame), sampler: sampler, windowTargets: windows)
-                if index + 1 == request.screens.count { self.completeDisplay(request, state, .success(state.frames)) }
+                request.timing.record("all-display-pixels")
+                var prepared = [CaptureFrame]()
+                // All pixels are frozen before creating the bounded colour tiles.
+                // Keep the original primary-display order for coordinates.
+                for screen in request.screens {
+                    guard request.ticket.valid else { self.completeDisplay(request,state,.failure(CaptureFailure.cancelled)); return }
+                    guard let raw = state.frames.first(where: { $0.screen.id == screen.id }) else { self.completeDisplay(request,state,.failure(CaptureFailure.unavailable)); return }
+                    let samplingTiming = CaptureTiming()
+                    let sampler = CapturePixelSampler(image: raw.image,tiled: true)
+                    samplingTiming.record("pixel-sampler")
+                    prepared.append(CaptureFrame(screen: screen,image: raw.image,windows: state.windows.map(\.frame),sampler: sampler,windowTargets: state.windows))
+                }
+                self.completeDisplay(request,state,.success(prepared))
             }
         }
     }
@@ -256,6 +282,7 @@ final class CaptureImageService {
 
     private func finish(_ request: Request, _ result: Result<[CaptureFrame], Error>) {
         busy = false
+        if case .failure = result { displayCache = nil }
         let result = result.mapError(CaptureFailure.screenCaptureError)
         if request.ticket.valid {
             DispatchQueue.main.async {

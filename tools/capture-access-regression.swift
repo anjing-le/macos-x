@@ -22,7 +22,8 @@ final class SCShareableContent {
 }
 final class SCContentFilter {
     static var lastWindowID: UInt32?
-    init(display: SCDisplay, excludingWindows: [Any]) { Self.lastWindowID = nil }
+    static var lastDisplayID: UInt32?
+    init(display: SCDisplay, excludingWindows: [Any]) { Self.lastWindowID = nil; Self.lastDisplayID = display.displayID }
     init(desktopIndependentWindow window: SCWindow) { Self.lastWindowID = window.windowID }
 }
 final class SCStreamConfiguration {
@@ -390,7 +391,7 @@ private struct CheckFailure: Error { let message: String }
             let refusal = NSError(domain: SCStreamErrorDomain, code: -3801)
             let unrelated = NSError(domain: SCStreamErrorDomain, code: -3811)
             let wrongDomain = NSError(domain: "fixture.other", code: -3801)
-            let service = CaptureImageService()
+            let service = CaptureImageService(reuseDisplayMetadata: false)
             var result: Result<[CaptureFrame], Error>?
             service.capture([screen]) { result = $0 }
             try await succeedImage(image)
@@ -498,7 +499,58 @@ private struct CheckFailure: Error { let message: String }
             try await wait({ latestCalls == 1 }, "latest screenshot")
             try require(oldCalls == 0, "late superseded image must never complete")
 
-            let module = CaptureModule(); var permissionEvents = 0
+            // Prioritisation changes acquisition order, never the coordinate
+            // order delivered to selection/window capture. Metadata is the
+            // only reusable data: each capture still requests fresh pixels.
+            let fast = CaptureImageService()
+            var fastResult: Result<[CaptureFrame], Error>?
+            fast.capture([screen,secondScreen],prioritizing: 8) { fastResult = $0 }
+            try await wait({ MockCapture.pendingContent == 1 },"cold display metadata")
+            MockCapture.content()
+            try await wait({ MockCapture.pendingImage == 1 },"priority display native image")
+            try require(SCContentFilter.lastDisplayID == 8,"Mouse display is frozen first even when it is not the primary display")
+            MockCapture.image(green)
+            try await wait({ MockCapture.pendingImage == 1 },"primary display follows priority display")
+            try require(SCContentFilter.lastDisplayID == 7,"Secondary native capture remains single-flight")
+            MockCapture.image(image)
+            try await wait({ fastResult != nil },"priority capture delivered")
+            if case .success(let frames) = fastResult {
+                try require(frames.map(\.screen.id) == [7,8],"Output retains primary coordinate order")
+                try require(frames[0].sampler?.sample(x: 0,y: 0) == expectedRed && frames[1].sampler?.sample(x: 0,y: 0) == expectedGreen,
+                            "Post-freeze sampling never swaps screens")
+            } else { throw CheckFailure(message: "priority capture failed") }
+            fastResult = nil
+            fast.capture([screen,secondScreen],prioritizing: 7) { fastResult = $0 }
+            try await wait({ MockCapture.pendingImage == 1 },"warm capture issues pixels directly")
+            try require(MockCapture.pendingContent == 0 && SCContentFilter.lastDisplayID == 7,"Warm F1 does not wait for a fresh shareable-content query")
+            MockCapture.image(green)
+            try await wait({ MockCapture.pendingImage == 1 },"warm second display")
+            MockCapture.image(image)
+            try await wait({ fastResult != nil },"fresh warm pixels delivered")
+            if case .success(let frames) = fastResult {
+                try require(frames[0].sampler?.sample(x: 0,y: 0) == expectedGreen,"Cached display metadata must never reuse old image pixels")
+            } else { throw CheckFailure(message: "warm capture failed") }
+            fastResult = nil
+            fast.capture([screen]) { fastResult = $0 }
+            try await wait({ MockCapture.pendingContent == 1 },"display removal invalidates metadata")
+            MockCapture.content(); try await wait({ MockCapture.pendingImage == 1 },"new layout pixels")
+            MockCapture.image(image); try await wait({ fastResult != nil },"new layout delivered")
+            fastResult = nil
+            fast.capture([screen]) { fastResult = $0 }
+            try await wait({ MockCapture.pendingImage == 1 },"cached layout before native failure")
+            MockCapture.image(error: unrelated); try await wait({ fastResult != nil },"native failure delivered")
+            fastResult = nil
+            fast.capture([screen]) { fastResult = $0 }
+            try await wait({ MockCapture.pendingContent == 1 },"native error invalidates display metadata")
+            MockCapture.content(); try await wait({ MockCapture.pendingImage == 1 },"refreshed display pixels")
+            MockCapture.image(image); try await wait({ fastResult != nil },"refreshed layout delivered")
+            fast.cancel(); fastResult = nil
+            fast.capture([screen]) { fastResult = $0 }
+            try await wait({ MockCapture.pendingContent == 1 },"stop releases cached display references")
+            fast.cancel(); MockCapture.content(); try await settle()
+            try require(fastResult == nil && MockCapture.pendingImage == 0 && MockCapture.peakPendingImages == 1,
+                        "Cancellation drops cache and stale callbacks without extra native shots")
+            let module = CaptureModule(images: CaptureImageService(reuseDisplayMetadata: false)); var permissionEvents = 0
             module.onPermissionNeeded = { permissionEvents += 1 }; module.start()
             try require(!module.hasConfirmedScreenCaptureAccess, "start alone is not capture proof")
             module.capture(); try await succeedImage(image)
@@ -594,7 +646,7 @@ private struct CheckFailure: Error { let message: String }
             module.prepareToTerminate { flushed += 1 }
             try await wait({ flushed == 1 }, "termination flush")
             try await settle(); try require(flushed == 1, "termination completion occurs exactly once")
-            let pinModule = CaptureModule(); pinModule.start(); pinModule.capture()
+            let pinModule = CaptureModule(images: CaptureImageService(reuseDisplayMetadata: false)); pinModule.start(); pinModule.capture()
             try await succeedImage(image)
             try await wait({ CaptureSelection.lastCompletion != nil }, "pin selection")
             let region = CGRect(x: -100, y: -50, width: 400, height: 300)
@@ -637,7 +689,7 @@ private struct CheckFailure: Error { let message: String }
             try require(CaptureSelection.dismissals == newSession, "late pin cannot dismiss a newer screenshot session")
             try await wait({ MockCapture.pendingContent == 1 }, "new session metadata")
             pinModule.stop(); MockCapture.content(error: unrelated); try await settle()
-            let placementModule = CaptureModule(); placementModule.start(); placementModule.capture()
+            let placementModule = CaptureModule(images: CaptureImageService(reuseDisplayMetadata: false)); placementModule.start(); placementModule.capture()
             try await succeedImage(image)
             try await wait({ CaptureSelection.lastCompletion != nil }, "copied screenshot selection")
             CaptureSelection.lastCompletion?(.edit(region))
@@ -654,7 +706,7 @@ private struct CheckFailure: Error { let message: String }
             try await wait({ CapturePins.frames.count == copiedPins + 2 }, "external clipboard pin")
             try require(CapturePins.frames.last! == nil, "changed clipboard must not reuse unrelated screenshot placement")
             placementModule.stop(); NSPasteboard.general.fixturePNG = nil; CaptureClipboard.fixtureImage = nil
-            let clickModule = CaptureModule(); clickModule.start(); clickModule.capture()
+            let clickModule = CaptureModule(images: CaptureImageService(reuseDisplayMetadata: false)); clickModule.start(); clickModule.capture()
             try await succeedImage(image)
             try await wait({ CaptureSelection.lastCompletion != nil }, "selection before another-window click")
             CaptureSelection.lastCompletion?(.edit(region))
@@ -681,7 +733,7 @@ private struct CheckFailure: Error { let message: String }
             let frozen = frozenContext.makeImage()!, crop = CGRect(x: -60,y: 70,width: 160,height: 100)
             CaptureEditor.encodesFixturePNG = true; NSPasteboard.general.acceptsFixtureWrites = true
             // Free selection still copies the exact frozen desktop pixels.
-            let direct = CaptureModule(); direct.start(); direct.capture()
+            let direct = CaptureModule(images: CaptureImageService(reuseDisplayMetadata: false)); direct.start(); direct.capture()
             try await succeedImage(frozen)
             try await wait({ CaptureSelection.lastCompletion != nil },"free range selection ready")
             let succeeded = CaptureSelection.copySucceeded
@@ -706,7 +758,7 @@ private struct CheckFailure: Error { let message: String }
             let desktopContext = CaptureRaster.context(width: 400,height: 300)!
             desktopContext.setFillColor(CGColor(red: 0,green: 1,blue: 0,alpha: 1)); desktopContext.fill(CGRect(x: 0,y: 0,width: 400,height: 300))
             let desktop = desktopContext.makeImage()!
-            let magnet = CaptureModule(); magnet.start(); magnet.capture()
+            let magnet = CaptureModule(images: CaptureImageService(reuseDisplayMetadata: false)); magnet.start(); magnet.capture()
             try await succeedImage(desktop)
             try await wait({ CaptureSelection.lastCompletion != nil },"magnet range ready")
             let windowRegion = CGRect(x: 0,y: 246,width: 4,height: 4)
@@ -742,7 +794,7 @@ private struct CheckFailure: Error { let message: String }
             NSPasteboard.general.fixturePNG = nil
             try require(MockCapture.preflightCalls == 0, "all active paths avoid advisory checks")
             try require(CGPreflightScreenCaptureAccess() == false, "mock advisory really returns false")
-            let snapshotModule = CaptureModule(); snapshotModule.start()
+            let snapshotModule = CaptureModule(images: CaptureImageService(reuseDisplayMetadata: false)); snapshotModule.start()
             var released = 0
             snapshotModule.capture(snapshotReady: { released += 1 })
             try await wait({ MockCapture.pendingContent == 1 }, "frozen switcher capture metadata")
