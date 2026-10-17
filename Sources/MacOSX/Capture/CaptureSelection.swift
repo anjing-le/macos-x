@@ -53,6 +53,7 @@ import os
     private var copyMonitor: Any?
     private var awaitingEditor = false
     private var pendingCopy = false
+    private var copyingRange = false
     private static let copyLog = Logger(subsystem: "cc.anjing.macos-x",category: "capture-copy")
 
     private func installCopyMonitor() {
@@ -130,7 +131,7 @@ import os
 
     func dismiss() {
         if let copyMonitor { NSEvent.removeMonitor(copyMonitor); self.copyMonitor = nil }
-        completion = nil; acceptsInput = false
+        completion = nil; acceptsInput = false; copyingRange = false
         clearEditorCallbacks()
         recordingControls?.orderOut(nil); recordingControls?.close(); recordingControls = nil
         panels.forEach { $0.orderOut(nil); $0.close() }
@@ -189,7 +190,12 @@ import os
             let region = visibleRegion
             completedWindow = selection.isNull ? targetWindow(for: region) : snappedWindow
         }
-        if case .edit = result {
+        if case .copy(let region) = result {
+            copyingRange = true
+            // The frozen pixels and the visible range stay put until the
+            // clipboard write is acknowledged; closing the UI is not success.
+            selection = region; retainBackdrop()
+        } else if case .edit = result {
             awaitingEditor = true
             retainBackdrop()
         } else if case .pin = result {
@@ -219,6 +225,14 @@ import os
         for panel in panels { (panel as? Panel)?.acceptsSelectionInput = true; panel.acceptsMouseMovedEvents = true }
         let index = frames.firstIndex { $0.screen.frame.contains(NSEvent.mouseLocation) } ?? 0
         panels[index].makeKeyAndOrderFront(nil); panels[index].makeFirstResponder(views[index]); redraw()
+    }
+    func completeRangeCopy(error: String? = nil) {
+        guard copyingRange else { return }
+        if let error {
+            copyingRange = false
+            views.forEach { $0.hint = error }
+            resume()
+        } else { dismiss() }
     }
     func color(at point: CGPoint, rgb: Bool = false) -> String? {
         guard let frame = frames.first(where: { $0.screen.frame.contains(point) }),
@@ -339,6 +353,10 @@ import os
     }
     private func keyDown(_ event: NSEvent) -> Bool {
         if handleCopyShortcut(event) { return true }
+        if copyingRange, event.keyCode == 53 {
+            let callback = completion
+            dismiss(); callback?(.cancel); return true
+        }
         guard acceptsInput else { return false }
         if mode == .screenshot, drag == nil, onEditorKey?(event) == true { return true }
         let command = event.modifierFlags.contains(.command), shift = event.modifierFlags.contains(.shift)
@@ -428,7 +446,7 @@ import os
         panel.makeKeyAndOrderFront(nil)
     }
     private func copyPressed() {
-        guard mode == .screenshot, completion != nil, let region = validRegion() else { return }
+        guard mode == .screenshot, !copyingRange, completion != nil, let region = validRegion() else { return }
         if drag != nil {
             pendingCopy = true
             mouseUp(pointer)

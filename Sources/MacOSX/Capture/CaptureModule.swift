@@ -97,10 +97,13 @@ final class CaptureModule: NSObject {
                                            windows: frames.first?.windows ?? []) { [weak self] result in
                         guard let self, self.running, self.generation == expected, self.captureRevision == captureRevision else { return }
                         if case .copy = result {
-                            // A click on another magnetized window copies that
-                            // window directly, replacing any previous crop UI.
+                            // A new visible range replaces any previous crop UI.
                             self.editor?.onClose = nil; self.editor?.close(); self.editor = nil
                             self.editorPending = false; self.pinAfterEditor = false
+                            // Direct F1 copy is a crop of the already-visible
+                            // frozen desktop, not a second capture of an app.
+                            self.finishSelection(result, frames: frames, generation: expected, revision: captureRevision)
+                            return
                         }
                         if let target = self.selection.completedWindow {
                             switch result {
@@ -142,7 +145,7 @@ final class CaptureModule: NSObject {
                                  generation expected: UInt64, revision: UInt64) {
         let region: CGRect
         switch result {
-        case .cancel: editor?.close(); editor = nil; captureInProgress = false; setStatus("已取消截图。"); return
+        case .cancel: captureTicket?.cancel(); editor?.close(); editor = nil; captureInProgress = false; setStatus("已取消截图。"); return
         case .color(let value):
             editor?.close(); editor = nil
             captureInProgress = false
@@ -165,16 +168,32 @@ final class CaptureModule: NSObject {
                       self.captureRevision == revision, ticket?.valid == true else { return }
                 guard let image else {
                     self.captureInProgress = false; self.editorPending = false; self.pinAfterEditor = false
+                    if case .copy = result {
+                        self.captureInProgress = true
+                        self.selection.completeRangeCopy(error: "截图处理失败 · 可调整范围重试，Esc 退出")
+                        self.handle(CaptureFailure.oversized); return
+                    }
                     self.selection.dismiss(); self.handle(CaptureFailure.oversized); return
                 }
                 switch result {
                 case .copy:
                     self.captureInProgress = false
-                    guard let data else { self.setStatus("截图编码失败，未修改剪贴板。"); return }
+                    guard let data else {
+                        self.captureInProgress = true
+                        self.selection.completeRangeCopy(error: "截图编码失败 · ⌘C 重试，Esc 退出")
+                        self.setStatus("截图编码失败，未修改剪贴板。"); return
+                    }
                     NSPasteboard.general.clearContents()
-                    guard NSPasteboard.general.setData(data, forType: .png) else { self.setStatus("复制失败。"); return }
+                    guard NSPasteboard.general.setData(data, forType: .png) else {
+                        self.captureInProgress = true
+                        self.selection.completeRangeCopy(error: "复制失败 · ⌘C 重试，Esc 退出")
+                        self.setStatus("复制失败。"); return
+                    }
                     self.copiedRegion = (NSPasteboard.general.changeCount, region)
-                    self.lastRegion = region; self.setStatus("已复制截图。")
+                    self.lastRegion = region
+                    self.logger.info("range copy written png_bytes=\(data.count,privacy: .public)")
+                    self.selection.completeRangeCopy()
+                    self.setStatus("已复制截图。")
                 case .pin:
                     self.lastRegion = region
                     self.pins.add(image, at: region) { [weak self] shown in

@@ -1,10 +1,11 @@
 import AppKit
 import AVFoundation
 import UniformTypeIdentifiers
+import ImageIO
 
 // Exercises the actual service, module and recorder state machines. Only OS
 // capture calls and presenting UI are replaced; no real capture, TCC request,
-// window presentation or clipboard access occurs. These mocks are not SCK E2E.
+// window presentation or general clipboard access occurs. These mocks are not SCK E2E.
 let SCStreamErrorDomain = "com.apple.ScreenCaptureKit.SCStreamErrorDomain"
 enum SCStreamError { enum Code: Int { case userDeclined = -3801 } }
 final class SCDisplay { let displayID: UInt32; init(_ id: UInt32) { displayID = id } }
@@ -142,7 +143,12 @@ final class NSSavePanel {
     func clearEditorCallbacks() {}
     func setEditing(_ editing: Bool) {}
     func editorDidBecomeReady() -> Bool { false }
-    var completedWindow: CaptureWindow? { nil }
+    var completedWindow: CaptureWindow? { Self.fixtureWindow }
+    static var fixtureWindow: CaptureWindow?
+    static var copySucceeded = 0, copyFailed = 0
+    func completeRangeCopy(error: String? = nil) {
+        if error == nil { Self.copySucceeded += 1 } else { Self.copyFailed += 1 }
+    }
     enum Result { case copy(CGRect), pin(CGRect), edit(CGRect), color(String), cancel }
     static weak var current: CaptureSelection?
     static var presentations = 0
@@ -190,7 +196,14 @@ final class NSSavePanel {
         let callback = onClose; onClose = nil; callback?()
     }
     func pinCurrentImage() { onPin?(image) }
-    nonisolated static func pngData(_ image: CGImage) -> Data? { nil }
+    nonisolated(unsafe) static var encodesFixturePNG = false
+    nonisolated static func pngData(_ image: CGImage) -> Data? {
+        guard encodesFixturePNG else { return nil }
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, image, nil)
+        return CGImageDestinationFinalize(destination) ? data as Data : nil
+    }
 }
 enum CaptureClipboard {
     struct Decoded { let image:CGImage; let isText:Bool }
@@ -211,11 +224,18 @@ enum NSPasteboard {
     final class Board {
         var changeCount = 0
         var fixturePNG: Data?
+        var acceptsFixtureWrites = false
         func data(forType: Kind) -> Data? { forType == .png ? fixturePNG : nil }
         func string(forType: Kind) -> String? { nil }
-        func clearContents() { fatalError("Test must not write clipboard") }
+        func clearContents() {
+            precondition(acceptsFixtureWrites,"Test must not write clipboard")
+            fixturePNG = nil; changeCount += 1
+        }
         @discardableResult func setString(_ value: String, forType: Kind) -> Bool { fatalError("Test must not write clipboard") }
-        @discardableResult func setData(_ value: Data, forType: Kind) -> Bool { fatalError("Test must not write clipboard") }
+        @discardableResult func setData(_ value: Data, forType: Kind) -> Bool {
+            precondition(acceptsFixtureWrites && forType == .png,"Only the isolated PNG board accepts writes")
+            fixturePNG = value; return true
+        }
     }
     static let general = Board()
 }
@@ -645,6 +665,41 @@ private struct CheckFailure: Error { let message: String }
             try require(CaptureEditor.current == nil && MockCapture.pendingContent == 0 && MockCapture.pendingImage == 0,
                         "new-region copy cannot revive the old editor or start another desktop capture")
             clickModule.stop()
+            // Real module/service/compositor/PNG encoding through a private
+            // in-memory pasteboard double, plus a unique native pasteboard.
+            // The user's general pasteboard and UI are never touched.
+            let frozenContext = CaptureRaster.context(width: 400,height: 300)!
+            frozenContext.setFillColor(CGColor(gray: 1,alpha: 1)); frozenContext.fill(CGRect(x: 0,y: 0,width: 400,height: 300))
+            frozenContext.setFillColor(CGColor(red: 1,green: 0,blue: 0,alpha: 1)); frozenContext.fill(CGRect(x: 40,y: 80,width: 80,height: 100))
+            frozenContext.setFillColor(CGColor(red: 0,green: 0,blue: 1,alpha: 1)); frozenContext.fill(CGRect(x: 120,y: 80,width: 80,height: 100))
+            let frozen = frozenContext.makeImage()!, crop = CGRect(x: -60,y: 70,width: 160,height: 100)
+            CaptureEditor.encodesFixturePNG = true; NSPasteboard.general.acceptsFixtureWrites = true
+            for targetID: UInt32 in [42,999] {
+                let direct = CaptureModule(); direct.start(); direct.capture()
+                try await succeedImage(frozen)
+                try await wait({ CaptureSelection.lastCompletion != nil },"direct range selection ready")
+                CaptureSelection.fixtureWindow = CaptureWindow(id: targetID,frame: crop)
+                let succeeded = CaptureSelection.copySucceeded
+                NSPasteboard.general.fixturePNG = nil
+                CaptureSelection.lastCompletion?(.copy(crop))
+                try await wait({ CaptureSelection.copySucceeded == succeeded + 1 },"frozen range reaches clipboard acknowledgement")
+                try require(MockCapture.pendingContent == 0 && MockCapture.pendingImage == 0,
+                            "Direct copy never re-queries or captures the original app, even if its window is now missing")
+                let bytes = NSPasteboard.general.fixturePNG!
+                let png = CGImageSourceCreateWithData(bytes as CFData,nil).flatMap { CGImageSourceCreateImageAtIndex($0,0,nil) }!
+                try require(png.width == 160 && png.height == 100,"PNG dimensions match the currently displayed range")
+                let nativeBoard = AppKit.NSPasteboard.withUniqueName()
+                defer { nativeBoard.releaseGlobally() }
+                try require(nativeBoard.setData(bytes,forType: .png) && NSImage(pasteboard: nativeBoard) != nil,
+                            "A real private AppKit pasteboard can receive and read the copied PNG as a standard image")
+                let actual = CapturePixelSampler(image: png)!, expected = CapturePixelSampler(image: frozen.cropping(to: CGRect(x: 40,y: 80,width: 160,height: 100))!)!
+                try require((0..<100).allSatisfy { y in (0..<160).allSatisfy { x in actual.sample(x: x,y: y) == expected.sample(x: x,y: y) } },
+                            "Every decoded clipboard pixel matches the frozen visible crop")
+                direct.stop()
+            }
+            CaptureSelection.fixtureWindow = nil
+            CaptureEditor.encodesFixturePNG = false; NSPasteboard.general.acceptsFixtureWrites = false
+            NSPasteboard.general.fixturePNG = nil
             try require(MockCapture.preflightCalls == 0, "all active paths avoid advisory checks")
             try require(CGPreflightScreenCaptureAccess() == false, "mock advisory really returns false")
             let snapshotModule = CaptureModule(); snapshotModule.start()
@@ -663,7 +718,7 @@ private struct CheckFailure: Error { let message: String }
             try require(released == 2, "stop releases frozen switcher exactly once")
             MockCapture.content(error: unrelated); try await settle()
             try require(released == 2, "late snapshot completion cannot release a newer session")
-            print("PASS capture access: \(checks) assertions; false advisory + actual API success, exact refusal classification, other errors, cancellation, latest request, process proof, recording start/stop, and termination; no capture/TCC/UI/clipboard")
+            print("PASS capture access: \(checks) assertions; false advisory + actual API success, exact refusal classification, other errors, cancellation, latest request, process proof, recording start/stop, and termination; no capture/TCC/UI/general clipboard")
         } catch {
             FileHandle.standardError.write(Data("FAIL capture access: \(error)\n".utf8)); exit(1)
         }

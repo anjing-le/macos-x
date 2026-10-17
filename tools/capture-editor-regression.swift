@@ -595,7 +595,15 @@ import AppKit
         precondition(copies == 1 && native.copyMonitor == nil,"Closing F1 removes the session monitor")
         let raw = make(selected: false); raw.installCopyMonitor(); NSApp.sendEvent(key())
         guard results.count == 1, case .copy(let rawRect) = results[0] else { preconditionFailure("A native Command-C copies the magnet preview without an editor") }
-        precondition(rawRect == region && raw.copyMonitor == nil,"Direct copy can release its own local monitor during dispatch")
+        precondition(rawRect == region && raw.copyMonitor != nil && raw.copyingRange && !raw.acceptsInput,
+                     "Direct copy retains the exact visible range and frozen backdrop until the clipboard acknowledges success")
+        NSApp.sendEvent(key()); precondition(results.count == 1,"Repeated copy while encoding stays single-flight")
+        raw.completeRangeCopy(error: "fixture failure")
+        precondition(!raw.copyingRange && raw.selection == region && raw.copyMonitor != nil,"A failed copy retains the frozen range for retry")
+        raw.acceptsInput = true; NSApp.sendEvent(key())
+        precondition(results.count == 2 && raw.copyingRange,"The same range can be retried")
+        raw.completeRangeCopy()
+        precondition(raw.copyMonitor == nil && raw.frames.isEmpty,"Only successful copy acknowledgement releases the frozen session")
         NSApp.mainMenu = previousMenu
         let pending = make(selected: false)
         _ = pending.keyDown(key(49," ",flags: []))
@@ -625,6 +633,12 @@ import AppKit
         precondition(locked.keyDown(key()))
         guard results.count == 1, case .copy(let copied) = results[0] else { preconditionFailure("A retained F1 range without an editor remains copyable") }
         precondition(copied == region)
+        locked.dismiss()
+        let cancelledCopy = make(selected: false)
+        _ = cancelledCopy.keyDown(key())
+        precondition(cancelledCopy.copyingRange && cancelledCopy.keyDown(key(53,"",flags: [])))
+        guard results.count == 2, case .cancel = results.last else { preconditionFailure("Esc can cancel while a direct copy is pending") }
+        precondition(!cancelledCopy.copyingRange && cancelledCopy.frames.isEmpty)
         let recording = make(); recording.mode = .recording; recording.installCopyMonitor()
         precondition(recording.copyMonitor == nil && !recording.handleCopyShortcut(key()),"Recording does not acquire F1's copy interception")
         recording.dismiss()
