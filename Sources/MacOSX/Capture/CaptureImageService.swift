@@ -231,6 +231,11 @@ final class CaptureImageService {
         configuration.width = max(1, Int((current.width * scale).rounded()))
         configuration.height = max(1, Int((current.height * scale).rounded()))
         configuration.showsCursor = false
+        // A fullscreen/Retina transition can leave the window surface smaller
+        // than its current frame. The default only downscales, padding the top
+        // and right with background; fit the isolated content to this output.
+        configuration.scalesToFit = true
+        configuration.preservesAspectRatio = true
         configuration.ignoreShadowsSingleWindow = true
         configuration.ignoreGlobalClipSingleWindow = true
         configuration.shouldBeOpaque = true

@@ -30,6 +30,7 @@ final class SCStreamConfiguration {
     var sourceRect = CGRect.zero
     var width = 0, height = 0, queueDepth = 0
     var showsCursor = false, capturesAudio = false
+    var scalesToFit = false, preservesAspectRatio = false
     var sampleRate = 48_000, channelCount = 2
     var excludesCurrentProcessAudio = false
     var ignoreShadowsSingleWindow = false, ignoreGlobalClipSingleWindow = false, shouldBeOpaque = false
@@ -438,6 +439,8 @@ private struct CheckFailure: Error { let message: String }
             try require(configuration.ignoreShadowsSingleWindow && configuration.ignoreGlobalClipSingleWindow && configuration.shouldBeOpaque,
                         "window capture removes shadows/clipping and requests opaque output")
             try require(configuration.width == 8 && configuration.height == 8, "window capture retains point-to-pixel scale")
+            try require(configuration.scalesToFit && configuration.preservesAspectRatio,
+                        "Smaller window surfaces fill the output without stretching during fullscreen/Retina transitions")
             let cornerContext = CaptureRaster.context(width: 8, height: 8)!
             cornerContext.setFillColor(CGColor(colorSpace: cornerContext.colorSpace!, components: [1, 0, 0, 1])!)
             cornerContext.fill(CGRect(x: 2, y: 2, width: 4, height: 4))
