@@ -231,16 +231,24 @@ final class CaptureImageService {
         configuration.width = max(1, Int((current.width * scale).rounded()))
         configuration.height = max(1, Int((current.height * scale).rounded()))
         configuration.showsCursor = false
-        // A fullscreen/Retina transition can leave the window surface smaller
-        // than its current frame. The default only downscales, padding the top
-        // and right with background; fit the isolated content to this output.
+        let filter: SCContentFilter
+        if let display = content.displays.first(where: { $0.displayID == screen.id && $0.frame.contains(window.frame) }) {
+            // Independent-window capture can return a padded fullscreen surface.
+            // A display-local source rect fixes the extent while including only
+            // this window, never the desktop or our selection panels.
+            filter = SCContentFilter(display: display, including: [window])
+            configuration.sourceRect = window.frame.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
+            configuration.ignoreShadowsDisplay = true
+        } else {
+            // Keep the complete window when it spans displays or screen edges.
+            filter = SCContentFilter(desktopIndependentWindow: window)
+        }
         configuration.scalesToFit = true
         configuration.preservesAspectRatio = true
         configuration.ignoreShadowsSingleWindow = true
         configuration.ignoreGlobalClipSingleWindow = true
         configuration.shouldBeOpaque = true
         configuration.backgroundColor = Self.windowBackground
-        let filter = SCContentFilter(desktopIndependentWindow: window)
         SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration) { [weak self] image, error in
             self?.queue.async { [weak self] in
                 guard let self else { return }

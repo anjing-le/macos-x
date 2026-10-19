@@ -8,23 +8,32 @@ import ImageIO
 // window presentation or general clipboard access occurs. These mocks are not SCK E2E.
 let SCStreamErrorDomain = "com.apple.ScreenCaptureKit.SCStreamErrorDomain"
 enum SCStreamError { enum Code: Int { case userDeclined = -3801 } }
-final class SCDisplay { let displayID: UInt32; init(_ id: UInt32) { displayID = id } }
+final class SCDisplay {
+    let displayID: UInt32
+    let frame: CGRect
+    init(_ id: UInt32, frame: CGRect = CGRect(x: 0, y: 0, width: 4, height: 4)) { displayID = id; self.frame = frame }
+}
 final class SCWindow {
     let windowID: UInt32 = 42
-    let frame = CGRect(x: 0, y: 0, width: 4, height: 4)
+    let frame: CGRect
+    init(frame: CGRect = CGRect(x: 0, y: 0, width: 4, height: 4)) { self.frame = frame }
 }
 final class SCShareableContent {
     let windows: [SCWindow]
-    init(windows: [SCWindow] = [SCWindow()]) { self.windows = windows }
-    let displays = [SCDisplay(7), SCDisplay(8)]
+    let displays: [SCDisplay]
+    init(windows: [SCWindow] = [SCWindow()], displays: [SCDisplay] = [SCDisplay(7), SCDisplay(8)]) { self.windows = windows; self.displays = displays }
     static func getExcludingDesktopWindows(_ exclude: Bool, onScreenWindowsOnly: Bool,
         completionHandler: @escaping (SCShareableContent?, Error?) -> Void) { MockCapture.holdContent(completionHandler,onScreenOnly: onScreenWindowsOnly) }
 }
 final class SCContentFilter {
     static var lastWindowID: UInt32?
     static var lastDisplayID: UInt32?
-    init(display: SCDisplay, excludingWindows: [Any]) { Self.lastWindowID = nil; Self.lastDisplayID = display.displayID }
-    init(desktopIndependentWindow window: SCWindow) { Self.lastWindowID = window.windowID }
+    static var includedWindowIDs = [UInt32]()
+    init(display: SCDisplay, excludingWindows: [Any]) { Self.lastWindowID = nil; Self.lastDisplayID = display.displayID; Self.includedWindowIDs = [] }
+    init(display: SCDisplay, including windows: [SCWindow]) {
+        Self.lastWindowID = windows.first?.windowID; Self.lastDisplayID = display.displayID; Self.includedWindowIDs = windows.map(\.windowID)
+    }
+    init(desktopIndependentWindow window: SCWindow) { Self.lastWindowID = window.windowID; Self.lastDisplayID = nil; Self.includedWindowIDs = [] }
 }
 final class SCStreamConfiguration {
     var sourceRect = CGRect.zero
@@ -34,6 +43,7 @@ final class SCStreamConfiguration {
     var sampleRate = 48_000, channelCount = 2
     var excludesCurrentProcessAudio = false
     var ignoreShadowsSingleWindow = false, ignoreGlobalClipSingleWindow = false, shouldBeOpaque = false
+    var ignoreShadowsDisplay = false
     var backgroundColor: CGColor?
     var minimumFrameInterval = CMTime.zero
     var pixelFormat: OSType = 0
@@ -96,9 +106,9 @@ private enum MockCapture {
     static func holdStart(_ callback: @escaping (Error?) -> Void) { lock.lock(); starts.append(callback); lock.unlock() }
     static func holdStop(_ callback: @escaping (Error?) -> Void) { lock.lock(); stops.append(callback); lock.unlock() }
     static func stopped() { lock.lock(); let callback = stops.removeFirst(); lock.unlock(); callback(nil) }
-    static func content(error: Error? = nil,windows: [SCWindow] = [SCWindow()]) {
+    static func content(error: Error? = nil,windows: [SCWindow] = [SCWindow()],displays: [SCDisplay] = [SCDisplay(7), SCDisplay(8)]) {
         lock.lock(); let callback = contents.removeFirst(); lock.unlock()
-        callback(error == nil ? SCShareableContent(windows: windows) : nil, error)
+        callback(error == nil ? SCShareableContent(windows: windows,displays: displays) : nil, error)
     }
     static func image(_ image: CGImage? = nil, error: Error? = nil) {
         lock.lock(); let callback = images.removeFirst(); lock.unlock(); callback(image, error)
@@ -441,6 +451,10 @@ private struct CheckFailure: Error { let message: String }
             try require(configuration.width == 8 && configuration.height == 8, "window capture retains point-to-pixel scale")
             try require(configuration.scalesToFit && configuration.preservesAspectRatio,
                         "Smaller window surfaces fill the output without stretching during fullscreen/Retina transitions")
+            try require(configuration.sourceRect == CGRect(x: 0,y: 0,width: 4,height: 4),
+                        "Contained window capture uses its explicit display-local source extent")
+            try require(SCContentFilter.lastDisplayID == 7 && SCContentFilter.includedWindowIDs == [42] && configuration.ignoreShadowsDisplay,
+                        "Display filter includes only the selected window, excludes desktop/overlays and removes shadows")
             let cornerContext = CaptureRaster.context(width: 8, height: 8)!
             cornerContext.setFillColor(CGColor(colorSpace: cornerContext.colorSpace!, components: [1, 0, 0, 1])!)
             cornerContext.fill(CGRect(x: 2, y: 2, width: 4, height: 4))
@@ -452,6 +466,25 @@ private struct CheckFailure: Error { let message: String }
                 try require(pixels.sample(x: 0, y: 0)!.hex == "#FFFFFF", "transparent window corner becomes white, no desktop pixels")
                 try require(pixels.sample(x: 4, y: 4)!.hex == "#FF0000", "opaque window content remains unchanged: \(pixels.sample(x: 4, y: 4)!.hex)")
             } else { throw CheckFailure(message: "isolated window failed") }
+            // A second display can have both a positive x and negative Quartz y.
+            let offsetScreen = CaptureScreen(id: 8,frame: CGRect(x: 10,y: 0,width: 8,height: 8),scale: 1)
+            let offsetWindow = SCWindow(frame: CGRect(x: 11,y: -7,width: 4,height: 4))
+            let offsetTarget = CaptureWindow(id: 42,frame: CGRect(x: 11,y: 3,width: 4,height: 4))
+            for displayFrame in [CGRect(x: 10,y: -8,width: 8,height: 8), CGRect(x: 12,y: -8,width: 8,height: 8)] {
+                result = nil; service.capture([screen,offsetScreen],window: offsetTarget) { result = $0 }
+                try await wait({ MockCapture.pendingContent == 1 }, "offset window metadata")
+                MockCapture.content(windows: [offsetWindow],displays: [SCDisplay(8,frame: displayFrame)])
+                try await wait({ MockCapture.pendingImage == 1 }, "offset window image")
+                let contained = displayFrame.contains(offsetWindow.frame)
+                try require(MockCapture.lastConfiguration!.sourceRect == (contained ? CGRect(x: 1,y: 1,width: 4,height: 4) : .zero),
+                            "Contained display uses local points; spanning window keeps independent source extent")
+                try require(contained ? SCContentFilter.includedWindowIDs == [42] && SCContentFilter.lastDisplayID == 8 : SCContentFilter.lastDisplayID == nil && SCContentFilter.lastWindowID == 42,
+                            "Spanning windows retain exact independent-window capture without display clipping")
+                MockCapture.image(image)
+                try await wait({ result != nil }, "offset window completion")
+                if case .success(let frames) = result { try require(frames[0].screen.frame == offsetTarget.frame && frames[0].image.width == 4,"Offset window retains original placement and native scale") }
+                else { throw CheckFailure(message: "offset window failed") }
+            }
             for invalidTarget in [CaptureWindow(id: 99, frame: target.frame),
                                   CaptureWindow(id: 42, frame: target.frame.offsetBy(dx: 10, dy: 0))] {
                 result = nil; service.capture([screen], window: invalidTarget) { result = $0 }
