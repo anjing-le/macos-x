@@ -228,11 +228,12 @@ final class CaptureImageService {
             request.timing.record("window-target-moved")
             finish(request, .failure(CaptureFailure.message("窗口位置已变化，请重新截图。"))); return
         }
-        var scale = min(screen.scale, sqrt(8_000_000 / max(1, current.width * current.height)))
+        let outputRegion = request.frozenFrames == nil ? current : target.frame
+        var scale = min(screen.scale, sqrt(8_000_000 / max(1, outputRegion.width * outputRegion.height)))
         let frozen: (image: CGImage, region: CGRect)?
         if let frames = request.frozenFrames {
-            let region = current.intersection(frames.reduce(CGRect.null) { $0.union($1.screen.frame) })
-            guard let image = Self.composite(frames, selection: current), !region.isNull else {
+            let region = outputRegion.intersection(frames.reduce(CGRect.null) { $0.union($1.screen.frame) })
+            guard let image = Self.composite(frames, selection: outputRegion), !region.isNull else {
                 finish(request, .failure(CaptureFailure.unavailable)); return
             }
             // Window shape may be read later, but its RGB content must never
@@ -241,8 +242,8 @@ final class CaptureImageService {
             scale = min(scale, CGFloat(image.width) / region.width, CGFloat(image.height) / region.height)
         } else { frozen = nil }
         let configuration = SCStreamConfiguration()
-        configuration.width = max(1, Int((current.width * scale).rounded()))
-        configuration.height = max(1, Int((current.height * scale).rounded()))
+        configuration.width = max(1, Int((outputRegion.width * scale).rounded()))
+        configuration.height = max(1, Int((outputRegion.height * scale).rounded()))
         configuration.showsCursor = false
         let filter: SCContentFilter
         if let display = content.displays.first(where: { $0.displayID == screen.id && $0.frame.contains(window.frame) }) {
@@ -268,13 +269,13 @@ final class CaptureImageService {
                 guard request.ticket.valid else { self.finish(request, .failure(CaptureFailure.cancelled)); return }
                 let opaque: CGImage?
                 if let shape = image, let frozen {
-                    opaque = CaptureRaster.frozenWindow(frozen.image, region: frozen.region, window: current, shape: shape)
+                    opaque = CaptureRaster.frozenWindow(frozen.image, region: frozen.region, window: outputRegion, shape: shape)
                 } else { opaque = image.flatMap(CaptureRaster.opaqueWhite) }
                 guard let opaque else {
                     request.timing.record("window-image-failed")
                     self.finish(request, .failure(error ?? CaptureFailure.unavailable)); return
                 }
-                let frame = CaptureFrame(screen: CaptureScreen(id: screen.id, frame: current, scale: scale), image: opaque)
+                let frame = CaptureFrame(screen: CaptureScreen(id: screen.id, frame: outputRegion, scale: scale), image: opaque)
                 self.finish(request, .success([frame]))
             }
         }

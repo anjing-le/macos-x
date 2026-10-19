@@ -468,6 +468,19 @@ private struct CheckFailure: Error { let message: String }
                 try require(pixels.sample(x: 0, y: 0)!.hex == "#FFFFFF", "transparent window corner becomes white, no desktop pixels")
                 try require(pixels.sample(x: 4, y: 4)!.hex == "#FF0000", "opaque window content remains unchanged: \(pixels.sample(x: 4, y: 4)!.hex)")
             } else { throw CheckFailure(message: "isolated window failed") }
+            let frozenScreen = CaptureScreen(id: 7,frame: CGRect(x: 0,y: -4,width: 5,height: 4),scale: 2)
+            let shiftedTarget = CaptureWindow(id: 42,frame: CGRect(x: 0.5,y: -4,width: 4,height: 4))
+            let roundingContext = CaptureRaster.context(width: 10,height: 8)!
+            roundingContext.setFillColor(CGColor(colorSpace: roundingContext.colorSpace!,components: [1,0,0,1])!)
+            roundingContext.fill(CGRect(x: 0,y: 0,width: 10,height: 8))
+            result = nil
+            service.capture([frozenScreen],window: shiftedTarget,frozenFrames: [CaptureFrame(screen: frozenScreen,image: roundingContext.makeImage()!)]) { result = $0 }
+            try await succeedImage(cornerContext.makeImage()!)
+            try await wait({ result != nil },"frozen subpoint window geometry")
+            if case .success(let frames) = result {
+                try require(frames[0].screen.frame == shiftedTarget.frame,
+                            "Accepted subpoint window metadata rounding cannot shift the original frozen selection")
+            } else { throw CheckFailure(message: "frozen geometry failed") }
             // A second display can have both a positive x and negative Quartz y.
             let offsetScreen = CaptureScreen(id: 8,frame: CGRect(x: 10,y: 0,width: 8,height: 8),scale: 1)
             let offsetWindow = SCWindow(frame: CGRect(x: 11,y: -7,width: 4,height: 4))
