@@ -43,6 +43,7 @@ private struct CaptureRegression {
             try globalMappingAndLimits(&checks)
             try selectionGeometry(&checks)
             try onePixelComposite(&checks)
+            try frozenWindowShape(&checks)
             print("PASS capture regression: \(checks.assertions) assertions; orientation, sRGB/P3, alpha, Retina/negative origins, downsample mapping, edge patches, byte limits, pixel geometry, and one-pixel composition")
         } catch {
             FileHandle.standardError.write(Data("FAIL capture regression: \(error)\n".utf8))
@@ -63,6 +64,26 @@ private struct CaptureRegression {
         var channels = [UInt](repeating: 0, count: bitmap.samplesPerPixel)
         channels.withUnsafeMutableBufferPointer { bitmap.getPixel($0.baseAddress!, atX: x, y: y) }
         return channels
+    }
+
+    private static func frozenWindowShape(_ checks: inout Checks) throws {
+        let original = CaptureRaster.context(width: 8,height: 8)!
+        original.setFillColor(CGColor(colorSpace: original.colorSpace!,components: [1,0,0,1])!); original.fill(CGRect(x: 0,y: 0,width: 8,height: 8))
+        let shape = CaptureRaster.context(width: 8,height: 8)!
+        shape.setFillColor(CGColor(colorSpace: shape.colorSpace!,components: [0,0,1,1])!); shape.fill(CGRect(x: 2,y: 2,width: 4,height: 4))
+        let region = CGRect(x: -20,y: -30,width: 4,height: 4)
+        let result = CaptureRaster.frozenWindow(original.makeImage()!,region: region,window: region,shape: shape.makeImage()!)!
+        let pixels = NSBitmapImageRep(cgImage: result)
+        for y in 0..<8 { for x in 0..<8 {
+            try checks.require(bitmapPixel(pixels,x: x,y: y) == ((2..<6).contains(x) && (2..<6).contains(y) ? [255,0,0,255] : [255,255,255,255]),
+                               "Shape-only composition pixel (\(x),\(y))=\(bitmapPixel(pixels,x:x,y:y))")
+        } }
+        shape.setFillColor(CGColor(gray: 0,alpha: 1)); shape.fill(CGRect(x: 0,y: 0,width: 8,height: 8))
+        let clipped = CaptureRaster.frozenWindow(original.makeImage()!,region: region.offsetBy(dx: 2,dy: 0),window: region,shape: shape.makeImage()!)!
+        let clippedPixels = NSBitmapImageRep(cgImage: clipped)
+        try checks.require(bitmapPixel(clippedPixels,x: 0,y: 4) == [255,255,255,255] && bitmapPixel(clippedPixels,x: 7,y: 4) == [255,0,0,255],
+                           "Partly offscreen windows keep frozen pixels at the original offset, with white uncovered area")
+        print("PASS frozen window: later RGB ignored, white corners, negative origins and clipped placement")
     }
 
     // Quartz drawing uses a lower-left origin. This fixture visibly places red

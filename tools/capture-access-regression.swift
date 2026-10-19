@@ -186,8 +186,10 @@ final class NSSavePanel {
     var canAdd = true
     static var pending: [(Bool) -> Void] = []
     static var frames: [CGRect?] = []
+    static var images: [CGImage] = []
     func add(_ image: CGImage, at frame: CGRect? = nil, onPresent: ((Bool) -> Void)? = nil) {
         Self.frames.append(frame)
+        Self.images.append(image)
         if let onPresent { Self.pending.append(onPresent) }
     }
     func restoreLastClosed() -> Bool { false }
@@ -789,11 +791,15 @@ private struct CheckFailure: Error { let message: String }
                         "Every free-selection PNG pixel matches the frozen crop")
             direct.stop()
 
-            // Distinct green desktop pixels must never be used as a fallback
-            // for the red window with transparent corners.
-            let desktopContext = CaptureRaster.context(width: 400,height: 300)!
-            desktopContext.setFillColor(CGColor(red: 0,green: 1,blue: 0,alpha: 1)); desktopContext.fill(CGRect(x: 0,y: 0,width: 400,height: 300))
+            // The frozen window was red over a green desktop. After F1 its
+            // live content turns blue; only its transparent shape may be used.
+            let desktopContext = CaptureRaster.context(width: 800,height: 600)!
+            desktopContext.setFillColor(CGColor(red: 0,green: 1,blue: 0,alpha: 1)); desktopContext.fill(CGRect(x: 0,y: 0,width: 800,height: 600))
+            desktopContext.setFillColor(CGColor(colorSpace: desktopContext.colorSpace!,components: [1,0,0,1])!); desktopContext.fill(CGRect(x: 202,y: 594,width: 4,height: 4))
             let desktop = desktopContext.makeImage()!
+            let laterContext = CaptureRaster.context(width: 8,height: 8)!
+            laterContext.setFillColor(CGColor(colorSpace: laterContext.colorSpace!,components: [0,0,1,1])!); laterContext.fill(CGRect(x: 2,y: 2,width: 4,height: 4))
+            let laterWindow = laterContext.makeImage()!
             let magnet = CaptureModule(images: CaptureImageService(reuseDisplayMetadata: false)); magnet.start(); magnet.capture()
             try await succeedImage(desktop)
             try await wait({ CaptureSelection.lastCompletion != nil },"magnet range ready")
@@ -814,7 +820,9 @@ private struct CheckFailure: Error { let message: String }
             MockCapture.content()
             try await wait({ MockCapture.pendingImage == 1 },"isolated magnet image")
             try require(SCContentFilter.lastWindowID == 42,"Retry uses the exact isolated window")
-            MockCapture.image(cornerContext.makeImage()!)
+            try require(MockCapture.lastConfiguration?.shouldBeOpaque == false && MockCapture.lastConfiguration?.backgroundColor?.alpha == 0,
+                        "Frozen window request preserves transparent alpha for a shape-only mask")
+            MockCapture.image(laterWindow)
             try await wait({ CaptureSelection.copySucceeded == beforeCopy + 1 },"magnet PNG reaches clipboard acknowledgement")
             let isolatedBytes = NSPasteboard.general.fixturePNG!
             let isolatedPNG = CGImageSourceCreateWithData(isolatedBytes as CFData,nil).flatMap { CGImageSourceCreateImageAtIndex($0,0,nil) }!
@@ -823,8 +831,25 @@ private struct CheckFailure: Error { let message: String }
             try require(isolatedPixels.sample(x: 0,y: 0)?.hex == "#FFFFFF" && isolatedPixels.sample(x: 7,y: 0)?.hex == "#FFFFFF" &&
                         isolatedPixels.sample(x: 0,y: 7)?.hex == "#FFFFFF" && isolatedPixels.sample(x: 7,y: 7)?.hex == "#FFFFFF",
                         "All four decoded clipboard corners are white, never the green desktop")
-            try require(isolatedPixels.sample(x: 4,y: 4)?.hex == "#FF0000","Copied window content remains red without desktop contamination")
+            try require(isolatedPixels.sample(x: 4,y: 4)?.hex == "#FF0000","Clipboard keeps frozen red: \(isolatedPixels.sample(x:4,y:4)!.hex)")
+            try require((0..<8).allSatisfy { y in (0..<8).allSatisfy { x in
+                isolatedPixels.sample(x: x,y: y)?.hex == ((2..<6).contains(x) && (2..<6).contains(y) ? "#FF0000" : "#FFFFFF")
+            } },"Every decoded clipboard pixel is frozen content or white shape padding")
             magnet.stop()
+            for editing in [true,false] {
+                let frozenModule = CaptureModule(images: CaptureImageService(reuseDisplayMetadata: false)); frozenModule.start(); frozenModule.capture()
+                try await succeedImage(desktop)
+                try await wait({ CaptureSelection.lastCompletion != nil },"frozen edit/pin range ready")
+                let beforePins = CapturePins.images.count
+                CaptureSelection.lastCompletion?(editing ? .edit(windowRegion) : .pin(windowRegion))
+                try await succeedImage(laterWindow)
+                try await wait({ editing ? CaptureEditor.current != nil : CapturePins.images.count == beforePins + 1 },"frozen edit/pin delivered")
+                let delivered = editing ? CaptureEditor.current!.image : CapturePins.images.last!
+                let pixels = CapturePixelSampler(image: delivered)!
+                try require(pixels.sample(x: 4,y: 4)?.hex == "#FF0000" && pixels.sample(x: 0,y: 0)?.hex == "#FFFFFF",
+                            "Editor and F3 both use frozen red content and white corners, not later blue pixels")
+                frozenModule.stop()
+            }
             CaptureSelection.fixtureWindow = nil
             CaptureEditor.encodesFixturePNG = false; NSPasteboard.general.acceptsFixtureWrites = false
             NSPasteboard.general.fixturePNG = nil

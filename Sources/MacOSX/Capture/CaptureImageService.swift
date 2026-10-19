@@ -71,6 +71,7 @@ final class CaptureImageService {
         let timing: CaptureTiming
         let screens: [CaptureScreen]
         let window: CaptureWindow?
+        let frozenFrames: [CaptureFrame]?
         let ownWindowIDs: Set<CGWindowID>
         let priorityDisplay: CGDirectDisplayID?
         let ticket: Ticket
@@ -84,6 +85,7 @@ final class CaptureImageService {
         var windows = [CaptureWindow]()
     }
     private static let windowBackground = CGColor(gray: 1, alpha: 1)
+    private static let transparentWindowBackground = CGColor(gray: 0, alpha: 0)
     private let queue = DispatchQueue(label: "cc.anjing.macos-x.capture.images", qos: .userInitiated)
     private var pending: Request?
     private var busy = false
@@ -95,13 +97,13 @@ final class CaptureImageService {
     init(reuseDisplayMetadata: Bool = true) { self.reuseDisplayMetadata = reuseDisplayMetadata }
 
     @discardableResult
-    func capture(_ screens: [CaptureScreen], window: CaptureWindow? = nil, ownWindowIDs: Set<CGWindowID> = [], prioritizing priorityDisplay: CGDirectDisplayID? = nil,
+    func capture(_ screens: [CaptureScreen], window: CaptureWindow? = nil, frozenFrames: [CaptureFrame]? = nil, ownWindowIDs: Set<CGWindowID> = [], prioritizing priorityDisplay: CGDirectDisplayID? = nil,
                  completion: @escaping (Result<[CaptureFrame], Error>) -> Void) -> Ticket {
         let ticket = Ticket()
         let timing = CaptureTiming()
         lock.lock(); latest?.cancel(); latest = ticket; lock.unlock()
         queue.async { [self] in
-            pending = Request(timing: timing, screens: screens, window: window, ownWindowIDs: ownWindowIDs, priorityDisplay: priorityDisplay, ticket: ticket, completion: completion)
+            pending = Request(timing: timing, screens: screens, window: window, frozenFrames: frozenFrames, ownWindowIDs: ownWindowIDs, priorityDisplay: priorityDisplay, ticket: ticket, completion: completion)
             beginNext()
         }
         return ticket
@@ -226,7 +228,18 @@ final class CaptureImageService {
             request.timing.record("window-target-moved")
             finish(request, .failure(CaptureFailure.message("窗口位置已变化，请重新截图。"))); return
         }
-        let scale = min(screen.scale, sqrt(8_000_000 / max(1, current.width * current.height)))
+        var scale = min(screen.scale, sqrt(8_000_000 / max(1, current.width * current.height)))
+        let frozen: (image: CGImage, region: CGRect)?
+        if let frames = request.frozenFrames {
+            let region = current.intersection(frames.reduce(CGRect.null) { $0.union($1.screen.frame) })
+            guard let image = Self.composite(frames, selection: current), !region.isNull else {
+                finish(request, .failure(CaptureFailure.unavailable)); return
+            }
+            // Window shape may be read later, but its RGB content must never
+            // replace the immutable desktop already shown by the F1 panels.
+            frozen = (image, region)
+            scale = min(scale, CGFloat(image.width) / region.width, CGFloat(image.height) / region.height)
+        } else { frozen = nil }
         let configuration = SCStreamConfiguration()
         configuration.width = max(1, Int((current.width * scale).rounded()))
         configuration.height = max(1, Int((current.height * scale).rounded()))
@@ -247,13 +260,17 @@ final class CaptureImageService {
         configuration.preservesAspectRatio = true
         configuration.ignoreShadowsSingleWindow = true
         configuration.ignoreGlobalClipSingleWindow = true
-        configuration.shouldBeOpaque = true
-        configuration.backgroundColor = Self.windowBackground
+        configuration.shouldBeOpaque = frozen == nil
+        configuration.backgroundColor = frozen == nil ? Self.windowBackground : Self.transparentWindowBackground
         SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration) { [weak self] image, error in
             self?.queue.async { [weak self] in
                 guard let self else { return }
                 guard request.ticket.valid else { self.finish(request, .failure(CaptureFailure.cancelled)); return }
-                guard let image, let opaque = CaptureRaster.opaqueWhite(image) else {
+                let opaque: CGImage?
+                if let shape = image, let frozen {
+                    opaque = CaptureRaster.frozenWindow(frozen.image, region: frozen.region, window: current, shape: shape)
+                } else { opaque = image.flatMap(CaptureRaster.opaqueWhite) }
+                guard let opaque else {
                     request.timing.record("window-image-failed")
                     self.finish(request, .failure(error ?? CaptureFailure.unavailable)); return
                 }
@@ -390,6 +407,22 @@ enum CaptureRaster {
         context.setFillColor(CGColor(gray: 1, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: image.width, height: image.height))
         context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return context.makeImage()
+    }
+    /// Use only the later window's alpha. Visible content comes exclusively
+    /// from the F1 raster; transparent corners/offscreen pixels become white.
+    static func frozenWindow(_ image: CGImage, region: CGRect, window: CGRect, shape: CGImage) -> CGImage? {
+        guard window.width > 0, window.height > 0,
+              let context = context(width: shape.width, height: shape.height) else { return nil }
+        let bounds = CGRect(x: 0, y: 0, width: shape.width, height: shape.height)
+        let sx = CGFloat(shape.width) / window.width, sy = CGFloat(shape.height) / window.height
+        context.interpolationQuality = .none
+        context.draw(image, in: CGRect(x: (region.minX-window.minX)*sx, y: (region.minY-window.minY)*sy,
+                                      width: region.width*sx, height: region.height*sy))
+        context.setBlendMode(.destinationIn)
+        context.draw(shape, in: bounds)
+        context.setBlendMode(.destinationOver)
+        context.setFillColor(CGColor(gray: 1, alpha: 1)); context.fill(bounds)
         return context.makeImage()
     }
     static func downsample(_ image: CGImage, maximumPixels: Int) -> CGImage? {

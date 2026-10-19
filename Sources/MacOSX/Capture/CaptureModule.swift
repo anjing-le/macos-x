@@ -108,7 +108,7 @@ final class CaptureModule: NSObject {
                             switch result {
                             case .copy, .pin, .edit:
                                 if case .edit = result { self.editorPending = true }
-                                self.captureTicket = self.images.capture(frames.map(\.screen), window: target) { [weak self] isolated in
+                                self.captureTicket = self.images.capture(frames.map(\.screen), window: target, frozenFrames: frames) { [weak self] isolated in
                                     MainActor.assumeIsolated {
                                         guard let self, self.running, self.generation == expected, self.captureRevision == captureRevision else { return }
                                         switch isolated {
