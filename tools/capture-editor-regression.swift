@@ -16,6 +16,27 @@ import AppKit
     }
     func finishTextFixture(commit: Bool) { finishText(commit: commit) }
     var fixtureTextMark: CaptureAnnotation? { annotations.last }
+    func verifyTextPlacementFixture() {
+        canvas.tool = .text
+        let click = canvas.viewPoint(for: CGPoint(x: 40,y: 80))
+        let event = NSEvent.mouseEvent(with: .leftMouseDown,location: canvas.convert(click,to: nil),modifierFlags: [],timestamp: 0,
+            windowNumber: window.windowNumber,context: nil,eventNumber: 1,clickCount: 1,pressure: 1)!
+        canvas.mouseDown(with: event)
+        let input = textInput!
+        func caret() -> CGRect {
+            let rect = input.firstRect(forCharacterRange: NSRange(location: 0,length: 0),actualRange: nil)
+            return canvas.convert(window.convertFromScreen(rect),from: nil)
+        }
+        let before = caret()
+        print("Text click/caret scale=\(canvas.scale) click_y=\(click.y) caret_mid_y=\(before.midY) delta=\(before.midY-click.y)")
+        precondition(abs(before.midY-click.y) < 0.75,"The initial native insertion caret must be centred on the clicked location")
+        for value in ["ASCII","文字 A","🙂 A","文字\n第二行",""] {
+            input.insertText(value,replacementRange: NSRange(location: 0,length: input.string.utf16.count))
+            textDidChange(Notification(name: NSText.didChangeNotification,object: input))
+            precondition(abs(caret().midY-before.midY) < 0.75,"Font fallback, multiline input and deletion must preserve the first line's clicked centre")
+        }
+        finishText(commit: false)
+    }
     func verifySpaceModeFixture() {
         func key(_ code: UInt16,_ value: String,repeat repeated: Bool = false) -> NSEvent {
             NSEvent.keyEvent(with: .keyDown,location: .zero,modifierFlags: [],timestamp: 0,
@@ -139,6 +160,15 @@ import AppKit
             let point = handle.convert(edge,to: canvas)
             precondition(canvas.hitTest(point) === handle,"Every visible edge and corner must accept border dragging")
         }
+        let outline = handle.outlineRect
+        let expanded = [CGPoint(x: outline.minX-6,y: outline.midY),CGPoint(x: outline.minX+6,y: outline.midY),
+                        CGPoint(x: outline.maxX-6,y: outline.midY),CGPoint(x: outline.maxX+6,y: outline.midY),
+                        CGPoint(x: outline.midX,y: outline.minY-6),CGPoint(x: outline.midX,y: outline.minY+6),
+                        CGPoint(x: outline.midX,y: outline.maxY-6),CGPoint(x: outline.midX,y: outline.maxY+6)]
+        for point in expanded where handle.bounds.contains(point) {
+            precondition(canvas.hitTest(handle.convert(point,to: canvas)) === handle,
+                         "Both sides of the visible border accept dragging six points away from the pencil line")
+        }
         let interior = handle.convert(CGPoint(x: handle.bounds.midX,y: handle.bounds.midY),to: canvas)
         precondition(handle.hitTest(interior) == nil && canvas.hitTest(interior) === input,
                      "The frame interior passes through to native typing and selection")
@@ -174,7 +204,7 @@ import AppKit
         handle.mouseUp(with: event(.leftMouseUp,end))
         precondition(textInput === input && window.firstResponder === input && annotations.isEmpty && input.selectedRange() == selected && textDrag == nil,
                      "Dragging keeps the same native editor, caret, draft and no history entry")
-        precondition(textAnnotation!.points[0] == CGPoint(x: 52,y: 105) && input.textContainer!.size == container,
+        precondition(textAnnotation!.points[0] == CGPoint(x: original.points[0].x + 12,y: original.points[0].y - 15) && input.textContainer!.size == container,
                      "Movement maps points to image pixels without resizing or rewrapping")
         let location = canvas.viewPoint(for: textAnnotation!.points[0])
         precondition(abs(input.frame.minX - location.x) < 0.001 && abs(input.frame.maxY - location.y) < 0.001)
@@ -187,6 +217,8 @@ import AppKit
                      "Dragging clamps inside the image and preserves IME composition")
         precondition(canvas.bounds.contains(handle.frame) && !handle.frame.isEmpty,
                      "The editing border remains visible and hittable when text touches image edges")
+        let edgeText = input.convert(CGPoint(x: 6/canvas.scale,y: 6/canvas.scale),to: canvas)
+        precondition(canvas.hitTest(edgeText) === input,"Expanded border targets must keep native typing reachable next to clipped image edges")
         handle.mouseUp(with: event(.leftMouseUp,end)); input.unmarkText()
         let expected = textAnnotation!.points[0], value = input.string
         let outside = canvas.convert(CGPoint(x: input.bounds.maxX - 1,y: 1),from: input)
@@ -214,6 +246,7 @@ import AppKit
 
 @main struct EditorRegression {
     @MainActor static func main() {
+        setbuf(stdout,nil)
         _ = NSApplication.shared; NSApp.setActivationPolicy(.prohibited)
         let domain = "cc.anjing.macos-x.editor-fixture.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: domain)!
@@ -240,6 +273,7 @@ import AppKit
             movable.verifyMovableTextFixture(); movable.close()
             let textEditor = CaptureEditor(image: image,
                 selectionFrame: CGRect(x: 0,y: 0,width: 200 * displayScale,height: 160 * displayScale),defaults: defaults)
+            textEditor.verifyTextPlacementFixture()
             let textCanvas = textEditor.window.contentView as! CaptureCanvas
             let ink = CaptureInk(red: 0.1,green: 0.6,blue: 0.9,alpha: 1)
             let input = textEditor.beginTextFixture(point: CGPoint(x: 16,y: 140),width: 3,ink: ink)

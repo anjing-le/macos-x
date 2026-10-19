@@ -20,13 +20,26 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         var onMove: ((CGPoint) -> Void)?
         var onEnd: (() -> Void)?
         var canTrackPointer: (() -> Bool)?
+        var outlineRect = CGRect.zero
+        var inputRect = CGRect.zero
+        static let hitRadius: CGFloat = 8
         private var dragging = false
         private var borderRects: [CGRect] {
-            let x = min(5,bounds.width / 2), y = min(5,bounds.height / 2)
-            return [CGRect(x: 0,y: 0,width: bounds.width,height: y),
-                    CGRect(x: 0,y: bounds.maxY - y,width: bounds.width,height: y),
-                    CGRect(x: 0,y: y,width: x,height: max(0,bounds.height - y * 2)),
-                    CGRect(x: bounds.maxX - x,y: y,width: x,height: max(0,bounds.height - y * 2))]
+            let r = Self.hitRadius, rect = outlineRect
+            return [CGRect(x: rect.minX-r,y: rect.minY-r,width: rect.width+r*2,height: r*2),
+                    CGRect(x: rect.minX-r,y: rect.maxY-r,width: rect.width+r*2,height: r*2),
+                    CGRect(x: rect.minX-r,y: rect.minY-r,width: r*2,height: rect.height+r*2),
+                    CGRect(x: rect.maxX-r,y: rect.minY-r,width: r*2,height: rect.height+r*2)]
+                .flatMap { band -> [CGRect] in
+                    let band = band.intersection(bounds)
+                    let interior = band.intersection(inputRect.insetBy(dx: 2,dy: 2))
+                    guard !interior.isEmpty, !interior.isNull else { return [band] }
+                    // A clipped border must not take over typing near image edges.
+                    return [CGRect(x: band.minX,y: band.minY,width: band.width,height: interior.minY-band.minY),
+                            CGRect(x: band.minX,y: interior.maxY,width: band.width,height: band.maxY-interior.maxY),
+                            CGRect(x: band.minX,y: interior.minY,width: interior.minX-band.minX,height: interior.height),
+                            CGRect(x: interior.maxX,y: interior.minY,width: band.maxX-interior.maxX,height: interior.height)]
+                }.filter { !$0.isEmpty && !$0.isNull }
         }
         override func hitTest(_ point: NSPoint) -> NSView? {
             let local = convert(point,from: superview)
@@ -65,7 +78,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
             onEnd?(); refreshCursor(with: event)
         }
         override func draw(_ dirtyRect: NSRect) {
-            let path = NSBezierPath(rect: bounds.insetBy(dx: 1.5,dy: 1.5))
+            let path = NSBezierPath(rect: outlineRect)
             NSColor.white.withAlphaComponent(0.85).setStroke(); path.lineWidth = 3; path.stroke()
             SketchPalette.blue.setStroke(); path.lineWidth = 1
             path.setLineDash([4,3],count: 2,phase: 0); path.stroke()
@@ -113,6 +126,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
     private var exporting = false
     private var textInput: NSTextView?
     private var textLayout: CaptureTextLayout?
+    private var textFirstLineHeight: CGFloat?
     private var textAnnotation: CaptureAnnotation?
     private var textEditingFrame: TextEditingFrame?
     private var textDrag: (pointer: CGPoint, anchor: CGPoint)?
@@ -392,7 +406,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         recognition?.cancel(); recognition = nil
         colorPopover?.close(); colorPopover = nil
         toolbar.orderOut(nil); toolbar.close()
-        textInput?.delegate = nil; textInput?.removeFromSuperview(); textInput = nil; textAnnotation = nil; textLayout = nil
+        textInput?.delegate = nil; textInput?.removeFromSuperview(); textInput = nil; textAnnotation = nil; textLayout = nil; textFirstLineHeight = nil
         textEditingFrame?.removeFromSuperview(); textEditingFrame = nil; textDrag = nil
         let callback = onClose; onClose = nil; onExport = nil; onCopied = nil; onPin = nil
         onEditingChanged = nil; onReselect = nil; colorAtPointer = nil; onApply = nil; callback?()
@@ -503,7 +517,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         var annotation = CaptureAnnotation(tool: .text, points: [point], ink: ink, width: width)
         let lineHeight = CaptureTextLayout(annotation: annotation).size.height
         annotation.points = [CGPoint(x: min(point.x, max(0, CGFloat(canvas.base.width) - max(18, width * 7))),
-                                     y: max(min(lineHeight, CGFloat(canvas.base.height)), point.y))]
+                                     y: min(CGFloat(canvas.base.height),max(min(lineHeight, CGFloat(canvas.base.height)), point.y + lineHeight / 2)))]
         annotation.textLayoutWidth = max(1, CGFloat(canvas.base.width) - annotation.points[0].x)
         let layout = CaptureTextLayout(annotation: annotation)
         let input = TextInput(frame: .zero, textContainer: layout.container)
@@ -518,7 +532,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         input.typingAttributes = layout.attributes
         input.insertionPointColor = input.textColor ?? .black
         input.delegate = self; input.setAccessibilityLabel("截图文字")
-        canvas.addSubview(input); textInput = input; textLayout = layout; textAnnotation = annotation
+        canvas.addSubview(input); textInput = input; textLayout = layout; textAnnotation = annotation; textFirstLineHeight = lineHeight
         let frameView = TextEditingFrame(frame: .zero)
         frameView.canTrackPointer = { [weak canvas] in canvas?.pointerActive == true && canvas?.inputEnabled == true }
         frameView.toolTip = "拖动边框移动文字 · 点击框外完成编辑"
@@ -534,8 +548,16 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         window.makeFirstResponder(input)
     }
     private func layoutTextInput() {
-        guard let input = textInput, let layout = textLayout, let annotation = textAnnotation,
-              let anchor = annotation.points.first else { return }
+        guard let input = textInput, let layout = textLayout, var annotation = textAnnotation,
+              var anchor = annotation.points.first else { return }
+        let lineHeight = layout.firstLineHeight
+        if let previous = textFirstLineHeight {
+            // CJK/emoji fallback can enlarge the first line after typing.
+            // Keep its centre at the original click without changing TextKit.
+            anchor.y = min(CGFloat(canvas.base.height),max(min(lineHeight,CGFloat(canvas.base.height)),anchor.y + (lineHeight-previous)/2))
+            annotation.points[0] = anchor; textAnnotation = annotation
+        }
+        textFirstLineHeight = lineHeight
         let location = canvas.viewPoint(for: anchor), scale = canvas.scale
         let size = CGSize(width: layout.container.size.width, height: min(anchor.y, layout.size.height + 1))
         input.frame = CGRect(x: location.x, y: location.y - size.height * scale,
@@ -546,8 +568,13 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         let textRect = CGRect(x: input.frame.minX,y: input.frame.minY,width: textWidth,height: input.frame.height)
         // Padding belongs to the overlay only; glyph coordinates, wrapping and
         // exported pixels remain exactly those of the transparent NSTextView.
-        textEditingFrame?.frame = textRect.insetBy(dx: -6,dy: -6).intersection(canvas.bounds)
-        textEditingFrame?.needsDisplay = true
+        if let frame = textEditingFrame {
+            let outline = textRect.insetBy(dx: -10,dy: -10).intersection(canvas.bounds.insetBy(dx: 1.5,dy: 1.5))
+            frame.frame = outline.insetBy(dx: -TextEditingFrame.hitRadius,dy: -TextEditingFrame.hitRadius).intersection(canvas.bounds)
+            frame.outlineRect = outline.offsetBy(dx: -frame.frame.minX,dy: -frame.frame.minY)
+            frame.inputRect = textRect.offsetBy(dx: -frame.frame.minX,dy: -frame.frame.minY)
+            frame.updateTrackingAreas(); frame.needsDisplay = true
+        }
         window.invalidateCursorRects(for: textEditingFrame ?? input)
     }
     private func moveText(to pointer: CGPoint) {
@@ -570,7 +597,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         guard let input = textInput else { return }
         let annotation = textAnnotation
         let value = String(input.string.prefix(1000))
-        textInput = nil; textAnnotation = nil; textLayout = nil; input.delegate = nil; input.removeFromSuperview()
+        textInput = nil; textAnnotation = nil; textLayout = nil; textFirstLineHeight = nil; input.delegate = nil; input.removeFromSuperview()
         textEditingFrame?.removeFromSuperview(); textEditingFrame = nil; textDrag = nil
         window.makeFirstResponder(canvas)
         if commit, !value.isEmpty, var annotation { annotation.text = value; append(annotation) }

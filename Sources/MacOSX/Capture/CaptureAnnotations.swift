@@ -88,6 +88,11 @@ final class CaptureTextLayout {
         let font = attributes[.font] as! NSFont
         return CGSize(width: max(1, used.maxX), height: max(manager.defaultLineHeight(for: font), used.maxY))
     }
+    var firstLineHeight: CGFloat {
+        manager.ensureLayout(for: container)
+        return manager.numberOfGlyphs == 0 ? manager.defaultLineHeight(for: attributes[.font] as! NSFont)
+            : manager.lineFragmentRect(forGlyphAt: 0,effectiveRange: nil).height
+    }
     func draw(at topLeft: CGPoint, in context: CGContext) {
         manager.ensureLayout(for: container)
         context.saveGState(); defer { context.restoreGState() }
