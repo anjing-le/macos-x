@@ -569,7 +569,8 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         // Padding belongs to the overlay only; glyph coordinates, wrapping and
         // exported pixels remain exactly those of the transparent NSTextView.
         if let frame = textEditingFrame {
-            let outline = textRect.insetBy(dx: -10,dy: -10).intersection(canvas.bounds.insetBy(dx: 1.5,dy: 1.5))
+            let inset = min(1.5,canvas.bounds.width/4,canvas.bounds.height/4)
+            let outline = textRect.insetBy(dx: -10,dy: -10).intersection(canvas.bounds.insetBy(dx: inset,dy: inset))
             frame.frame = outline.insetBy(dx: -TextEditingFrame.hitRadius,dy: -TextEditingFrame.hitRadius).intersection(canvas.bounds)
             frame.outlineRect = outline.offsetBy(dx: -frame.frame.minX,dy: -frame.frame.minY)
             frame.inputRect = textRect.offsetBy(dx: -frame.frame.minX,dy: -frame.frame.minY)

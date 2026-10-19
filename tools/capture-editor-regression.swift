@@ -16,6 +16,15 @@ import AppKit
     }
     func finishTextFixture(commit: Bool) { finishText(commit: commit) }
     var fixtureTextMark: CaptureAnnotation? { annotations.last }
+    func verifyTinyTextFrameFixture() {
+        let input = beginTextFixture(point: CGPoint(x: 0.5,y: 0.5),width: 3,ink: .red)
+        input.insertText("字",replacementRange: NSRange(location: 0,length: 0))
+        textDidChange(Notification(name: NSText.didChangeNotification,object: input))
+        let frame = textEditingFrame!
+        precondition(canvas.bounds.contains(frame.frame) && !frame.frame.isEmpty && frame.outlineRect.width.isFinite,
+                     "A one-pixel screenshot keeps finite clipped text-border geometry")
+        finishText(commit: false)
+    }
     func verifyTextPlacementFixture() {
         canvas.tool = .text
         let click = canvas.viewPoint(for: CGPoint(x: 40,y: 80))
@@ -342,6 +351,9 @@ import AppKit
             precondition(textEditor.fixtureTextMark?.text == text, "Esc must abandon only the active text")
             textEditor.close()
         }
+        let tinyImage = CaptureRaster.context(width: 1,height: 1)!.makeImage()!
+        let tinyEditor = CaptureEditor(image: tinyImage,selectionFrame: CGRect(x: 0,y: 0,width: 1,height: 1),defaults: defaults)
+        tinyEditor.verifyTinyTextFrameFixture(); tinyEditor.close()
         let pinEntry = PinEntry(image: image, frame: CGRect(x: -200, y: 40, width: 200, height: 160), queue: DispatchQueue(label: "pin-drag-fixture"))
         let pinView = pinEntry.window.contentView as! PinView
         let initialFrame = pinEntry.window.frame
