@@ -60,7 +60,15 @@ enum CaptureEditor {
         defer { panel.dispose() }
         panel.collapse(); precondition(panel.frame.height == 6 && !panel.isVisible)
         precondition(panel.railFrame.minX == screen.frame.minX && panel.railFrame.width == screen.frame.width && panel.railFrame.height == 6, "The idle rail spans the real screen, including negative origins")
+        let initialRail = panel.railView as! ShelfRailView
+        precondition(!initialRail.showsRope)
+        let idleBitmap = initialRail.bitmapImageRepForCachingDisplay(in: initialRail.bounds)!
+        initialRail.cacheDisplay(in: initialRail.bounds,to: idleBitmap)
+        for y in 0..<idleBitmap.pixelsHigh { for x in stride(from: 0,to: idleBitmap.pixelsWide,by: 8) {
+            precondition(idleBitmap.colorAt(x: x,y: y)!.alphaComponent < 0.01, "Idle rope is entirely invisible while its native tracking area remains installed")
+        } }
         panel.expand(); precondition(panel.expanded && panel.frame.height == 156 && !panel.isVisible)
+        precondition(initialRail.showsRope, "Rope appears with hovered details")
         let view = panel.shelfView
         var actions = [ShelfView.Action](); view.onAction = { actions.append($0) }
         let center = CGPoint(x: view.cardRect(0).midX,y: view.cardRect(0).midY)
@@ -91,6 +99,11 @@ enum CaptureEditor {
             let x = Int(point.x*CGFloat(bitmap.pixelsWide)/view.bounds.width), y = Int(point.y*CGFloat(bitmap.pixelsHigh)/view.bounds.height)
             precondition(bitmap.colorAt(x: x,y: y)!.alphaComponent < 0.01, "No surrounding paper, border, card padding or screen-wide backing")
         }
+        let borderPoint = CGPoint(x: 60,y: 20)
+        let borderX = Int(borderPoint.x*CGFloat(bitmap.pixelsWide)/view.bounds.width)
+        let borderY = Int(borderPoint.y*CGFloat(bitmap.pixelsHigh)/view.bounds.height)
+        let borderColor = bitmap.colorAt(x: borderX,y: borderY)!.usingColorSpace(.deviceRGB)!
+        precondition(borderColor.alphaComponent > 0.25 && borderColor.redComponent < 0.6, "Individual images have a visible dark pencil frame")
         if let path = ProcessInfo.processInfo.environment["MACOSX_SHELF_PREVIEW"] {
             try bitmap.representation(using: .png,properties: [:])!.write(to: URL(fileURLWithPath: path))
             let stage = NSImage(size: CGSize(width: 1280,height: 190))
@@ -105,8 +118,13 @@ enum CaptureEditor {
             let stageBitmap = NSBitmapImageRep(data: stage.tiffRepresentation!)!
             try stageBitmap.representation(using: .png,properties: [:])!.write(to: URL(fileURLWithPath: path).deletingLastPathComponent().appendingPathComponent("rail-context.png"))
         }
-        panel.collapse(); precondition(!panel.expanded && view.preview == nil)
+        panel.collapse(); precondition(!panel.expanded && view.preview == nil && !initialRail.showsRope)
         let lineView = panel.railView as! ShelfRailView
+        let hiddenAgain = lineView.bitmapImageRepForCachingDisplay(in: lineView.bounds)!
+        lineView.cacheDisplay(in: lineView.bounds,to: hiddenAgain)
+        for y in 0..<hiddenAgain.pixelsHigh { for x in stride(from: 0,to: hiddenAgain.pixelsWide,by: 8) {
+            precondition(hiddenAgain.colorAt(x: x,y: y)!.alphaComponent < 0.01, "Collapsing erases previously visible rope pixels")
+        } }
         let enter = NSEvent.enterExitEvent(with: .mouseEntered,location: .zero,modifierFlags: [],timestamp: 0,windowNumber: lineView.window!.windowNumber,context: nil,eventNumber: 0,trackingNumber: 0,userData: nil)!
         lineView.mouseEntered(with: enter)
         for _ in 0..<100 { if panel.expanded { break }; try await Task.sleep(nanoseconds: 10_000_000) }

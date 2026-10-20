@@ -56,7 +56,7 @@ import AppKit
                 switch result {
                 case .success(let item):
                     self.records = items; self.thumbnails = thumbs; self.rebuildPanels()
-                    self.onStatus?("已收纳 · 鼠标移到屏幕顶部细线查看")
+                    self.onStatus?("已收纳 · 鼠标移到屏幕顶部查看")
                     completion(true)
                     self.reveal(item.id)
                 case .failure(let error): self.showMessage(error.localizedDescription); completion(false)
@@ -217,6 +217,7 @@ import AppKit
     func expand(preview: Bool = false) {
         guard !disposed else { return }
         work?.cancel(); work = nil; expanded = true
+        (railPanel?.contentView as? ShelfRailView)?.showsRope = true
         shelfView.expanded = true
         let height = min(preview ? 396.0 : 156.0, max(156, screenFrame.height - 80))
         setFrame(CGRect(x: screenFrame.midX-railWidth/2, y: top-height, width: railWidth, height: height), display: true)
@@ -226,6 +227,7 @@ import AppKit
         guard !disposed else { return }
         work?.cancel(); work = nil; if isKeyWindow { resignKey() }; expanded = false; shelfView.expanded = false
         shelfView.preview = nil; shelfView.hovered = nil
+        (railPanel?.contentView as? ShelfRailView)?.showsRope = false
         orderOut(nil)
         setFrame(CGRect(x: screenFrame.minX,y: top-6,width: screenFrame.width,height: 6), display: false)
         if presenting { railPanel?.orderFrontRegardless() }
@@ -278,6 +280,7 @@ import AppKit
 @MainActor final class ShelfRailView: NSView {
     var onEnter: (() -> Void)?
     var onExit: (() -> Void)?
+    var showsRope = false { didSet { if showsRope != oldValue { needsDisplay = true } } }
     override func updateTrackingAreas() {
         super.updateTrackingAreas(); trackingAreas.forEach(removeTrackingArea)
         addTrackingArea(NSTrackingArea(rect: .zero,options: [.inVisibleRect,.mouseEnteredAndExited,.activeAlways],owner: self))
@@ -285,6 +288,8 @@ import AppKit
     override func mouseEntered(with event: NSEvent) { onEnter?() }
     override func mouseExited(with event: NSEvent) { onExit?() }
     override func draw(_ dirtyRect: NSRect) {
+        NSColor.clear.setFill(); dirtyRect.fill(using: .copy)
+        guard showsRope else { return }
         let y = bounds.midY
         let rail = NSBezierPath(); rail.move(to: CGPoint(x: bounds.minX,y: y)); rail.line(to: CGPoint(x: bounds.maxX,y: y))
         NSColor(calibratedWhite: 0.25,alpha: 0.52).setStroke(); rail.lineWidth = 0.8; rail.stroke()
@@ -327,8 +332,7 @@ import AppKit
             }
         }
         if let selected, let index = records.firstIndex(where: { $0.id == selected }), index >= offset, index < offset+capacity {
-            let card = cardRect(index)
-            children.append(ShelfAccessibleItem(view: self,rect: CGRect(x: card.maxX-22,y: card.minY,width: 22,height: 22),title: "删除选中的图片，可撤销") { [weak self] in self?.onAction?(.remove(selected)) })
+            children.append(ShelfAccessibleItem(view: self,rect: closeRect(index),title: "删除选中的图片，可撤销") { [weak self] in self?.onAction?(.remove(selected)) })
         }
         children.append(ShelfAccessibleItem(view: self,rect: CGRect(x: 16,y: 124,width: 52,height: 24),title: "撤销删除") { [weak self] in self?.onAction?(.undo) })
         children.append(ShelfAccessibleItem(view: self,rect: CGRect(x: bounds.width-90,y: 124,width: 40,height: 24),title: "上一页") { [weak self] in self?.page(-1) })
@@ -338,6 +342,11 @@ import AppKit
     private var capacity: Int { max(1, Int((bounds.width-28)/144)) }
     private var cardWidth: CGFloat { min(132, bounds.width-32) }
     func cardRect(_ index: Int) -> CGRect { CGRect(x: 16+CGFloat(index-offset)*144,y: 14,width: cardWidth,height: 100) }
+    private func closeRect(_ index: Int) -> CGRect {
+        let card = cardRect(index)
+        let picture = thumbnails[records[index].id].map { fit($0.size,in: card.insetBy(dx: 4,dy: 4)) } ?? card
+        return CGRect(x: picture.maxX-16,y: picture.minY-4,width: 20,height: 20)
+    }
     func select(_ id: UUID) {
         selected = id
         if let index = records.firstIndex(where: { $0.id == id }) {
@@ -382,8 +391,7 @@ import AppKit
         }
         guard let index = item(at: point) else { return }
         let id = records[index].id; selected = id
-        let rect = cardRect(index)
-        if point.x > rect.maxX-22 && point.y < rect.minY+22 { onAction?(.remove(id)); return }
+        if closeRect(index).contains(point) { onAction?(.remove(id)); return }
         dragging = (id, window?.convertPoint(toScreen: event.locationInWindow) ?? event.locationInWindow); moved = false; needsDisplay = true
     }
     override func mouseDragged(with event: NSEvent) {
@@ -441,27 +449,27 @@ import AppKit
         if let notice {
             pill(notice,in: bounds.insetBy(dx: 1,dy: 1),size: 12); return
         }
-        // The desktop stays visible between images. Only each image's own
-        // pixels and its clip are drawn: no enclosing paper, outline or shadow.
+        // Individual pencil frames identify attached images without bringing
+        // back a paper container around the whole shelf.
         for index in records.indices where index >= offset && index < offset+capacity {
             let item = records[index], rect = cardRect(index)
             if let image = thumbnails[item.id] {
-                image.draw(in: fit(image.size,in: rect),from: .zero,operation: .sourceOver,fraction: 1,
-                           respectFlipped: true,hints: [.interpolation:NSImageInterpolation.high])
+                drawFramedImage(image,in: rect,attachmentY: 16)
             }
             let clip = CGRect(x: rect.midX-5,y: 1,width: 10,height: 18)
             (selected == item.id ? SketchPalette.blue : SketchPalette.yellow).setFill()
             NSBezierPath(roundedRect: clip,xRadius: 2,yRadius: 2).fill()
             SketchPencil.stroke(NSBezierPath(roundedRect: clip,xRadius: 2,yRadius: 2),color: SketchPalette.line,width: 0.6)
             if hovered == item.id || selected == item.id {
+                let close = closeRect(index)
                 NSColor.white.withAlphaComponent(0.95).setFill()
-                NSBezierPath(ovalIn: CGRect(x: rect.maxX-21,y: rect.minY+2,width: 19,height: 19)).fill()
-                label("×",at: CGPoint(x: rect.maxX-18,y: rect.minY+1),size: 16)
+                NSBezierPath(ovalIn: close).fill()
+                label("×",at: CGPoint(x: close.minX+4,y: close.minY),size: 16)
             }
         }
         if moved, let dragPoint, let dragging, let image = thumbnails[dragging.id] {
             let ghost = CGRect(x: dragPoint.x-cardWidth/2,y: dragPoint.y-50,width: cardWidth,height: 100)
-            image.draw(in: fit(image.size,in: ghost),from: .zero,operation: .sourceOver,fraction: 0.85,respectFlipped: true,hints: nil)
+            drawFramedImage(image,in: ghost,opacity: 0.85)
         }
         if let insertion, moved {
             SketchPalette.blue.setFill(); CGRect(x: cardRect(insertion).minX-5,y: 16,width: 2,height: 96).fill()
@@ -475,9 +483,20 @@ import AppKit
         } else { pill("\(records.count) 张",in: CGRect(x: bounds.width-63,y: 124,width: 47,height: 24),size: 11) }
         if let preview, bounds.height > 180 {
             let area = CGRect(x: 16,y: 164,width: bounds.width-32,height: bounds.height-180)
-            preview.draw(in: fit(preview.size,in: area),from: .zero,operation: .sourceOver,fraction: 1,
-                         respectFlipped: true,hints: [.interpolation:NSImageInterpolation.high])
+            drawFramedImage(preview,in: area)
         }
+    }
+    private func drawFramedImage(_ image: NSImage, in rect: CGRect, opacity: CGFloat = 1, attachmentY: CGFloat? = nil) {
+        let picture = fit(image.size,in: rect.insetBy(dx: 4,dy: 4))
+        if let attachmentY, picture.minY > attachmentY {
+            let tie = NSBezierPath(); tie.move(to: CGPoint(x: picture.midX,y: attachmentY))
+            tie.line(to: CGPoint(x: picture.midX,y: picture.minY))
+            SketchPencil.stroke(tie,color: SketchPalette.line,width: 1.6)
+        }
+        image.draw(in: picture,from: .zero,operation: .sourceOver,fraction: opacity,
+                   respectFlipped: true,hints: [.interpolation:NSImageInterpolation.high])
+        let frame = SketchPencil.outline(in: picture.insetBy(dx: -2,dy: -2),radius: 3)
+        SketchPencil.stroke(frame,color: SketchPalette.ink.withAlphaComponent(opacity),width: 3.8)
     }
     private func pill(_ text: String, in rect: CGRect, size: CGFloat) {
         SketchPalette.paper.withAlphaComponent(0.95).setFill()
