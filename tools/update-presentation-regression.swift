@@ -26,6 +26,7 @@ enum SPUNoUpdateFoundReason: Int32 {
 }
 enum UpdatePanelProgress { case hidden, indeterminate, fraction(Double) }
 @MainActor final class UpdatePanel {
+    init(presentationWindow: @escaping () -> NSWindow? = { nil }) {}
     static var shows = 0
     static var primary: (() -> Void)?
     static var secondary: (() -> Void)?

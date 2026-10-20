@@ -218,8 +218,11 @@ final class UpdatePanel: NSWindowController, NSWindowDelegate {
     private var primaryAction: (() -> Void)?
     private var secondaryAction: (() -> Void)?
     private var closeAction: (() -> Void)?
+    private let presentationWindow: () -> NSWindow?
+    private weak var anchorWindow: NSWindow?
 
-    init() {
+    init(presentationWindow: @escaping () -> NSWindow? = { nil }) {
+        self.presentationWindow = presentationWindow
         let panel = UpdateFloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 460, height: 220),
             styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         panel.setFrame(NSRect(x: 0, y: 0, width: 460, height: 220), display: false)
@@ -270,7 +273,8 @@ final class UpdatePanel: NSWindowController, NSWindowDelegate {
         window.recalculateKeyViewLoop()
         window.initialFirstResponder = nil
         window.makeFirstResponder(nil)
-        if !window.isVisible { window.center() }
+        updateAnchor()
+        centerOnAnchor()
         window.makeKeyAndOrderFront(nil)
     }
 
@@ -292,11 +296,14 @@ final class UpdatePanel: NSWindowController, NSWindowDelegate {
         }
         if let window, abs((window.contentView?.bounds.height ?? 0) - content.preferredHeight) > 0.5 {
             window.setContentSize(NSSize(width: 460, height: content.preferredHeight))
+            if window.isVisible { updateAnchor(); centerOnAnchor() }
         }
     }
 
     func focus() {
         guard let window, window.isVisible else { return }
+        updateAnchor()
+        centerOnAnchor()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -304,12 +311,63 @@ final class UpdatePanel: NSWindowController, NSWindowDelegate {
     /// Programmatic dismissal never invokes a cancellation callback.
     func dismiss() {
         content.progress.stopAnimation(nil)
+        stopObservingAnchor()
         window?.orderOut(nil)
         primaryAction = nil
         secondaryAction = nil
         closeAction = nil
         window?.standardWindowButton(.closeButton)?.isEnabled = false
         content.header.refreshActions()
+    }
+
+    // Track only our explicit client window while the update UI is open. The
+    // updater itself can become main/key, so NSApp.mainWindow is not an anchor.
+    private static let anchorNotifications: [Notification.Name] = [
+        NSWindow.didMoveNotification, NSWindow.didResizeNotification,
+        NSWindow.didChangeScreenNotification, NSWindow.didMiniaturizeNotification,
+        NSWindow.didDeminiaturizeNotification, NSWindow.willCloseNotification
+    ]
+
+    private func updateAnchor() {
+        let candidate = presentationWindow()
+        guard candidate !== anchorWindow else { return }
+        stopObservingAnchor()
+        anchorWindow = candidate
+        guard let candidate else { return }
+        for name in Self.anchorNotifications {
+            NotificationCenter.default.addObserver(self, selector: #selector(anchorChanged(_:)), name: name, object: candidate)
+        }
+    }
+
+    private func stopObservingAnchor() {
+        if let anchorWindow {
+            for name in Self.anchorNotifications {
+                NotificationCenter.default.removeObserver(self, name: name, object: anchorWindow)
+            }
+        }
+        anchorWindow = nil
+    }
+
+    @objc private func anchorChanged(_ notification: Notification) {
+        guard window?.isVisible == true else { return }
+        if notification.name == NSWindow.willCloseNotification {
+            stopObservingAnchor()
+        }
+        centerOnAnchor()
+    }
+
+    private func centerOnAnchor() {
+        guard let window else { return }
+        let target: NSRect
+        if let anchorWindow, anchorWindow.isVisible, !anchorWindow.isMiniaturized {
+            target = anchorWindow.frame
+        } else if let screen = anchorWindow?.screen ?? window.screen ?? NSScreen.main {
+            target = screen.visibleFrame
+        } else { return }
+        // NSWindow.center() uses optical vertical placement. Use the actual
+        // frame midpoint, after sizing, for every state of this dialog.
+        window.setFrameOrigin(NSPoint(x: target.midX - window.frame.width / 2,
+                                      y: target.midY - window.frame.height / 2))
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {

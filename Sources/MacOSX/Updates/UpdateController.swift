@@ -19,6 +19,11 @@ final class UpdateController: NSObject, SPUUpdaterDelegate {
         }
     }
 
+    var presentationWindow: () -> NSWindow? {
+        get { driver.presentationWindow }
+        set { driver.presentationWindow = newValue }
+    }
+
     var canCheckForUpdates: Bool {
         updater?.canCheckForUpdates ?? false
     }

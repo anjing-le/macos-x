@@ -45,6 +45,73 @@
         try require(content.detailScroll.contentView.bounds.minY == 0,"a replacement error starts at the first instruction")
         content.setDetail("")
         try require(content.detailLabel.isHidden && content.detailScroll.isHidden,"empty status does not leave an empty detail frame")
-        print("PASS update panel layout: full selectable recovery text, bounded scrolling, compact version state; no visible window, network, updater or preferences")
+        try UpdatePanel.verifyCentering(detail:detail)
+        print("PASS update panel layout: readable bounded details; client-centered check/download/install/error, live move/resize, screen fallback and observer cleanup; windows only offscreen, no network, updater or preferences")
     }
+}
+
+@MainActor private extension UpdatePanel {
+    static func verifyCentering(detail:String) throws {
+        func require(_ condition:Bool,_ message:String) throws {
+            if !condition { throw NSError(domain:message,code:1) }
+        }
+        // Real AppKit frames and notifications, ordered entirely offscreen.
+        // No updater, installed preferences or user-visible preview windows.
+        NSApp.setActivationPolicy(.prohibited)
+        let client = OffscreenUpdateFixtureWindow(contentRect: CGRect(x:-20000,y:-20000,width:960,height:640),
+                              styleMask:[.titled,.resizable],backing:.buffered,defer:false)
+        client.isReleasedWhenClosed=false
+        client.orderBack(nil)
+        let panel=UpdatePanel(presentationWindow:{ client })
+        // Disable AppKit's titlebar-on-screen clamp only in this fixture, so
+        // production positioning and real notifications can run offscreen.
+        let fixtureWindow=OffscreenUpdateFixtureWindow(contentRect:panel.window!.frame,
+            styleMask:[.titled,.fullSizeContentView],backing:.buffered,defer:false)
+        fixtureWindow.isReleasedWhenClosed=false
+        fixtureWindow.contentView=panel.window!.contentView
+        panel.window=fixtureWindow
+        func centered(_ message:String) throws {
+            // WindowServer movement notifications arrive on the next run-loop turn.
+            let deadline=Date().addingTimeInterval(0.8)
+            while Date() < deadline {
+                let frame=panel.window!.frame
+                if abs(frame.midX-client.frame.midX)<1 && abs(frame.midY-client.frame.midY)<1 { break }
+                RunLoop.current.run(until:Date().addingTimeInterval(0.01))
+            }
+            let frame=panel.window!.frame, target=client.frame
+            try require(abs(frame.midX-target.midX)<1 && abs(frame.midY-target.midY)<1,message)
+        }
+        panel.show(title:"检查更新",progress:.indeterminate,secondaryTitle:"取消",secondaryAction:{})
+        try centered("first update state centers in the client, not on the screen")
+        panel.show(title:"有新版本",detail:"0.0.91 → 0.0.92",primaryTitle:"更新",primaryAction:{})
+        try centered("available update recenters after a state height change")
+        panel.show(title:"正在下载",detail:"0.0.92 · 0%",progress:.fraction(0),secondaryTitle:"取消",secondaryAction:{})
+        try centered("download state centers in both axes")
+        panel.setProgress(.hidden,detail:detail)
+        try centered("progress-only update recenters after long details resize the panel")
+        client.setFrameOrigin(NSPoint(x:-19000,y:-19500))
+        try centered("client movement keeps the update centered")
+        client.setContentSize(NSSize(width:720,height:500))
+        try centered("client resizing keeps the update centered")
+        panel.show(title:"准备安装",primaryTitle:"安装并重启",primaryAction:{})
+        try centered("install state remains centered after shrinking")
+        panel.show(title:"更新失败",detail:detail,primaryTitle:"好",primaryAction:{})
+        try centered("expanded error remains centered")
+        panel.dismiss()
+        let dismissedFrame=panel.window!.frame
+        client.setFrameOrigin(NSPoint(x:-18000,y:-19000))
+        try require(panel.window!.frame == dismissedFrame && panel.anchorWindow == nil,"dismiss releases client observations")
+        client.orderOut(nil)
+        panel.updateAnchor()
+        panel.centerOnAnchor()
+        if let screen=panel.window!.screen ?? NSScreen.main {
+            try require(abs(panel.window!.frame.midY-screen.visibleFrame.midY)<1 && abs(panel.window!.frame.midX-screen.visibleFrame.midX)<1,"hidden client uses geometric screen center")
+        }
+        panel.dismiss(); client.close()
+    }
+}
+
+@MainActor private final class OffscreenUpdateFixtureWindow: NSPanel {
+    override var canBecomeKey:Bool { true }
+    override func constrainFrameRect(_ frameRect:NSRect,to screen:NSScreen?) -> NSRect { frameRect }
 }

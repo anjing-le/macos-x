@@ -8,6 +8,7 @@ final class UpdateUserDriver: NSObject, SPUUserDriver {
     private var phase: Phase = .idle
     private var userInitiatedSession = false
     var onAvailabilityChanged: ((Bool) -> Void)?
+    var presentationWindow: () -> NSWindow? = { nil }
     private var panel: UpdatePanel?
     private var response: ((Bool) -> Void)?
     private var screen: UInt64 = 0
@@ -177,7 +178,7 @@ final class UpdateUserDriver: NSObject, SPUUserDriver {
 
     private var presentation: UpdatePanel {
         if let panel { return panel }
-        let created = UpdatePanel()
+        let created = UpdatePanel(presentationWindow: { [weak self] in self?.presentationWindow() })
         panel = created
         return created
     }

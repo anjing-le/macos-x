@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         buildMenu()
         menuBar.start()
         updates.onAvailabilityChanged = { [weak self] available in self?.client?.setUpdateAvailable(available) }
+        updates.presentationWindow = { [weak self] in self?.client?.window }
         updates.start()
         prepareClient()
     }
