@@ -59,7 +59,8 @@ enum CaptureEditor {
         let panel = ShelfPanel(screen: screen,records: fixture,thumbnails: thumbs,presenting: false)
         defer { panel.dispose() }
         panel.collapse(); precondition(panel.frame.height == 6 && !panel.isVisible)
-        panel.expand(); precondition(panel.expanded && panel.frame.height == 184 && !panel.isVisible)
+        precondition(panel.railFrame.minX == screen.frame.minX && panel.railFrame.width == screen.frame.width && panel.railFrame.height == 6, "The idle rail spans the real screen, including negative origins")
+        panel.expand(); precondition(panel.expanded && panel.frame.height == 156 && !panel.isVisible)
         let view = panel.shelfView
         var actions = [ShelfView.Action](); view.onAction = { actions.append($0) }
         let center = CGPoint(x: view.cardRect(0).midX,y: view.cardRect(0).midY)
@@ -84,12 +85,42 @@ enum CaptureEditor {
         precondition((view.accessibilityChildren()?.count ?? 0) >= fixture.count)
         view.mouseExited(with: event(.mouseExited,CGPoint(x: 50,y: 500),view: view))
         precondition(view.hovered == nil, "Leaving invalidates an in-flight hover preview")
+        let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+        view.cacheDisplay(in: view.bounds,to: bitmap)
+        for point in [CGPoint(x: 2,y: 2),CGPoint(x: view.bounds.width-2,y: 80),CGPoint(x: 4,y: view.bounds.height-4),CGPoint(x: 152,y: 60)] {
+            let x = Int(point.x*CGFloat(bitmap.pixelsWide)/view.bounds.width), y = Int(point.y*CGFloat(bitmap.pixelsHigh)/view.bounds.height)
+            precondition(bitmap.colorAt(x: x,y: y)!.alphaComponent < 0.01, "No surrounding paper, border, card padding or screen-wide backing")
+        }
         if let path = ProcessInfo.processInfo.environment["MACOSX_SHELF_PREVIEW"] {
-            let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
-            view.cacheDisplay(in: view.bounds,to: bitmap)
             try bitmap.representation(using: .png,properties: [:])!.write(to: URL(fileURLWithPath: path))
+            let stage = NSImage(size: CGSize(width: 1280,height: 190))
+            stage.lockFocus()
+            NSColor(calibratedWhite: 0.90,alpha: 1).setFill(); CGRect(x: 0,y: 0,width: 1280,height: 190).fill()
+            if let rail = panel.railView, let railBitmap = rail.bitmapImageRepForCachingDisplay(in: rail.bounds) {
+                rail.cacheDisplay(in: rail.bounds,to: railBitmap)
+                NSImage(cgImage: railBitmap.cgImage!,size: rail.bounds.size).draw(in: CGRect(x: 0,y: 184,width: 1280,height: 6))
+            }
+            NSImage(cgImage: bitmap.cgImage!,size: view.bounds.size).draw(in: CGRect(x: (1280-view.bounds.width)/2,y: 190-view.bounds.height,width: view.bounds.width,height: view.bounds.height))
+            stage.unlockFocus()
+            let stageBitmap = NSBitmapImageRep(data: stage.tiffRepresentation!)!
+            try stageBitmap.representation(using: .png,properties: [:])!.write(to: URL(fileURLWithPath: path).deletingLastPathComponent().appendingPathComponent("rail-context.png"))
         }
         panel.collapse(); precondition(!panel.expanded && view.preview == nil)
+        let lineView = panel.railView as! ShelfRailView
+        let enter = NSEvent.enterExitEvent(with: .mouseEntered,location: .zero,modifierFlags: [],timestamp: 0,windowNumber: lineView.window!.windowNumber,context: nil,eventNumber: 0,trackingNumber: 0,userData: nil)!
+        lineView.mouseEntered(with: enter)
+        for _ in 0..<100 { if panel.expanded { break }; try await Task.sleep(nanoseconds: 10_000_000) }
+        precondition(panel.expanded && panel.frame.width < panel.railFrame.width && !panel.isVisible, "Full-width line hover opens only a narrow transparent detail window")
+        panel.collapse()
+        lineView.mouseEntered(with: enter)
+        lineView.mouseExited(with: enter)
+        try await Task.sleep(nanoseconds: 240_000_000)
+        precondition(!panel.expanded, "Leaving the line before reveal cancels the reveal")
+        for display in NSScreen.screens {
+            let other = ShelfPanel(screen: display,records: fixture,thumbnails: thumbs,presenting: false)
+            other.collapse(); precondition(other.railFrame.minX == display.frame.minX && other.railFrame.width == display.frame.width)
+            other.dispose(); precondition(other.railFrame.isEmpty)
+        }
         let host = CaptureShelf(directory: directory,presenting: false)
         host.start()
         for _ in 0..<100 { if host.canAdd { break }; try await Task.sleep(nanoseconds: 10_000_000) }

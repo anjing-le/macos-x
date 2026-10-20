@@ -36,7 +36,7 @@ final class CaptureModule: NSObject {
     var settingsView: NSView { view }
     func installShelfShortcut(_ shortcut: NSView) {
         let row = NSStackView(views: [NSTextField(labelWithString: "截图晾衣杆"), shortcut]); row.spacing = 12; row.identifier = .init("shelf-shortcut-row")
-        row.toolTip = "F1 选区、选中贴图或剪贴板图片 → 收纳；顶部中央悬停查看。"
+        row.toolTip = "当前选区、选中贴图或剪贴板图片 → 收纳；顶部细线悬停查看。"
         (settingsView as? NSStackView)?.addArrangedSubview(row)
     }
     var isRecording: Bool { recordingState != .idle }
