@@ -922,6 +922,8 @@ private struct CheckFailure: Error { let message: String }
 }
 
 @MainActor final class CaptureShelf {
+    func focusIfAlreadyOpen() -> Bool { false }
+    func showForKeyboard() -> Bool { false }
     static var images: [CGImage] = []
     static var held = false
     static var pending: [(Bool) -> Void] = []

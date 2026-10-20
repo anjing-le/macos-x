@@ -67,7 +67,7 @@ enum CaptureEditor {
         for y in 0..<idleBitmap.pixelsHigh { for x in stride(from: 0,to: idleBitmap.pixelsWide,by: 8) {
             precondition(idleBitmap.colorAt(x: x,y: y)!.alphaComponent < 0.01, "Idle rope is entirely invisible while its native tracking area remains installed")
         } }
-        panel.expand(); precondition(panel.expanded && panel.frame.height == 156 && !panel.isVisible)
+        panel.expand(); precondition(panel.expanded && panel.frame.height == ShelfRope.detailHeight && !panel.isVisible)
         precondition(initialRail.showsRope, "Rope appears with hovered details")
         let view = panel.shelfView
         var actions = [ShelfView.Action](); view.onAction = { actions.append($0) }
@@ -99,21 +99,22 @@ enum CaptureEditor {
             let x = Int(point.x*CGFloat(bitmap.pixelsWide)/view.bounds.width), y = Int(point.y*CGFloat(bitmap.pixelsHigh)/view.bounds.height)
             precondition(bitmap.colorAt(x: x,y: y)!.alphaComponent < 0.01, "No surrounding paper, border, card padding or screen-wide backing")
         }
-        let borderPoint = CGPoint(x: 60,y: 20)
+        let firstRect = view.cardRect(0)
+        let borderPoint = CGPoint(x: firstRect.minX+44,y: firstRect.midY-(firstRect.width-8)*240/360/2-2)
         let borderX = Int(borderPoint.x*CGFloat(bitmap.pixelsWide)/view.bounds.width)
         let borderY = Int(borderPoint.y*CGFloat(bitmap.pixelsHigh)/view.bounds.height)
         let borderColor = bitmap.colorAt(x: borderX,y: borderY)!.usingColorSpace(.deviceRGB)!
         precondition(borderColor.alphaComponent > 0.25 && borderColor.redComponent < 0.6, "Individual images have a visible dark pencil frame")
         if let path = ProcessInfo.processInfo.environment["MACOSX_SHELF_PREVIEW"] {
             try bitmap.representation(using: .png,properties: [:])!.write(to: URL(fileURLWithPath: path))
-            let stage = NSImage(size: CGSize(width: 1280,height: 190))
+            let stage = NSImage(size: CGSize(width: 1280,height: 230))
             stage.lockFocus()
-            NSColor(calibratedWhite: 0.90,alpha: 1).setFill(); CGRect(x: 0,y: 0,width: 1280,height: 190).fill()
+            NSColor(calibratedWhite: 0.90,alpha: 1).setFill(); CGRect(x: 0,y: 0,width: 1280,height: 230).fill()
             if let rail = panel.railView, let railBitmap = rail.bitmapImageRepForCachingDisplay(in: rail.bounds) {
                 rail.cacheDisplay(in: rail.bounds,to: railBitmap)
-                NSImage(cgImage: railBitmap.cgImage!,size: rail.bounds.size).draw(in: CGRect(x: 0,y: 184,width: 1280,height: 6))
+                NSImage(cgImage: railBitmap.cgImage!,size: rail.bounds.size).draw(in: CGRect(x: 0,y: 230-ShelfRope.height,width: 1280,height: ShelfRope.height))
             }
-            NSImage(cgImage: bitmap.cgImage!,size: view.bounds.size).draw(in: CGRect(x: (1280-view.bounds.width)/2,y: 190-view.bounds.height,width: view.bounds.width,height: view.bounds.height))
+            NSImage(cgImage: bitmap.cgImage!,size: view.bounds.size).draw(in: CGRect(x: (1280-view.bounds.width)/2,y: 230-view.bounds.height,width: view.bounds.width,height: view.bounds.height))
             stage.unlockFocus()
             let stageBitmap = NSBitmapImageRep(data: stage.tiffRepresentation!)!
             try stageBitmap.representation(using: .png,properties: [:])!.write(to: URL(fileURLWithPath: path).deletingLastPathComponent().appendingPathComponent("rail-context.png"))
@@ -128,12 +129,42 @@ enum CaptureEditor {
         let enter = NSEvent.enterExitEvent(with: .mouseEntered,location: .zero,modifierFlags: [],timestamp: 0,windowNumber: lineView.window!.windowNumber,context: nil,eventNumber: 0,trackingNumber: 0,userData: nil)!
         lineView.mouseEntered(with: enter)
         for _ in 0..<100 { if panel.expanded { break }; try await Task.sleep(nanoseconds: 10_000_000) }
-        precondition(panel.expanded && panel.frame.width < panel.railFrame.width && !panel.isVisible, "Full-width line hover opens only a narrow transparent detail window")
+        precondition(panel.expanded && panel.frame.width < panel.railFrame.width && !panel.isVisible, "Full-width line hover opens a detail window sized to its occupied slots")
         panel.collapse()
         lineView.mouseEntered(with: enter)
         lineView.mouseExited(with: enter)
         try await Task.sleep(nanoseconds: 240_000_000)
         precondition(!panel.expanded, "Leaving the line before reveal cancels the reveal")
+        precondition(ShelfRope.y(0,width: 1512) == 3 && ShelfRope.y(756,width: 1512) == 17, "Rope sags naturally between screen edges")
+        panel.beginKeyboardSelection()
+        precondition(panel.keyboardSession && panel.expanded && !panel.isVisible)
+        panel.scheduleCollapse(after: 0)
+        try await Task.sleep(nanoseconds: 30_000_000)
+        precondition(panel.expanded, "Keyboard selection persists when the pointer leaves")
+        view.keyDown(with: event(.keyDown,.zero,view: view,key: 53))
+        precondition(!panel.keyboardSession && !panel.expanded && !initialRail.showsRope, "Escape exits keyboard selection and hides the rope")
+        panel.beginKeyboardSelection()
+        panel.dismissFromKeyboard(pointer: CGPoint(x: panel.railFrame.midX,y: panel.railFrame.maxY-2))
+        panel.hoverEntered()
+        try await Task.sleep(nanoseconds: 240_000_000)
+        precondition(!panel.expanded, "Escape does not reopen underneath a stationary pointer on the trigger")
+        panel.triggerExited()
+        let many = (0..<12).map { _ in CaptureShelfStore.Item(id: UUID(),width: 360,height: 240,bytes: 1) }
+        let wide = ShelfView(records: many,thumbnails: [:])
+        let wideWindow = NSPanel(contentRect: CGRect(x: 0,y: 0,width: 1512,height: ShelfRope.detailHeight),styleMask: [.borderless],backing: .buffered,defer: false)
+        wideWindow.isReleasedWhenClosed = false; wideWindow.contentView = wide
+        defer { wideWindow.close() }
+        wide.expanded = true; wide.ropeWidth = 1512
+        precondition(ShelfRope.capacity(wide.bounds.width) == 10)
+        precondition(wide.cardRect(9).maxX < wide.bounds.width, "Use the screen width for ten slots instead of capping at six")
+        let titles = (wide.accessibilityChildren() ?? []).compactMap { ($0 as? NSAccessibilityElement)?.accessibilityLabel() }
+        precondition(!titles.contains("上一页") && !titles.contains("下一页"), "Continuous rope has no page buttons")
+        var copied = 0; wide.onAction = { if case .copy = $0 { copied += 1 } }
+        for _ in 0..<10 { wide.keyDown(with: event(.keyDown,.zero,view: wide,key: 124)) }
+        precondition(wide.selected == many[10].id && wide.cardRect(10).maxX < wide.bounds.width && copied == 0, "Arrow selection scrolls only after the visible screen fills and never copies")
+        wide.keyDown(with: event(.keyDown,.zero,view: wide,key: 8,flags: .command))
+        precondition(copied == 1, "Command C explicitly copies the selected image")
+        precondition(NSApp.sendAction(NSSelectorFromString("copy:"),to: wide,from: nil) && copied == 2, "Native Edit/Copy responder routes to the same selected image")
         for display in NSScreen.screens {
             let other = ShelfPanel(screen: display,records: fixture,thumbnails: thumbs,presenting: false)
             other.collapse(); precondition(other.railFrame.minX == display.frame.minX && other.railFrame.width == display.frame.width)

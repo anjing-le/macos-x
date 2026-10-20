@@ -255,7 +255,10 @@ final class CaptureModule: NSObject {
 
     func shelve() {
         guard running, !terminating, recordingState != .choosing else { return }
-        guard shelf.canAdd else { shelf.showMessage("晾衣杆正在处理或已满，请稍后重试或整理。"); return }
+        if shelf.focusIfAlreadyOpen() { return }
+        guard shelf.canAdd else {
+            if !shelf.showForKeyboard() { shelf.showMessage("晾衣杆正在处理或已满，请稍后重试或整理。") }; return
+        }
         if editorPending { shelfAfterEditor = true; pinAfterEditor = false }
         else if let editor {
             editor.renderForShelf { [weak self] image, done in
@@ -286,7 +289,7 @@ final class CaptureModule: NSObject {
         let rich = toShelf ? nil : board.data(forType:.rtf).flatMap { $0.count <= 4_000_000 ? $0 : nil }
         logger.info("clipboard candidates=\(candidates.count) image_bytes=\(bytes) text_characters=\(text?.count ?? 0) rtf_bytes=\(rich?.count ?? 0)")
         guard !candidates.isEmpty || text?.isEmpty == false || rich != nil else {
-            if toShelf { shelf.showMessage("剪贴板里没有可收纳的图片。") }
+            if toShelf { if !shelf.showForKeyboard() { shelf.showMessage("剪贴板里没有可收纳的图片。") } }
             else { handle(CaptureFailure.emptyClipboard) }; return
         }
         clipboardInFlight = true
