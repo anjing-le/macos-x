@@ -23,10 +23,10 @@ enum CaptureEditor {
         }
         NSGraphicsContext.restoreGraphicsState(); return bitmap.cgImage!
     }
-    @MainActor static func event(_ type: NSEvent.EventType, _ point: CGPoint, view: NSView, key: UInt16? = nil, flags: NSEvent.ModifierFlags = []) -> NSEvent {
+    @MainActor static func event(_ type: NSEvent.EventType, _ point: CGPoint, view: NSView, key: UInt16? = nil, flags: NSEvent.ModifierFlags = [], clicks: Int = 1) -> NSEvent {
         if let key { return NSEvent.keyEvent(with: .keyDown,location: .zero,modifierFlags: flags,timestamp: 0,windowNumber: view.window!.windowNumber,context: nil,characters: key == 8 ? "c" : "",charactersIgnoringModifiers: key == 8 ? "c" : "",isARepeat: false,keyCode: key)! }
         if type == .mouseExited { return NSEvent.enterExitEvent(with: type,location: view.convert(point,to: nil),modifierFlags: [],timestamp: 0,windowNumber: view.window!.windowNumber,context: nil,eventNumber: 0,trackingNumber: 0,userData: nil)! }
-        return NSEvent.mouseEvent(with: type,location: view.convert(point,to: nil),modifierFlags: [],timestamp: 0,windowNumber: view.window!.windowNumber,context: nil,eventNumber: 0,clickCount: 1,pressure: 1)!
+        return NSEvent.mouseEvent(with: type,location: view.convert(point,to: nil),modifierFlags: [],timestamp: 0,windowNumber: view.window!.windowNumber,context: nil,eventNumber: 0,clickCount: clicks,pressure: 1)!
     }
     @MainActor static func main() async throws {
         _ = NSApplication.shared; NSApp.setActivationPolicy(.prohibited)
@@ -64,7 +64,9 @@ enum CaptureEditor {
         var actions = [ShelfView.Action](); view.onAction = { actions.append($0) }
         let center = CGPoint(x: view.cardRect(0).midX,y: view.cardRect(0).midY)
         view.mouseDown(with: event(.leftMouseDown,center,view: view)); view.mouseUp(with: event(.leftMouseUp,center,view: view))
-        guard case .pin(let clicked, nil) = actions.last else { preconditionFailure("Whole card opens pin") }; precondition(clicked == first.id)
+        guard case .preview(let clicked) = actions.last else { preconditionFailure("Whole card selects and previews without leaving keyboard interaction") }; precondition(clicked == first.id && view.selected == first.id)
+        view.mouseDown(with: event(.leftMouseDown,center,view: view,clicks: 2)); view.mouseUp(with: event(.leftMouseUp,center,view: view,clicks: 2))
+        guard case .pin(first.id, nil) = actions.last else { preconditionFailure("Double click opens a pin") }
         actions.removeAll()
         view.mouseDown(with: event(.leftMouseDown,center,view: view))
         let target = CGPoint(x: view.cardRect(1).midX,y: center.y)
@@ -77,7 +79,7 @@ enum CaptureEditor {
         guard case .pin(let pulled, .some) = actions.last else { preconditionFailure("Downward drag creates positioned pin") }; precondition(pulled == first.id)
         view.keyDown(with: event(.keyDown,.zero,view: view,key: 8,flags: .command))
         guard case .copy = actions.last else { preconditionFailure("Keyboard copy routes original image") }
-        view.mouseMoved(with: event(.mouseMoved,center,view: view))
+        view.mouseMoved(with: event(.mouseMoved,CGPoint(x: view.cardRect(1).midX,y: center.y),view: view))
         guard case .preview = actions.last else { preconditionFailure("Hover requests a bounded preview") }
         precondition((view.accessibilityChildren()?.count ?? 0) >= fixture.count)
         view.mouseExited(with: event(.mouseExited,CGPoint(x: 50,y: 500),view: view))

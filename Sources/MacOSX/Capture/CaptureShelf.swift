@@ -271,7 +271,7 @@ import AppKit
     init(records: [CaptureShelfStore.Item], thumbnails: [UUID: NSImage]) {
         self.records = records; self.thumbnails = thumbnails; selected = records.first?.id
         super.init(frame: .zero)
-        toolTip = "点击贴出 · 横向拖动排序 · 向下拖出贴图 · 左右键选择 · Option＋方向键排序 · ⌘C 复制 · Delete 删除 · ⌘Z 撤销"
+        toolTip = "单击选中 · 双击贴出 · 横向拖动排序 · 向下拖出贴图 · 左右键选择 · Option＋方向键排序 · ⌘C 复制 · Delete 删除 · ⌘Z 撤销"
         setAccessibilityElement(true); setAccessibilityRole(.group)
         setAccessibilityLabel("截图晾衣杆，左右选择，回车贴图，Command C 复制，Delete 删除，Command Z 撤销")
     }
@@ -363,7 +363,8 @@ import AppKit
         if moved {
             if point.y > 184 { onAction?(.pin(drag.id,window?.convertPoint(toScreen: event.locationInWindow))) }
             else if let insertion { onAction?(.move(drag.id,insertion)) }
-        } else { onAction?(.pin(drag.id,nil)) }
+        } else if event.clickCount >= 2 { onAction?(.pin(drag.id,nil)) }
+        else { hovered = drag.id; preview = nil; onAction?(.preview(drag.id)) }
         moved = false; insertion = nil; dragPoint = nil; needsDisplay = true
         if let panel = window as? ShelfPanel, !panel.frame.contains(NSEvent.mouseLocation) { panel.scheduleCollapse() }
     }
@@ -427,7 +428,7 @@ import AppKit
             SketchPalette.blue.setFill(); CGRect(x: cardRect(insertion).minX-5,y: 48,width: 3,height: 96).fill()
         }
         label("撤销",at: CGPoint(x: 18,y: 160),size: 11)
-        if bounds.width > 400 { label("拖动排序 · 下拉贴图 · ⌘C 复制",at: CGPoint(x: 100,y: 160),size: 11) }
+        if bounds.width > 400 { label("下拉/双击贴图 · ⌘C 复制",at: CGPoint(x: 100,y: 160),size: 11) }
         if records.count > capacity { label("‹     ›",at: CGPoint(x: bounds.width-73,y: 154),size: 22) }
         if let preview, bounds.height > 200 {
             let area = CGRect(x: 18,y: 192,width: bounds.width-36,height: bounds.height-208)
