@@ -35,6 +35,7 @@ final class ModuleCoordinator {
                 let finished = self.switcher?.freezeForCapture()
                 if self.capture?.capture(snapshotReady: finished) != true { finished?() }
             case .pin: self.capture?.pin()
+            case .shelf: self.capture?.shelve()
             case .recording: self.capture?.toggleRecording()
             case .togglePins: self.capture?.togglePins()
             case .layoutLeft:self.layout?.perform(.left)
@@ -175,7 +176,12 @@ final class ModuleCoordinator {
         ensure(tool)
         switch tool {
         case .kaomoji: return wheel!.settingsView
-        case .capture: return capture!.settingsView
+        case .capture:
+            if capture!.settingsView.subviews.first(where: { $0.identifier?.rawValue == "shelf-shortcut-row" }) == nil {
+                let picker = shortcutPicker(.shelf, showsTitle: false)
+                capture!.installShelfShortcut(picker)
+            }
+            return capture!.settingsView
         case .windowSwitcher: return switcher!.settingsView
         case .windowLayout:return layout!.settingsView
         case .shortcutRadar:return shortcutRadar!.makeDashboard()
@@ -245,7 +251,7 @@ final class ModuleCoordinator {
             return issues[.wheel] ?? (usesTap && !needsAccessibility(tool) ? tapIssue : nil)
         }
         if tool == .capture {
-            return [ShortcutAction.capture, .pin, .togglePins, .recording].compactMap { issues[$0] }.first
+            return [ShortcutAction.capture, .pin, .togglePins, .recording, .shelf].compactMap { issues[$0] }.first
         }
         if tool == .windowLayout { return [ShortcutAction.layoutLeft,.layoutRight,.layoutUp,.layoutDown].compactMap { issues[$0] }.first }
         return needsAccessibility(tool) ? nil : tapIssue

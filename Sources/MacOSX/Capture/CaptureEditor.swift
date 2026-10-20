@@ -680,6 +680,20 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         guard window.attachedSheet == nil else { return }
         editingPin ? confirm() : pinImage()
     }
+    /// Uses exactly the same committed draft/render as copy and F3. A failed
+    /// persistence attempt restores editing rather than discarding the image.
+    func renderForShelf(_ save: @escaping (CGImage, @escaping (Bool) -> Void) -> Void) {
+        guard window.attachedSheet == nil, beginExport() else { return }
+        render(onFailure: { [weak self] in self?.exporting = false; self?.updateSelectionInput() }) { [weak self] image in
+            guard let self else { return }
+            save(image) { [weak self] saved in
+                guard let self, !self.closed else { return }
+                self.exporting = false; self.updateSelectionInput()
+                if saved { self.onExport?(); self.close() }
+                else { self.showStatus("收纳失败，图片已保留，可重试。") }
+            }
+        }
+    }
     @objc private func pinImage() {
         guard beginExport() else { return }
         render(onFailure: { [weak self] in self?.exporting = false; self?.updateSelectionInput() }) { [weak self] image in

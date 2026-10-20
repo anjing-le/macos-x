@@ -65,6 +65,16 @@ final class CapturePins {
         insert(PinEntry(snapshot: snapshot, queue: queue))
         return true
     }
+    func shelveActive(_ save: @escaping (CGImage, @escaping (Bool) -> Void) -> Void) -> Bool {
+        guard let entry = entries.first(where: { $0.isActive }) else { return false }
+        entry.shelve { [weak self] image, done in
+            save(image) { [weak self] saved in
+                done(saved)
+                if saved { self?.recovered = nil }
+            }
+        }
+        return true
+    }
     func applyActiveEdit() -> Bool { entries.contains { $0.applyEditIfKey() } }
     func toggleAll() { entries.contains(where: { $0.window.isVisible }) ? hideAll() : showAll() }
     func hideAll() { entries.forEach { $0.window.orderOut(nil) }; onStatus?("贴图已隐藏 · ⇧F3 显示") }
@@ -161,6 +171,34 @@ private final class PinEntry: NSObject, NSWindowDelegate {
         baseSize = snapshot.baseSize; transform = snapshot.transform
         zoom = snapshot.zoom; thumbnail = snapshot.thumbnail; window.alphaValue = snapshot.opacity
         view.transform = transform; view.needsDisplay = true
+    }
+    var isActive: Bool { window.isKeyWindow || editor?.window.isKeyWindow == true }
+    func shelve(_ save: @escaping (CGImage, @escaping (Bool) -> Void) -> Void) {
+        guard !closed, !exporting, !preparingEditor else { return }
+        if let editor {
+            editor.renderForShelf { [weak self] image, done in
+                save(image) { [weak self] saved in
+                    if saved { self?.editor?.onClose = nil }
+                    done(saved)
+                    if saved { self?.editor = nil; self?.window.close() }
+                }
+            }
+            return
+        }
+        exporting = true
+        let original = image, transform = transform, lifetime = lifetime
+        queue.async { [weak self] in
+            let image = lifetime.valid ? transform.render(original) : nil
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.closed, lifetime.valid else { return }
+                guard let image else { self.exporting = false; self.onStatus?("贴图收纳失败。"); return }
+                save(image) { [weak self] saved in
+                    guard let self, !self.closed else { return }
+                    self.exporting = false
+                    if saved { self.window.close() }
+                }
+            }
+        }
     }
     func setOutline(_ visible: Bool) { view.showsOutline = visible }
     func present(focus: Bool = true) {

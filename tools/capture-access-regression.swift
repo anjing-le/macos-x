@@ -166,7 +166,7 @@ final class NSSavePanel {
     func completeRangeCopy(error: String? = nil) {
         if error == nil { Self.copySucceeded += 1 } else { Self.copyFailed += 1 }
     }
-    enum Result { case copy(CGRect), pin(CGRect), edit(CGRect), color(String), cancel }
+    enum Result { case copy(CGRect), pin(CGRect), shelf(CGRect), edit(CGRect), color(String), cancel }
     static weak var current: CaptureSelection?
     static var presentations = 0
     static var dismissals = 0
@@ -176,12 +176,15 @@ final class NSSavePanel {
     }
     func dismiss() { Self.dismissals += 1; Self.lastCompletion = nil }
     func pinCurrentSelection() {}
+    static var shelfRequests = 0
+    func shelveCurrentSelection() { Self.shelfRequests += 1 }
     func color(at point: CGPoint, rgb: Bool) -> String? { nil }
     func resume() {}
 }
 @MainActor final class CapturePins {
     var showsOutline = false
     func applyActiveEdit() -> Bool { false }
+    func shelveActive(_ save: @escaping (CGImage, @escaping (Bool) -> Void) -> Void) -> Bool { false }
     var onStatus: ((String) -> Void)?
     var canAdd = true
     static var pending: [(Bool) -> Void] = []
@@ -215,6 +218,7 @@ final class NSSavePanel {
         let callback = onClose; onClose = nil; callback?()
     }
     func pinCurrentImage() { onPin?(image) }
+    func renderForShelf(_ save: @escaping (CGImage, @escaping (Bool) -> Void) -> Void) { save(image) { [weak self] saved in if saved { self?.close() } } }
     nonisolated(unsafe) static var encodesFixturePNG = false
     nonisolated static func pngData(_ image: CGImage) -> Data? {
         guard encodesFixturePNG else { return nil }
@@ -884,10 +888,49 @@ private struct CheckFailure: Error { let message: String }
             try require(released == 2, "stop releases frozen switcher exactly once")
             MockCapture.content(error: unrelated); try await settle()
             try require(released == 2, "late snapshot completion cannot release a newer session")
+            let shelving = CaptureModule(images: CaptureImageService(reuseDisplayMetadata: false)); shelving.start(); shelving.capture()
+            try await succeedImage(image)
+            try await wait({ CaptureSelection.lastCompletion != nil }, "shelf selection")
+            let requestCount = CaptureSelection.shelfRequests
+            shelving.shelve()
+            try require(CaptureSelection.shelfRequests == requestCount+1, "F4 follows current F1 selection, never stale clipboard")
+            CaptureShelf.held = true
+            let beforeShelf = CaptureSelection.dismissals
+            CaptureSelection.lastCompletion?(.shelf(region))
+            try await wait({ CaptureShelf.pending.count == 1 }, "shelf persists before dismissing frozen backdrop")
+            try require(CaptureSelection.dismissals == beforeShelf, "Frozen selection survives until durable shelf save")
+            CaptureShelf.pending.removeFirst()(true)
+            try require(CaptureSelection.dismissals == beforeShelf+1, "Successful shelf save releases screenshot")
+            shelving.capture(); try await succeedImage(image)
+            try await wait({ CaptureSelection.lastCompletion != nil }, "shelf next capture ready")
+            CaptureSelection.lastCompletion?(.edit(region))
+            try await wait({ CaptureEditor.current != nil }, "shelf annotated screenshot")
+            shelving.shelve()
+            try await wait({ CaptureShelf.pending.count == 1 }, "annotated image goes to shelf")
+            let retainedEditor = CaptureEditor.current
+            CaptureShelf.pending.removeFirst()(false)
+            try require(CaptureEditor.current === retainedEditor, "A failed shelf save retains the editor")
+            shelving.shelve(); CaptureShelf.pending.removeFirst()(true)
+            try require(CaptureEditor.current == nil, "Successful annotated shelf save closes editor")
+            CaptureShelf.held = false; shelving.stop()
             print("PASS capture access: \(checks) assertions; false advisory + actual API success, exact refusal classification, other errors, cancellation, latest request, process proof, recording start/stop, and termination; no capture/TCC/UI/general clipboard")
         } catch {
             FileHandle.standardError.write(Data("FAIL capture access: \(error)\n".utf8)); exit(1)
         }
     }
     static func isPermission(_ error: Error) -> Bool { if case CaptureFailure.permission = error { return true }; return false }
+}
+
+@MainActor final class CaptureShelf {
+    static var images: [CGImage] = []
+    static var held = false
+    static var pending: [(Bool) -> Void] = []
+    func showMessage(_ text: String) { onStatus?(text) }
+    var canAdd = true
+    var onStatus: ((String) -> Void)?
+    var onPin: ((CGImage, CGRect?) -> Void)?
+    func start() {}
+    func stop() {}
+    func setSuspended(_ value: Bool) {}
+    func add(_ image: CGImage, completion: @escaping (Bool) -> Void) { Self.images.append(image); if Self.held { Self.pending.append(completion) } else { completion(true) } }
 }

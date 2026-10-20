@@ -3,7 +3,7 @@ import os
 
 @MainActor final class CaptureSelection: NSObject {
     enum Mode { case screenshot, recording }
-    enum Result { case copy(CGRect), pin(CGRect), edit(CGRect), color(String), cancel }
+    enum Result { case copy(CGRect), pin(CGRect), shelf(CGRect), edit(CGRect), color(String), cancel }
     private final class Panel: NSPanel {
         var acceptsSelectionInput = true {
             didSet {
@@ -144,6 +144,11 @@ import os
         finish(.pin(region))
     }
 
+    func shelveCurrentSelection() {
+        guard mode == .screenshot, acceptsInput, let region = validRegion() else { return }
+        finish(.shelf(region))
+    }
+
     private func targetWindow(for rect: CGRect) -> CaptureWindow? {
         frames.first?.windowTargets.first { CaptureSelectionGeometry.clamped($0.frame, to: desktop) == rect }
     }
@@ -199,6 +204,8 @@ import os
             awaitingEditor = true
             retainBackdrop()
         } else if case .pin = result {
+            retainBackdrop()
+        } else if case .shelf = result {
             retainBackdrop()
         } else { dismiss() }
         callback?(result)

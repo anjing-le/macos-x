@@ -9,6 +9,8 @@ final class CaptureModule: NSObject {
     private let images: CaptureImageService
     private let selection = CaptureSelection()
     private let pins = CapturePins()
+    private let shelf = CaptureShelf()
+    private var shelfAfterEditor = false
     private let recorder = CaptureRecorder()
     private let recordingPresentation = RecordingPresentation()
     private let work = DispatchQueue(label: "cc.anjing.macos-x.capture.actions", qos: .userInitiated)
@@ -32,6 +34,11 @@ final class CaptureModule: NSObject {
     private var terminating = false
     private lazy var view: NSView = buildSettings()
     var settingsView: NSView { view }
+    func installShelfShortcut(_ shortcut: NSView) {
+        let row = NSStackView(views: [NSTextField(labelWithString: "截图晾衣杆"), shortcut]); row.spacing = 12; row.identifier = .init("shelf-shortcut-row")
+        row.toolTip = "F1 选区、选中贴图或剪贴板图片 → 收纳；顶部中央悬停查看。"
+        (settingsView as? NSStackView)?.addArrangedSubview(row)
+    }
     var isRecording: Bool { recordingState != .idle }
     /// Observed success in this process; a later actual refusal clears it.
     /// Never persisted or inferred from the permission UI/preflight alone.
@@ -43,16 +50,24 @@ final class CaptureModule: NSObject {
         super.init()
         pins.showsOutline = UserDefaults.standard.bool(forKey: "capture.pin-outline")
         pins.onStatus = { [weak self] in self?.setStatus($0) }
+        shelf.onStatus = { [weak self] in self?.setStatus($0) }
+        shelf.onPin = { [weak self] image, frame in
+            guard let self else { return }
+            guard self.pins.canAdd else { self.shelf.showMessage("桌面最多 8 张贴图，请先关闭一张。"); return }
+            self.pins.add(image, at: frame)
+        }
         recordingPresentation.onStop = { [weak self] in self?.toggleRecording() }
     }
     func start() {
         guard !running, !terminating else { return }
         running = true
+        shelf.start()
         recordingPresentation.resume()
         setStatus(recordingState == .idle ? "已就绪" : "正在保存录屏…")
     }
     func stop() {
         running = false; generation &+= 1
+        shelf.stop(); shelfAfterEditor = false
         images.cancel(); captureTicket?.cancel(); captureTicket = nil
         finishSnapshot()
         selection.dismiss(); editor?.close(); editor = nil; pins.closeAll(); lastRegion = nil
@@ -82,6 +97,7 @@ final class CaptureModule: NSObject {
         captureRevision &+= 1; let expected = generation, captureRevision = captureRevision
         selection.dismiss(); editor?.close(); editor = nil
         captureInProgress = true
+        shelf.setSuspended(true); shelfAfterEditor = false
         editorPending = false; pinAfterEditor = false
         let timing = CaptureTiming()
         let screens = screenDescriptors()
@@ -91,7 +107,7 @@ final class CaptureModule: NSObject {
             MainActor.assumeIsolated {
                 guard let self, self.running, self.generation == expected, self.captureRevision == captureRevision else { return }
                 switch result {
-                case .failure(let error): self.finishSnapshot(); self.captureInProgress = false; self.handle(error)
+                case .failure(let error): self.finishSnapshot(); self.captureInProgress = false; self.shelf.setSuspended(false); self.handle(error)
                 case .success(let frames):
                     timing.record("f1-pixels-ready")
                     self.hasConfirmedScreenCaptureAccess = true
@@ -102,11 +118,11 @@ final class CaptureModule: NSObject {
                         if case .copy = result {
                             // A new visible range replaces any previous crop UI.
                             self.editor?.onClose = nil; self.editor?.close(); self.editor = nil
-                            self.editorPending = false; self.pinAfterEditor = false
+                            self.editorPending = false; self.pinAfterEditor = false; self.shelfAfterEditor = false
                         }
                         if let target = self.selection.completedWindow {
                             switch result {
-                            case .copy, .pin, .edit:
+                            case .copy, .pin, .shelf, .edit:
                                 if case .edit = result { self.editorPending = true }
                                 self.captureTicket = self.images.capture(frames.map(\.screen), window: target, frozenFrames: frames) { [weak self] isolated in
                                     MainActor.assumeIsolated {
@@ -115,11 +131,11 @@ final class CaptureModule: NSObject {
                                         case .success(let windowFrames):
                                             self.finishSelection(result, frames: windowFrames, generation: expected, revision: captureRevision)
                                         case .failure(let error):
-                                            self.editorPending = false; self.pinAfterEditor = false
+                                            self.editorPending = false; self.pinAfterEditor = false; self.shelfAfterEditor = false
                                             if case .copy = result {
                                                 self.captureInProgress = true
                                                 self.selection.completeRangeCopy(error: "窗口取图失败 · ⌘C 重试，Esc 退出")
-                                            } else { self.selection.dismiss(); self.captureInProgress = false }
+                                            } else { self.selection.dismiss(); self.captureInProgress = false; self.shelf.setSuspended(false) }
                                             self.handle(error)
                                         }
                                     }
@@ -148,14 +164,15 @@ final class CaptureModule: NSObject {
                                  generation expected: UInt64, revision: UInt64) {
         let region: CGRect
         switch result {
-        case .cancel: captureTicket?.cancel(); editor?.close(); editor = nil; captureInProgress = false; setStatus("已取消截图。"); return
+        case .cancel: captureTicket?.cancel(); editor?.close(); editor = nil; captureInProgress = false; shelf.setSuspended(false); shelfAfterEditor = false; setStatus("已取消截图。"); return
         case .color(let value):
             editor?.close(); editor = nil
             captureInProgress = false
+            shelf.setSuspended(false)
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(value, forType: .string)
             setStatus("已复制 \(value)"); return
-        case .copy(let rect), .pin(let rect), .edit(let rect): region = rect
+        case .copy(let rect), .pin(let rect), .shelf(let rect), .edit(let rect): region = rect
         }
         let ticket = captureTicket
         if case .edit = result { editorPending = true }
@@ -170,13 +187,13 @@ final class CaptureModule: NSObject {
                 guard let self, self.running, self.generation == expected,
                       self.captureRevision == revision, ticket?.valid == true else { return }
                 guard let image else {
-                    self.captureInProgress = false; self.editorPending = false; self.pinAfterEditor = false
+                    self.captureInProgress = false; self.editorPending = false; self.pinAfterEditor = false; self.shelfAfterEditor = false
                     if case .copy = result {
                         self.captureInProgress = true
                         self.selection.completeRangeCopy(error: "截图处理失败 · 可调整范围重试，Esc 退出")
                         self.handle(CaptureFailure.oversized); return
                     }
-                    self.selection.dismiss(); self.handle(CaptureFailure.oversized); return
+                    self.selection.dismiss(); self.shelf.setSuspended(false); self.handle(CaptureFailure.oversized); return
                 }
                 switch result {
                 case .copy:
@@ -196,18 +213,26 @@ final class CaptureModule: NSObject {
                     self.lastRegion = region
                     self.logger.info("range copy written png_bytes=\(data.count,privacy: .public)")
                     self.selection.completeRangeCopy()
+                    self.shelf.setSuspended(false)
                     self.setStatus("已复制截图。")
                 case .pin:
                     self.lastRegion = region
                     self.pins.add(image, at: region) { [weak self] shown in
                         guard let self, self.running, self.generation == expected, self.captureRevision == revision else { return }
-                        self.captureInProgress = false; self.selection.dismiss()
+                        self.captureInProgress = false; self.selection.dismiss(); self.shelf.setSuspended(false)
                         if !shown { self.setStatus("贴图创建失败。") }
+                    }
+                case .shelf:
+                    self.shelf.add(image) { [weak self] saved in
+                        guard let self, self.running, self.generation == expected, self.captureRevision == revision else { return }
+                        self.captureInProgress = false; self.selection.dismiss(); self.shelf.setSuspended(false)
+                        if !saved { self.openEditor(image, at: region) }
                     }
                 case .edit:
                     self.openEditor(image, at: region)
                     self.editorPending = false
                     if self.selection.editorDidBecomeReady() { self.pinAfterEditor = false }
+                    if self.shelfAfterEditor { self.shelfAfterEditor = false; self.shelve(); return }
                     if self.pinAfterEditor { self.pinAfterEditor = false; self.editor?.pinCurrentImage() }
                 case .color, .cancel: break
                 }
@@ -222,15 +247,31 @@ final class CaptureModule: NSObject {
         logger.info("F3 editor=\(self.editor != nil) capture_active=\(self.captureInProgress) pending=\(self.editorPending) capacity_available=\(self.pins.canAdd)")
         if pins.applyActiveEdit() { return }
         guard pins.canAdd else { logger.info("pin rejected: capacity"); setStatus("最多 8 张贴图，请先关闭一张。"); return }
-        if editorPending { pinAfterEditor = true }
+        if editorPending { pinAfterEditor = true; shelfAfterEditor = false }
         else if let editor { editor.pinCurrentImage() }
         else if captureInProgress { selection.pinCurrentSelection() }
         else { pinClipboard() }
     }
 
-    func pinClipboard() {
+    func shelve() {
+        guard running, !terminating, recordingState != .choosing else { return }
+        guard shelf.canAdd else { shelf.showMessage("晾衣杆正在处理或已满，请稍后重试或整理。"); return }
+        if editorPending { shelfAfterEditor = true; pinAfterEditor = false }
+        else if let editor {
+            editor.renderForShelf { [weak self] image, done in
+                guard let self else { done(false); return }
+                self.shelf.add(image, completion: done)
+            }
+        } else if captureInProgress { selection.shelveCurrentSelection() }
+        else if pins.shelveActive({ [weak self] image, done in
+            guard let self else { done(false); return }; self.shelf.add(image, completion: done)
+        }) { return }
+        else { pinClipboard(toShelf: true) }
+    }
+
+    func pinClipboard(toShelf: Bool = false) {
         guard running, !terminating, !clipboardInFlight else { return }
-        if pins.restoreLastClosed() { return }
+        if !toShelf, pins.restoreLastClosed() { return }
         let expected = generation, revision = captureRevision
         let board = NSPasteboard.general
         let placement = copiedRegion.flatMap { $0.changeCount == board.changeCount ? $0.frame : nil }
@@ -241,10 +282,13 @@ final class CaptureModule: NSObject {
                   data.count <= 64_000_000 - bytes else { continue }
             candidates.append(data); bytes += data.count
         }
-        let text = board.string(forType:.string)
-        let rich = board.data(forType:.rtf).flatMap { $0.count <= 4_000_000 ? $0 : nil }
+        let text = toShelf ? nil : board.string(forType:.string)
+        let rich = toShelf ? nil : board.data(forType:.rtf).flatMap { $0.count <= 4_000_000 ? $0 : nil }
         logger.info("clipboard candidates=\(candidates.count) image_bytes=\(bytes) text_characters=\(text?.count ?? 0) rtf_bytes=\(rich?.count ?? 0)")
-        guard !candidates.isEmpty || text?.isEmpty == false || rich != nil else { handle(CaptureFailure.emptyClipboard); return }
+        guard !candidates.isEmpty || text?.isEmpty == false || rich != nil else {
+            if toShelf { shelf.showMessage("剪贴板里没有可收纳的图片。") }
+            else { handle(CaptureFailure.emptyClipboard) }; return
+        }
         clipboardInFlight = true
         work.async { [weak self] in
             let decoded = autoreleasepool { CaptureClipboard.decode(images:candidates,text:text,rtf:rich) }
@@ -267,7 +311,8 @@ final class CaptureModule: NSObject {
                         frame = CGRect(x: available.midX - size.width / 2, y: available.midY - size.height / 2,
                                        width: size.width, height: size.height)
                     }
-                    self.pins.add(image, at: frame)
+                    if toShelf { self.shelf.add(image) { _ in } }
+                    else { self.pins.add(image, at: frame) }
                 }
                 else { self.logger.info("clipboard decode rejected: unsupported or bounded content"); self.setStatus("剪贴板内容无法解析或超过大小限制，未创建贴图。") }
             }
@@ -417,7 +462,7 @@ final class CaptureModule: NSObject {
         }
         editor.onClose = { [weak self, weak editor] in
             guard let self, self.editor === editor else { return }
-            self.editor = nil; self.captureInProgress = false; self.selection.dismiss()
+            self.editor = nil; self.captureInProgress = false; self.selection.dismiss(); self.shelf.setSuspended(false)
         }
         editor.onEditingChanged = { [weak self] editing in self?.selection.setEditing(editing) }
         selection.onEditorKey = { [weak editor] in editor?.handleSelectionKey($0) ?? false }
