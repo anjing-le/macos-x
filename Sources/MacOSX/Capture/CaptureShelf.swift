@@ -177,6 +177,7 @@ import AppKit
         busy = true; let expected = epoch, store = store
         let active = panels.first { $0.keyboardSession }
         let keyboard = active != nil, screen = active?.screenFrame, selected = focusID ?? active?.shelfView.selected
+        let rebounds = panels.compactMap { panel in panel.ropePull.map { (panel.screenFrame,$0) } }
         queue.async { [weak self] in
             let error: Error?; do { try action(store); error = nil } catch let caught { error = caught }
             let items = store.items, thumbs = Self.loadThumbnails(store)
@@ -188,6 +189,9 @@ import AppKit
                 if let first = items.first {
                     let id = selected.flatMap { id in items.contains(where: { $0.id == id }) ? id : nil } ?? first.id
                     self.reveal(id, keyboard: keyboard, on: screen)
+                    for (frame,pull) in rebounds {
+                        self.panels.first { $0.screenFrame == frame && $0.expanded }?.resumeRope(pull)
+                    }
                 }
             }
         }
@@ -196,7 +200,7 @@ import AppKit
 
 enum ShelfRope {
     static let idleHeight: CGFloat = 6
-    static let height: CGFloat = 24
+    static let height: CGFloat = 48
     static let footerY: CGFloat = 148
     static let detailHeight: CGFloat = 180
     static func y(_ x: CGFloat, width: CGFloat) -> CGFloat {
@@ -204,6 +208,35 @@ enum ShelfRope {
         return 3 + 56*t*(1-t)
     }
     static func capacity(_ width: CGFloat) -> Int { max(1,Int((width-28)/144)) }
+
+    struct Pull {
+        static let duration: Double = 1.1
+        let anchor: CGFloat
+        let offset: CGSize
+        var releasedAt: Double?
+        init(anchor: CGFloat, offset: CGSize) {
+            self.anchor = min(0.97,max(0.03,anchor))
+            self.offset = CGSize(width:min(28,max(-28,offset.width*0.22)),
+                                 height:min(16,max(-6,offset.height*0.24)))
+        }
+        func displacement(at time: Double) -> CGSize {
+            guard let releasedAt else { return offset }
+            let age = max(0,time-releasedAt)
+            guard age < Self.duration else { return .zero }
+            let damping = exp(-5*age)*cos(12*age)
+            return CGSize(width:offset.width*damping,height:offset.height*damping)
+        }
+        func influence(_ x: CGFloat, width: CGFloat) -> CGFloat {
+            let t = min(1,max(0,x/max(1,width)))
+            let u = t < anchor ? t/anchor : (1-t)/(1-anchor)
+            return u*u*(3-2*u)
+        }
+    }
+    static func point(_ x: CGFloat, width: CGFloat, pull: Pull?, time: Double) -> CGPoint {
+        let factor = pull?.influence(x,width:width) ?? 0
+        let offset = pull?.displacement(at:time) ?? .zero
+        return CGPoint(x:x+offset.width*factor,y:y(x,width:width)+offset.height*factor)
+    }
 }
 
 @MainActor final class ShelfPanel: NSPanel {
@@ -219,6 +252,9 @@ enum ShelfRope {
     private(set) var keyboardSession = false
     private var disposed = false
     private var waitsForTriggerExit = false
+    private(set) var ropePull: ShelfRope.Pull?
+    private var motionTimer: Timer?
+    var hasRopeAnimation: Bool { motionTimer != nil }
     override var canBecomeKey: Bool { expanded }
     override var canBecomeMain: Bool { false }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
@@ -260,6 +296,7 @@ enum ShelfRope {
     func collapse() {
         guard !disposed else { return }
         work?.cancel(); work = nil; keyboardSession = false
+        stopRope(); shelfView.cancelDrag()
         if isKeyWindow { resignKey() }; expanded = false; shelfView.expanded = false
         shelfView.preview = nil; shelfView.hovered = nil; shelfView.keyboardPointer = nil
         (railPanel?.contentView as? ShelfRailView)?.showsRope = false
@@ -311,9 +348,45 @@ enum ShelfRope {
         super.resignKey()
         if keyboardSession { keyboardSession = false; collapse() }
     }
+    func pullRope(anchorX: CGFloat, offset: CGSize) {
+        guard expanded, !disposed else { return }
+        motionTimer?.invalidate(); motionTimer = nil
+        ropePull = ShelfRope.Pull(anchor:anchorX/max(1,screenFrame.width),offset:offset)
+        renderRope(at:ProcessInfo.processInfo.systemUptime)
+    }
+    func releaseRope(animated: Bool? = nil) {
+        guard var pull = ropePull else { return }
+        guard animated ?? !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { stopRope(); return }
+        pull.releasedAt = ProcessInfo.processInfo.systemUptime
+        resumeRope(pull)
+    }
+    func resumeRope(_ pull: ShelfRope.Pull) {
+        guard expanded, !disposed, pull.releasedAt != nil else { return }
+        motionTimer?.invalidate(); ropePull = pull
+        advanceRope(at:ProcessInfo.processInfo.systemUptime)
+        guard ropePull != nil else { return }
+        let timer = Timer(timeInterval:1.0/60,target:self,selector:#selector(animateRope),userInfo:nil,repeats:true)
+        motionTimer = timer; RunLoop.main.add(timer,forMode:.common)
+    }
+    @objc private func animateRope() { advanceRope(at:ProcessInfo.processInfo.systemUptime) }
+    func advanceRope(at time: Double) {
+        guard expanded, !disposed, let started = ropePull?.releasedAt,
+              time-started < ShelfRope.Pull.duration else { stopRope(); return }
+        renderRope(at:time)
+    }
+    private func renderRope(at time: Double) {
+        let rail = railPanel?.contentView as? ShelfRailView
+        rail?.pull = ropePull; rail?.motionTime = time; rail?.needsDisplay = true
+        shelfView.pull = ropePull; shelfView.motionTime = time; shelfView.needsDisplay = true
+    }
+    private func stopRope() {
+        motionTimer?.invalidate(); motionTimer = nil; ropePull = nil
+        renderRope(at:ProcessInfo.processInfo.systemUptime)
+    }
     func dispose() {
         guard !disposed else { return }; disposed = true; expanded = false; keyboardSession = false; shelfView.expanded = false
         work?.cancel(); work = nil; shelfView.onAction = nil
+        stopRope(); shelfView.cancelDrag()
         shelfView.trackingAreas.forEach(shelfView.removeTrackingArea)
         if let view = railPanel?.contentView as? ShelfRailView {
             view.onEnter = nil; view.onExit = nil; view.trackingAreas.forEach(view.removeTrackingArea)
@@ -335,6 +408,8 @@ enum ShelfRope {
     var onEnter: (() -> Void)?
     var onExit: (() -> Void)?
     var showsRope = false { didSet { if showsRope != oldValue { needsDisplay = true } } }
+    var pull: ShelfRope.Pull?
+    var motionTime: Double = 0
     override var isFlipped: Bool { true }
     override func updateTrackingAreas() {
         super.updateTrackingAreas(); trackingAreas.forEach(removeTrackingArea)
@@ -346,9 +421,11 @@ enum ShelfRope {
         NSColor.clear.setFill(); dirtyRect.fill(using: .copy)
         guard showsRope else { return }
         let width = bounds.width
-        let rail = NSBezierPath(); rail.move(to: CGPoint(x: 0,y: 3))
-        rail.curve(to: CGPoint(x: width,y: 3),controlPoint1: CGPoint(x: width/3,y: 65.0/3),
-                   controlPoint2: CGPoint(x: width*2/3,y: 65.0/3))
+        let rail = NSBezierPath(); rail.move(to: CGPoint(x:0,y:3))
+        for x in stride(from:CGFloat(4),to:width,by:4) {
+            rail.line(to:ShelfRope.point(x,width:width,pull:pull,time:motionTime))
+        }
+        rail.line(to:CGPoint(x:width,y:3))
         SketchPencil.stroke(rail,color: NSColor(calibratedRed: 0.52,green: 0.39,blue: 0.24,alpha: 1),width: 3.8)
         let highlight = rail.copy() as! NSBezierPath
         highlight.transform(using: AffineTransform(translationByX: 0,byY: -0.65))
@@ -356,8 +433,9 @@ enum ShelfRope {
         highlight.lineWidth = 1; highlight.stroke()
         let twists = NSBezierPath()
         for x in stride(from: CGFloat(2),to: width-2,by: 8) {
-            twists.move(to: CGPoint(x: x,y: ShelfRope.y(x,width: width)-1.3))
-            twists.line(to: CGPoint(x: x+3.4,y: ShelfRope.y(x+3.4,width: width)+1.3))
+            let a=ShelfRope.point(x,width:width,pull:pull,time:motionTime)
+            let b=ShelfRope.point(x+3.4,width:width,pull:pull,time:motionTime)
+            twists.move(to:CGPoint(x:a.x,y:a.y-1.3)); twists.line(to:CGPoint(x:b.x,y:b.y+1.3))
         }
         NSColor(calibratedRed: 0.38,green: 0.28,blue: 0.17,alpha: 0.55).setStroke()
         twists.lineWidth = 0.65; twists.stroke()
@@ -376,6 +454,8 @@ enum ShelfRope {
     var preview: NSImage? { didSet { needsDisplay = true } }
     var ropeWidth: CGFloat = 1
     var ropeOriginX: CGFloat = 0
+    var pull: ShelfRope.Pull?
+    var motionTime: Double = 0
     var keyboardPointer: CGPoint?
     private var scrollRemainder: CGFloat = 0
     private var offset = 0
@@ -383,6 +463,7 @@ enum ShelfRope {
     private var moved = false
     private var insertion: Int?
     private var dragPoint: CGPoint?
+    private var grab: (point: CGPoint, frame: CGRect, anchor: CGFloat)?
     private var lastDragPageAt = -Double.infinity
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -413,8 +494,14 @@ enum ShelfRope {
     private var cardWidth: CGFloat { min(132, bounds.width-32) }
     func cardRect(_ index: Int) -> CGRect {
         let x = 16+CGFloat(index-offset)*144
-        return CGRect(x: x,y: ShelfRope.y(ropeOriginX+x+cardWidth/2,width: ropeWidth)+12,width: cardWidth,height: 100)
+        let point=ropePoint(x+cardWidth/2)
+        return CGRect(x:point.x-cardWidth/2,y:point.y+12,width:cardWidth,height:100)
     }
+    private func ropePoint(_ x:CGFloat) -> CGPoint {
+        let point=ShelfRope.point(ropeOriginX+x,width:ropeWidth,pull:pull,time:motionTime)
+        return CGPoint(x:point.x-ropeOriginX,y:point.y)
+    }
+    func cancelDrag() { dragging=nil; moved=false; insertion=nil; dragPoint=nil; grab=nil }
     private func closeRect(_ index: Int) -> CGRect {
         let card = cardRect(index)
         let picture = thumbnails[records[index].id].map { fit($0.size,in: card.insetBy(dx: 4,dy: 4)) } ?? card
@@ -467,6 +554,8 @@ enum ShelfRope {
         guard let index = item(at: point) else { return }
         let id = records[index].id; selected = id
         if closeRect(index).contains(point) { onAction?(.remove(id)); return }
+        let frame=cardRect(index)
+        grab=(point,frame,ropeOriginX+16+CGFloat(index-offset)*144+cardWidth/2)
         dragging = (id, window?.convertPoint(toScreen: event.locationInWindow) ?? event.locationInWindow); moved = false; needsDisplay = true
     }
     override func mouseDragged(with event: NSEvent) {
@@ -476,6 +565,9 @@ enum ShelfRope {
         guard moved else { return }
         let local = convert(event.locationInWindow, from: nil)
         dragPoint = local
+        if let grab {
+            (window as? ShelfPanel)?.pullRope(anchorX:grab.anchor,offset:CGSize(width:local.x-grab.point.x,height:local.y-grab.point.y))
+        }
         if event.timestamp-lastDragPageAt > 0.25 {
             if local.x < 16, offset > 0 { offset -= 1; lastDragPageAt = event.timestamp }
             else if local.x > bounds.width-16, offset+capacity < records.count { offset += 1; lastDragPageAt = event.timestamp }
@@ -486,12 +578,13 @@ enum ShelfRope {
     override func mouseUp(with event: NSEvent) {
         guard let drag = dragging else { return }; dragging = nil; NSCursor.openHand.set()
         let point = convert(event.locationInWindow, from: nil)
+        (window as? ShelfPanel)?.releaseRope()
         if moved {
             if point.y > ShelfRope.detailHeight { onAction?(.pin(drag.id,window?.convertPoint(toScreen: event.locationInWindow))) }
             else if let insertion { onAction?(.move(drag.id,insertion)) }
         } else if event.clickCount >= 2 { onAction?(.pin(drag.id,nil)) }
         else { hovered = drag.id; preview = nil; onAction?(.preview(drag.id)) }
-        moved = false; insertion = nil; dragPoint = nil; needsDisplay = true
+        moved = false; insertion = nil; dragPoint = nil; grab = nil; needsDisplay = true
         if let panel = window as? ShelfPanel, !panel.frame.contains(NSEvent.mouseLocation) { panel.scheduleCollapse() }
     }
     private func scrollItems(_ steps: Int) {
@@ -538,23 +631,25 @@ enum ShelfRope {
         // back a paper container around the whole shelf.
         for index in records.indices where index >= offset && index < offset+capacity {
             let item = records[index], rect = cardRect(index)
-            if let image = thumbnails[item.id] {
-                drawFramedImage(image,in: rect,attachmentY: ShelfRope.y(ropeOriginX+rect.midX,width: ropeWidth)+13)
+            let anchor=ropePoint(16+CGFloat(index-offset)*144+cardWidth/2)
+            if !(moved && dragging?.id == item.id) {
+                if let image = thumbnails[item.id] {
+                    drawFramedImage(image,in:rect,attachment:CGPoint(x:anchor.x,y:anchor.y+13))
+                }
+                drawClip(at:anchor,selected:selected == item.id)
             }
-            let clip = CGRect(x: rect.midX-5,y: ShelfRope.y(ropeOriginX+rect.midX,width: ropeWidth)-5,width: 10,height: 18)
-            (selected == item.id ? SketchPalette.blue : SketchPalette.yellow).setFill()
-            NSBezierPath(roundedRect: clip,xRadius: 2,yRadius: 2).fill()
-            SketchPencil.stroke(NSBezierPath(roundedRect: clip,xRadius: 2,yRadius: 2),color: SketchPalette.line,width: 0.6)
-            if hovered == item.id || selected == item.id {
+            if !moved && (hovered == item.id || selected == item.id) {
                 let close = closeRect(index)
                 NSColor.white.withAlphaComponent(0.95).setFill()
                 NSBezierPath(ovalIn: close).fill()
                 label("×",at: CGPoint(x: close.minX+4,y: close.minY),size: 16)
             }
         }
-        if moved, let dragPoint, let dragging, let image = thumbnails[dragging.id] {
-            let ghost = CGRect(x: dragPoint.x-cardWidth/2,y: dragPoint.y-50,width: cardWidth,height: 100)
-            drawFramedImage(image,in: ghost,opacity: 0.85)
+        if moved, let dragPoint, let dragging, let grab, let image = thumbnails[dragging.id] {
+            let ghost=grab.frame.offsetBy(dx:dragPoint.x-grab.point.x,dy:dragPoint.y-grab.point.y)
+            let anchor=ropePoint(grab.anchor-ropeOriginX)
+            drawFramedImage(image,in:ghost,opacity:0.95,attachment:CGPoint(x:anchor.x,y:anchor.y+13))
+            drawClip(at:anchor,selected:true)
         }
         if let insertion, moved {
             SketchPalette.blue.setFill(); CGRect(x: cardRect(insertion).minX-5,y: cardRect(insertion).minY+2,width: 2,height: 96).fill()
@@ -569,10 +664,16 @@ enum ShelfRope {
             drawFramedImage(preview,in: area)
         }
     }
-    private func drawFramedImage(_ image: NSImage, in rect: CGRect, opacity: CGFloat = 1, attachmentY: CGFloat? = nil) {
+    private func drawClip(at point:CGPoint, selected:Bool) {
+        let clip=CGRect(x:point.x-5,y:point.y-5,width:10,height:18)
+        (selected ? SketchPalette.blue : SketchPalette.yellow).setFill()
+        NSBezierPath(roundedRect:clip,xRadius:2,yRadius:2).fill()
+        SketchPencil.stroke(NSBezierPath(roundedRect:clip,xRadius:2,yRadius:2),color:SketchPalette.line,width:0.6)
+    }
+    private func drawFramedImage(_ image: NSImage, in rect: CGRect, opacity: CGFloat = 1, attachment: CGPoint? = nil) {
         let picture = fit(image.size,in: rect.insetBy(dx: 4,dy: 4))
-        if let attachmentY, picture.minY > attachmentY {
-            let tie = NSBezierPath(); tie.move(to: CGPoint(x: picture.midX,y: attachmentY))
+        if let attachment, picture.minY > attachment.y {
+            let tie = NSBezierPath(); tie.move(to: attachment)
             tie.line(to: CGPoint(x: picture.midX,y: picture.minY))
             SketchPencil.stroke(tie,color: SketchPalette.line,width: 1.6)
         }

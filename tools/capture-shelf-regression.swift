@@ -28,6 +28,27 @@ enum CaptureEditor {
         if type == .mouseExited { return NSEvent.enterExitEvent(with: type,location: view.convert(point,to: nil),modifierFlags: [],timestamp: 0,windowNumber: view.window!.windowNumber,context: nil,eventNumber: 0,trackingNumber: 0,userData: nil)! }
         return NSEvent.mouseEvent(with: type,location: view.convert(point,to: nil),modifierFlags: [],timestamp: 0,windowNumber: view.window!.windowNumber,context: nil,eventNumber: 0,clickCount: clicks,pressure: 1)!
     }
+    @MainActor static func waitForRopeTick(_ view:ShelfView, after time:Double) {
+        let deadline=Date().addingTimeInterval(0.5)
+        while view.motionTime <= time && Date() < deadline {
+            RunLoop.current.run(until:Date().addingTimeInterval(0.01))
+        }
+    }
+    @MainActor static func motionPreview(_ panel:ShelfPanel, name:String) throws {
+        guard let path=ProcessInfo.processInfo.environment["MACOSX_SHELF_PREVIEW"], let rail=panel.railView else { return }
+        let width=panel.screenFrame.width, height:CGFloat=220
+        let stage=NSImage(size:CGSize(width:width,height:height))
+        stage.lockFocus()
+        NSColor(calibratedWhite:0.93,alpha:1).setFill(); CGRect(x:0,y:0,width:width,height:height).fill()
+        for (view,x) in [(rail,CGFloat(0)),(panel.shelfView as NSView,panel.frame.minX-panel.screenFrame.minX)] {
+            let bitmap=view.bitmapImageRepForCachingDisplay(in:view.bounds)!
+            view.cacheDisplay(in:view.bounds,to:bitmap)
+            NSImage(cgImage:bitmap.cgImage!,size:view.bounds.size).draw(in:CGRect(x:x,y:height-view.bounds.height,width:view.bounds.width,height:view.bounds.height))
+        }
+        stage.unlockFocus()
+        let data=NSBitmapImageRep(data:stage.tiffRepresentation!)!.representation(using:.png,properties:[:])!
+        try data.write(to:URL(fileURLWithPath:path).deletingLastPathComponent().appendingPathComponent(name+".png"))
+    }
     @MainActor static func main() async throws {
         _ = NSApplication.shared; NSApp.setActivationPolicy(.prohibited)
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("macos-x-shelf-test-"+UUID().uuidString)
@@ -70,6 +91,46 @@ enum CaptureEditor {
         panel.expand(); precondition(panel.expanded && panel.frame.height == ShelfRope.detailHeight && !panel.isVisible)
         precondition(initialRail.showsRope, "Rope appears with hovered details")
         let view = panel.shelfView
+        let resting=view.cardRect(0), anchorX=view.ropeOriginX+resting.midX
+        panel.pullRope(anchorX:anchorX,offset:CGSize(width:120,height:80))
+        precondition(!panel.hasRopeAnimation,"Holding the rope redraws only on pointer events")
+        let pulled=view.cardRect(0)
+        precondition(pulled.midX > resting.midX && pulled.midY > resting.midY,"A pull displaces the attached image as well as the rope")
+        let anchor=ShelfRope.point(anchorX,width:view.ropeWidth,pull:initialRail.pull,time:initialRail.motionTime)
+        precondition(abs(pulled.midX-(anchor.x-view.ropeOriginX))<0.01 && abs(pulled.minY-anchor.y-12)<0.01,"Clip, image and braided rope share the same deformed point")
+        for edge in [CGFloat(0),view.ropeWidth] {
+            let p=ShelfRope.point(edge,width:view.ropeWidth,pull:initialRail.pull,time:initialRail.motionTime)
+            precondition(p == CGPoint(x:edge,y:3),"Rope ends remain fixed during a tug")
+        }
+        try motionPreview(panel,name:"rope-pulled")
+        panel.releaseRope(animated:true)
+        precondition(panel.hasRopeAnimation)
+        let rebound=panel.ropePull!, started=rebound.releasedAt!
+        precondition(rebound.displacement(at:started+0.24).height < 0,"Release crosses rest position once before settling")
+        precondition(abs(rebound.displacement(at:started+0.7).height)<1,"Oscillation decays rather than running forever")
+        panel.advanceRope(at:started+0.24)
+        try motionPreview(panel,name:"rope-rebound")
+        panel.advanceRope(at:started+ShelfRope.Pull.duration+0.01)
+        try motionPreview(panel,name:"rope-rest")
+        precondition(!panel.hasRopeAnimation && panel.ropePull == nil && view.cardRect(0) == resting,"Settling restores exact resting geometry and removes its timer")
+        panel.pullRope(anchorX:anchorX,offset:CGSize(width:100,height:60))
+        panel.releaseRope(animated:false)
+        precondition(!panel.hasRopeAnimation && view.cardRect(0) == resting,"Reduced motion skips rebound")
+        panel.pullRope(anchorX:anchorX,offset:CGSize(width:100,height:60)); panel.releaseRope(animated:true)
+        panel.collapse()
+        precondition(!panel.hasRopeAnimation && view.pull == nil && initialRail.pull == nil,"Collapse cancels both surfaces and releases animation")
+        panel.expand()
+        let timerStart=ProcessInfo.processInfo.systemUptime
+        panel.pullRope(anchorX:anchorX,offset:CGSize(width:90,height:80)); panel.releaseRope(animated:true)
+        // Exercise a real scheduled callback, not just the deterministic model.
+        let beforeTick=view.motionTime
+        waitForRopeTick(view,after:beforeTick)
+        precondition(view.motionTime > beforeTick,"The bounded animation actually advances on the native run loop")
+        panel.advanceRope(at:timerStart+2)
+        let disposeCheck=ShelfPanel(screen:screen,records:fixture,thumbnails:thumbs,presenting:false)
+        disposeCheck.expand(); disposeCheck.pullRope(anchorX:anchorX,offset:CGSize(width:100,height:60)); disposeCheck.releaseRope(animated:true)
+        disposeCheck.dispose()
+        precondition(!disposeCheck.hasRopeAnimation && disposeCheck.ropePull == nil,"Disposal cancels an active rebound and releases its timer")
         var actions = [ShelfView.Action](); view.onAction = { actions.append($0) }
         let center = CGPoint(x: view.cardRect(0).midX,y: view.cardRect(0).midY)
         view.mouseDown(with: event(.leftMouseDown,center,view: view)); view.mouseUp(with: event(.leftMouseUp,center,view: view))
@@ -79,13 +140,18 @@ enum CaptureEditor {
         actions.removeAll()
         view.mouseDown(with: event(.leftMouseDown,center,view: view))
         let target = CGPoint(x: view.cardRect(1).midX,y: center.y)
-        view.mouseDragged(with: event(.leftMouseDragged,target,view: view)); view.mouseExited(with: event(.mouseExited,target,view: view)); view.mouseUp(with: event(.leftMouseUp,target,view: view))
+        view.mouseDragged(with: event(.leftMouseDragged,target,view: view))
+        precondition(panel.ropePull != nil && !panel.hasRopeAnimation,"Real dragging tugs the rope without starting a timer")
+        try motionPreview(panel,name:"rope-drag")
+        view.mouseExited(with: event(.mouseExited,target,view: view)); view.mouseUp(with: event(.leftMouseUp,target,view: view))
         guard case .move(let moved, 1) = actions.last else { preconditionFailure("Horizontal drag reorders, despite tracking exit") }; precondition(moved == first.id)
+        panel.advanceRope(at:ProcessInfo.processInfo.systemUptime+2)
         actions.removeAll()
         view.mouseDown(with: event(.leftMouseDown,center,view: view))
         let below = CGPoint(x: center.x,y: 245)
         view.mouseDragged(with: event(.leftMouseDragged,below,view: view)); view.mouseUp(with: event(.leftMouseUp,below,view: view))
         guard case .pin(let pulled, .some) = actions.last else { preconditionFailure("Downward drag creates positioned pin") }; precondition(pulled == first.id)
+        panel.advanceRope(at:ProcessInfo.processInfo.systemUptime+2)
         view.keyDown(with: event(.keyDown,.zero,view: view,key: 8,flags: .command))
         guard case .copy = actions.last else { preconditionFailure("Keyboard copy routes original image") }
         view.mouseMoved(with: event(.mouseMoved,CGPoint(x: view.cardRect(1).midX,y: center.y),view: view))
@@ -119,7 +185,8 @@ enum CaptureEditor {
             let stageBitmap = NSBitmapImageRep(data: stage.tiffRepresentation!)!
             try stageBitmap.representation(using: .png,properties: [:])!.write(to: URL(fileURLWithPath: path).deletingLastPathComponent().appendingPathComponent("rail-context.png"))
         }
-        panel.collapse(); precondition(!panel.expanded && view.preview == nil && !initialRail.showsRope)
+        panel.pullRope(anchorX:anchorX,offset:CGSize(width:90,height:80)); panel.releaseRope(animated:true)
+        panel.collapse(); precondition(!panel.expanded && view.preview == nil && !initialRail.showsRope && !panel.hasRopeAnimation)
         let lineView = panel.railView as! ShelfRailView
         let hiddenAgain = lineView.bitmapImageRepForCachingDisplay(in: lineView.bounds)!
         lineView.cacheDisplay(in: lineView.bounds,to: hiddenAgain)
@@ -181,6 +248,6 @@ enum CaptureEditor {
         host.start()
         for _ in 0..<100 { if host.canAdd { break }; try await Task.sleep(nanoseconds: 10_000_000) }
         precondition(host.canAdd); host.stop()
-        print("PASS shelf: original PNG persistence/restart, ordering, delete/undo, bounds, failed save, native hover/whole-card/drag/keyboard, hidden trigger and stop/restart; no shown windows, clipboard writes or installed preferences")
+        print("PASS shelf: original PNG persistence/restart, ordering, delete/undo, bounds, failed save, native hover/whole-card/drag/keyboard, fixed-end rope tug, synchronized attachments, bounded rebound/reduced motion, hidden trigger and stop/restart; no shown windows, clipboard writes or installed preferences")
     }
 }
