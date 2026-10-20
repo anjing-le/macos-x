@@ -102,14 +102,56 @@ enum CaptureEditor {
             let p=ShelfRope.point(edge,width:view.ropeWidth,pull:initialRail.pull,time:initialRail.motionTime)
             precondition(p == CGPoint(x:edge,y:3),"Rope ends remain fixed during a tug")
         }
+        for fraction in [CGFloat(0.10),0.25,0.75,0.90] {
+            let x=view.ropeWidth*fraction
+            precondition(abs(initialRail.pose.point(x,width:view.ropeWidth).y-ShelfRope.y(x,width:view.ropeWidth))>1,
+                         "The main rope changes across the screen, outside the photo container")
+        }
+        let wideBitmap=initialRail.bitmapImageRepForCachingDisplay(in:initialRail.bounds)!
+        initialRail.cacheDisplay(in:initialRail.bounds,to:wideBitmap)
+        let outside=initialRail.pose.point(view.ropeWidth*0.1,width:view.ropeWidth)
+        let px=Int(outside.x*CGFloat(wideBitmap.pixelsWide)/initialRail.bounds.width)
+        let py=Int(outside.y*CGFloat(wideBitmap.pixelsHigh)/initialRail.bounds.height)
+        let visibleRope=(-3...3).contains { dy in (-3...3).contains { dx in
+            wideBitmap.colorAt(x:px+dx,y:py+dy)!.alphaComponent > 0.1
+        } }
+        precondition(visibleRope,"The native rail redraws the displaced rope outside the photo area")
         try motionPreview(panel,name:"rope-pulled")
         panel.releaseRope(animated:true)
         precondition(panel.hasRopeAnimation)
         let rebound=panel.ropePull!, started=rebound.releasedAt!
-        precondition(rebound.displacement(at:started+0.24).height < 0,"Release crosses rest position once before settling")
-        precondition(abs(rebound.displacement(at:started+0.7).height)<1,"Oscillation decays rather than running forever")
-        panel.advanceRope(at:started+0.24)
+        precondition(rebound.displacement(at:started+0.7).height < 0,"Release crosses rest position once before settling")
+        precondition(abs(rebound.displacement(at:started+2.8).height)<1,"Oscillation decays rather than running forever")
+        panel.advanceRope(at:started+0.35)
+        for age in stride(from:0.0,through:ShelfRope.Pull.duration,by:0.1) {
+            let pose=ShelfRope.Pose(pull:rebound,time:started+age)
+            for x in stride(from:CGFloat(0),through:view.ropeWidth,by:32) {
+                let point=pose.point(x,width:view.ropeWidth)
+                precondition(point.y >= 0 && point.y < ShelfRope.height,"Full-width waves stay inside their narrow native surface")
+            }
+        }
+        let early=initialRail.pose
+        let late=ShelfRope.Pose(pull:rebound,time:started+0.75)
+        let a=CGFloat(0.2), b=CGFloat(0.7)
+        precondition(abs(early.heightOffset(a)*late.heightOffset(b)-early.heightOffset(b)*late.heightOffset(a))>0.005,
+                     "Different screen positions have different wave phases, rather than scaling one static curve")
+        precondition(abs(early.angle(anchorX,width:view.ropeWidth))>0.01,"Photos rotate gently about their attachment")
+        let pivot=CGPoint(x:pulled.midX,y:pulled.minY+1)
+        precondition(ShelfRope.rotate(pivot,around:pivot,angle:0.1) == pivot,"Swinging a photo never detaches its pivot")
         try motionPreview(panel,name:"rope-rebound")
+        if ProcessInfo.processInfo.environment["MACOSX_SHELF_PROFILE"] == "1" {
+            let surfaces:[NSView]=[initialRail,view]
+            let bitmaps=surfaces.map { $0.bitmapImageRepForCachingDisplay(in:$0.bounds)! }
+            var milliseconds=[Double]()
+            for frame in 0..<60 {
+                let began=ProcessInfo.processInfo.systemUptime
+                panel.advanceRope(at:started+Double(frame)/20)
+                for (surface,bitmap) in zip(surfaces,bitmaps) { surface.cacheDisplay(in:surface.bounds,to:bitmap) }
+                milliseconds.append((ProcessInfo.processInfo.systemUptime-began)*1000)
+            }
+            milliseconds.sort()
+            print(String(format:"Native rope + photos offscreen raster: %.0f pt screen, median %.2f ms, p95 %.2f ms (60 frames; excludes compositor)",view.ropeWidth,milliseconds[30],milliseconds[57]))
+        }
         panel.advanceRope(at:started+ShelfRope.Pull.duration+0.01)
         try motionPreview(panel,name:"rope-rest")
         precondition(!panel.hasRopeAnimation && panel.ropePull == nil && view.cardRect(0) == resting,"Settling restores exact resting geometry and removes its timer")
@@ -120,17 +162,33 @@ enum CaptureEditor {
         panel.collapse()
         precondition(!panel.hasRopeAnimation && view.pull == nil && initialRail.pull == nil,"Collapse cancels both surfaces and releases animation")
         panel.expand()
+        let ropeGrab=CGPoint(x:initialRail.bounds.width*0.1,y:ShelfRope.y(initialRail.bounds.width*0.1,width:initialRail.bounds.width))
+        initialRail.mouseDown(with:event(.leftMouseDown,ropeGrab,view:initialRail))
+        initialRail.mouseDragged(with:event(.leftMouseDragged,CGPoint(x:ropeGrab.x,y:ropeGrab.y+50),view:initialRail))
+        precondition(panel.ropePull != nil && !panel.hasRopeAnimation,"The main rope itself can be tugged outside the photo area")
+        initialRail.mouseUp(with:event(.leftMouseUp,ropeGrab,view:initialRail))
+        panel.advanceRope(at:ProcessInfo.processInfo.systemUptime+ShelfRope.Pull.duration+1)
         let timerStart=ProcessInfo.processInfo.systemUptime
         panel.pullRope(anchorX:anchorX,offset:CGSize(width:90,height:80)); panel.releaseRope(animated:true)
         // Exercise a real scheduled callback, not just the deterministic model.
         let beforeTick=view.motionTime
         waitForRopeTick(view,after:beforeTick)
         precondition(view.motionTime > beforeTick,"The bounded animation actually advances on the native run loop")
-        panel.advanceRope(at:timerStart+2)
+        panel.advanceRope(at:timerStart+ShelfRope.Pull.duration+1)
         let disposeCheck=ShelfPanel(screen:screen,records:fixture,thumbnails:thumbs,presenting:false)
         disposeCheck.expand(); disposeCheck.pullRope(anchorX:anchorX,offset:CGSize(width:100,height:60)); disposeCheck.releaseRope(animated:true)
         disposeCheck.dispose()
         precondition(!disposeCheck.hasRopeAnimation && disposeCheck.ropePull == nil,"Disposal cancels an active rebound and releases its timer")
+        panel.pullRope(anchorX:anchorX,offset:CGSize(width:50,height:50)); panel.releaseRope(animated:true)
+        panel.advanceRope(at:panel.ropePull!.releasedAt!+0.35)
+        let continuing=view.pose
+        panel.pullRope(anchorX:anchorX,offset:.zero)
+        for fraction in [CGFloat(0.1),0.5,0.9] {
+            let x=view.ropeWidth*fraction
+            let before=continuing.point(x,width:view.ropeWidth), after=view.pose.point(x,width:view.ropeWidth)
+            precondition(hypot(before.x-after.x,before.y-after.y)<0.01,"Grabbing an already-swinging rope preserves its current shape")
+        }
+        panel.collapse(); panel.expand()
         var actions = [ShelfView.Action](); view.onAction = { actions.append($0) }
         let center = CGPoint(x: view.cardRect(0).midX,y: view.cardRect(0).midY)
         view.mouseDown(with: event(.leftMouseDown,center,view: view)); view.mouseUp(with: event(.leftMouseUp,center,view: view))
@@ -145,13 +203,13 @@ enum CaptureEditor {
         try motionPreview(panel,name:"rope-drag")
         view.mouseExited(with: event(.mouseExited,target,view: view)); view.mouseUp(with: event(.leftMouseUp,target,view: view))
         guard case .move(let moved, 1) = actions.last else { preconditionFailure("Horizontal drag reorders, despite tracking exit") }; precondition(moved == first.id)
-        panel.advanceRope(at:ProcessInfo.processInfo.systemUptime+2)
+        panel.advanceRope(at:ProcessInfo.processInfo.systemUptime+ShelfRope.Pull.duration+1)
         actions.removeAll()
         view.mouseDown(with: event(.leftMouseDown,center,view: view))
         let below = CGPoint(x: center.x,y: 245)
         view.mouseDragged(with: event(.leftMouseDragged,below,view: view)); view.mouseUp(with: event(.leftMouseUp,below,view: view))
         guard case .pin(let pulled, .some) = actions.last else { preconditionFailure("Downward drag creates positioned pin") }; precondition(pulled == first.id)
-        panel.advanceRope(at:ProcessInfo.processInfo.systemUptime+2)
+        panel.advanceRope(at:ProcessInfo.processInfo.systemUptime+ShelfRope.Pull.duration+1)
         view.keyDown(with: event(.keyDown,.zero,view: view,key: 8,flags: .command))
         guard case .copy = actions.last else { preconditionFailure("Keyboard copy routes original image") }
         view.mouseMoved(with: event(.mouseMoved,CGPoint(x: view.cardRect(1).midX,y: center.y),view: view))
@@ -166,7 +224,7 @@ enum CaptureEditor {
             precondition(bitmap.colorAt(x: x,y: y)!.alphaComponent < 0.01, "No surrounding paper, border, card padding or screen-wide backing")
         }
         let firstRect = view.cardRect(0)
-        let borderPoint = CGPoint(x: firstRect.minX+44,y: firstRect.midY-(firstRect.width-8)*240/360/2-2)
+        let borderPoint = CGPoint(x:firstRect.minX+44,y:firstRect.minY+2)
         let borderX = Int(borderPoint.x*CGFloat(bitmap.pixelsWide)/view.bounds.width)
         let borderY = Int(borderPoint.y*CGFloat(bitmap.pixelsHigh)/view.bounds.height)
         let borderColor = bitmap.colorAt(x: borderX,y: borderY)!.usingColorSpace(.deviceRGB)!
@@ -248,6 +306,6 @@ enum CaptureEditor {
         host.start()
         for _ in 0..<100 { if host.canAdd { break }; try await Task.sleep(nanoseconds: 10_000_000) }
         precondition(host.canAdd); host.stop()
-        print("PASS shelf: original PNG persistence/restart, ordering, delete/undo, bounds, failed save, native hover/whole-card/drag/keyboard, fixed-end rope tug, synchronized attachments, bounded rebound/reduced motion, hidden trigger and stop/restart; no shown windows, clipboard writes or installed preferences")
+        print("PASS shelf: original PNG persistence/restart, ordering, delete/undo, bounds, failed save, native hover/whole-card/drag/keyboard, fixed-end rope tug, full-screen multimode wave, short attachments and pivot swing, bounded rebound/reduced motion, hidden trigger and stop/restart; no shown windows, clipboard writes or installed preferences")
     }
 }
