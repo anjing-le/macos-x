@@ -80,6 +80,8 @@ enum CaptureEditor {
         view.mouseMoved(with: event(.mouseMoved,center,view: view))
         guard case .preview = actions.last else { preconditionFailure("Hover requests a bounded preview") }
         precondition((view.accessibilityChildren()?.count ?? 0) >= fixture.count)
+        view.mouseExited(with: event(.mouseExited,CGPoint(x: 50,y: 500),view: view))
+        precondition(view.hovered == nil, "Leaving invalidates an in-flight hover preview")
         if let path = ProcessInfo.processInfo.environment["MACOSX_SHELF_PREVIEW"] {
             let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
             view.cacheDisplay(in: view.bounds,to: bitmap)

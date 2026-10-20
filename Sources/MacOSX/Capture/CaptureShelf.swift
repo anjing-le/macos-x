@@ -312,7 +312,11 @@ import AppKit
     }
     override func mouseEntered(with event: NSEvent) { (window as? ShelfPanel)?.hoverEntered() }
     override func mouseExited(with event: NSEvent) {
-        guard dragging == nil else { return }; (window as? ShelfPanel)?.scheduleCollapse()
+        guard dragging == nil, let panel = window as? ShelfPanel else { return }
+        let pointer = panel.convertPoint(toScreen: event.locationInWindow)
+        guard !panel.frame.contains(pointer) else { return }
+        // An in-flight hover preview must not reopen the shelf after exit.
+        hovered = nil; panel.scheduleCollapse()
     }
     override func mouseMoved(with event: NSEvent) {
         guard expanded, dragging == nil else { return }
