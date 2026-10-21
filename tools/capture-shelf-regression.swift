@@ -231,7 +231,7 @@ enum CaptureEditor {
         view.mouseDown(with: event(.leftMouseDown,center,view: view)); view.mouseUp(with: event(.leftMouseUp,center,view: view))
         guard case .preview(let clicked) = actions.last else { preconditionFailure("Whole card selects and previews without leaving keyboard interaction") }; precondition(clicked == first.id && view.selected == first.id)
         view.mouseDown(with: event(.leftMouseDown,center,view: view,clicks: 2)); view.mouseUp(with: event(.leftMouseUp,center,view: view,clicks: 2))
-        guard case .pin(first.id, nil) = actions.last else { preconditionFailure("Double click opens a pin") }
+        guard case .pin(first.id) = actions.last else { preconditionFailure("Double click opens a pin") }
         actions.removeAll()
         view.mouseDown(with: event(.leftMouseDown,center,view: view))
         let target = CGPoint(x: view.cardRect(1).midX,y: center.y)
@@ -254,7 +254,9 @@ enum CaptureEditor {
         view.mouseDown(with: event(.leftMouseDown,movedCenter,view: view))
         let below = CGPoint(x:movedCenter.x,y:245)
         view.mouseDragged(with: event(.leftMouseDragged,below,view: view)); view.mouseUp(with: event(.leftMouseUp,below,view: view))
-        guard case .pin(let pulled, .some) = actions.last else { preconditionFailure("Downward drag creates positioned pin") }; precondition(pulled == first.id)
+        guard case .place(let pulled,_,_,_) = actions.last else { preconditionFailure("Downward dragging only commits the hanging position, never opens F3") }
+        precondition(pulled == first.id && panel.expanded, "Releasing a downward drag keeps the shelf open")
+        precondition(!actions.contains { if case .pin = $0 { return true }; return false }, "Dragging never dispatches an implicit pin")
         panel.advanceRope(at:ProcessInfo.processInfo.systemUptime+ShelfRope.Pull.duration+1)
         view.keyDown(with: event(.keyDown,.zero,view: view,key: 8,flags: .command))
         guard case .copy = actions.last else { preconditionFailure("Keyboard copy routes original image") }
@@ -315,11 +317,51 @@ enum CaptureEditor {
         view.keyDown(with: event(.keyDown,.zero,view: view,key: 53))
         precondition(!panel.keyboardSession && !panel.expanded && !initialRail.showsRope, "Escape exits keyboard selection and hides the rope")
         panel.beginKeyboardSelection()
+        panel.resignKey()
+        precondition(panel.expanded && !panel.keyboardSession, "Losing keyboard focus ends selection without immediately hiding the shelf")
+        panel.beginKeyboardSelection()
+        panel.focusForInteraction()
+        precondition(panel.expanded && !panel.keyboardSession, "Mouse interaction leaves persistent keyboard selection for delayed hover dismissal")
+        panel.beginKeyboardSelection()
+        view.keyboardPointer=CGPoint(x:-100000,y:-100000)
+        view.mouseMoved(with:event(.mouseMoved,CGPoint(x:view.cardRect(0).midX,y:view.cardRect(0).midY),view:view))
+        precondition(panel.expanded && !panel.keyboardSession, "Real pointer movement switches keyboard selection back to ordinary hover without hiding")
+        panel.beginKeyboardSelection()
         panel.dismissFromKeyboard(pointer: CGPoint(x: panel.railFrame.midX,y: panel.railFrame.maxY-2))
         panel.hoverEntered()
         try await Task.sleep(nanoseconds: 240_000_000)
         precondition(!panel.expanded, "Escape does not reopen underneath a stationary pointer on the trigger")
         panel.triggerExited()
+        // Actual one-shot dispatch callbacks with an injected pointer; never move
+        // the user's real mouse or shorten the product's default grace period.
+        let idlePanel=ShelfPanel(screen:screen,records:fixture,thumbnails:thumbs,presenting:false)
+        defer { idlePanel.dispose() }
+        var idlePointer=CGPoint(x:screen.frame.midX,y:screen.frame.minY+10)
+        idlePanel.pointerLocation = { idlePointer }
+        idlePanel.expand(); idlePanel.scheduleCollapse()
+        try await Task.sleep(nanoseconds:550_000_000)
+        precondition(idlePanel.expanded, "Leaving no longer dismisses in the former 0.45-second interval")
+        idlePanel.scheduleCollapse(after:0.03)
+        idlePanel.hoverEntered()
+        try await Task.sleep(nanoseconds:60_000_000)
+        precondition(idlePanel.expanded, "Re-entry cancels the previous scheduled dismissal")
+        idlePointer=CGPoint(x:idlePanel.frame.midX,y:idlePanel.frame.midY)
+        idlePanel.scheduleCollapse(after:0.02)
+        try await Task.sleep(nanoseconds:50_000_000)
+        precondition(idlePanel.expanded, "A stationary pointer inside the interaction area keeps the shelf open")
+        idlePointer=CGPoint(x:screen.frame.midX,y:screen.frame.minY+10)
+        idlePanel.scheduleCollapse(after:0.03)
+        idlePanel.shelfView.copy(nil)
+        try await Task.sleep(nanoseconds:70_000_000)
+        precondition(idlePanel.expanded, "Copy resets an old outside-pointer deadline without requiring pointer re-entry")
+        idlePanel.scheduleCollapse()
+        try await Task.sleep(nanoseconds:UInt64((ShelfPanel.idleCollapseDelay+0.2)*1_000_000_000))
+        precondition(!idlePanel.expanded, "Three seconds outside without interaction actually hides the shelf")
+        idlePanel.expand(); idlePanel.scheduleCollapse(after:0.03)
+        idlePanel.beginKeyboardSelection()
+        try await Task.sleep(nanoseconds:60_000_000)
+        precondition(idlePanel.expanded && idlePanel.keyboardSession, "Starting keyboard selection cancels an already pending pointer deadline")
+        idlePanel.dismissFromKeyboard()
         let freePanel=ShelfPanel(screen:screen,records:fixture,thumbnails:thumbs,presenting:false)
         defer { freePanel.dispose() }
         freePanel.expand()
@@ -407,6 +449,6 @@ enum CaptureEditor {
         host.start()
         for _ in 0..<100 { if host.canAdd { break }; try await Task.sleep(nanoseconds: 10_000_000) }
         precondition(host.canAdd); host.stop()
-        print("PASS shelf: original PNG persistence/restart, ordering, delete/undo, bounds, failed save, native hover/whole-card/drag/keyboard, fixed-end rope tug, full-screen free placement, live neighbour movement, per-display position persistence and rollback, full-screen multimode wave, short attachments and pivot swing, bounded rebound/reduced motion, hidden trigger and stop/restart; no shown windows, clipboard writes or installed preferences")
+        print("PASS shelf: original PNG persistence/restart, ordering, delete/undo, bounds, failed save, native hover/whole-card/drag/keyboard, drag-only placement and resettable three-second idle dismissal, fixed-end rope tug, full-screen free placement, live neighbour movement, per-display position persistence and rollback, full-screen multimode wave, short attachments and pivot swing, bounded rebound/reduced motion, hidden trigger and stop/restart; no shown windows, clipboard writes or installed preferences")
     }
 }
