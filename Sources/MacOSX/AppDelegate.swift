@@ -15,6 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
         menuBar.start()
+        modules.menuBarAnchor = { [weak self] in self?.menuBar.screenFrame }
+        menuBar.onHover = { [weak self] frame, inside in self?.modules.menuBarHover(frame, inside: inside) }
+        menuBar.onSingleClick = { [weak self] in self?.modules.menuBarClick() }
         updates.onAvailabilityChanged = { [weak self] available in self?.client?.setUpdateAvailable(available) }
         updates.presentationWindow = { [weak self] in self?.client?.window }
         updates.start()

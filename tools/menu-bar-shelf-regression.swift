@@ -15,78 +15,157 @@ import AppKit
         _ = NSApplication.shared; NSApp.setActivationPolicy(.accessory)
         NSApp.appearance = NSAppearance(named: .aqua)
         func require(_ value: Bool, _ message: String) throws { if !value { throw NSError(domain: message, code: 1) } }
-        let frame = CGRect(x: 500, y: 0, width: 28, height: 24)
-        func entry(_ bundle: String, _ x: CGFloat, _ y: CGFloat = 0) -> MenuBarEntry { .init(bundle: bundle, frame: CGRect(x: x, y: y, width: 20, height: 24)) }
-        let entries = [entry("hidden", 400), entry("mixed", 300), entry("mixed", 600), entry("visible", 650), entry("other-screen", 100, 400), entry("com.apple.controlcenter", 200)]
-        try require(MenuBarSections.hidden(entries, boundary: frame, leftToRight: true) == ["hidden"], "Visible sibling and system controls must never be hidden; other displays cannot change grouping")
-        try require(MenuBarSections.hidden(entries, boundary: frame, leftToRight: false) == ["visible"], "Right-to-left grouping must reverse without changing sibling precedence")
         let suite = "cc.anjing.macos-x.menu-shelf-fixture.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!; defer { defaults.removePersistentDomain(forName: suite) }
         let bridge = FixtureVisibility()
-        let module = MenuBarShelfModule(defaults: defaults, visibility: bridge, native: true)
-        module.boundaryOverride = frame; module.permissionOverride = true
-        var reads = 0, readOwnProcess = false
-        var deliver: (([MenuBarEntry]) -> Void)?
-        var token: MenuBarReadToken?
-        module.readOverride = { apps, readToken, done in
-            reads += 1; readOwnProcess = apps.contains { $0.0 == ProcessInfo.processInfo.processIdentifier }; token = readToken; deliver = done
-        }
-        let view = module.makeDashboard()
-        module.start(); module.start()
-        try require(reads == 0 && bridge.calls.isEmpty && module.state == .expanded, "Enabling must not scan or hide other applications")
-        module.collapse(); module.collapse()
-        try require(reads == 1 && !readOwnProcess && module.state == .reading, "Collapse inventory must be single-flight")
-        module.expand(allowAutoCollapse: false)
-        try require(token?.isCancelled == true, "Expanding cancels the pending inventory")
-        deliver?([entry("hidden", 400)])
-        try require(bridge.calls.isEmpty, "Cancelled inventory must never activate hiding")
-        module.collapse(); deliver?(entries)
-        try require(bridge.calls.count == 1 && !bridge.calls[0].contains("hidden"), "Only classified hidden bundles leave the allow list")
-        try require(bridge.calls[0].contains("com.apple.controlcenter") && bridge.calls[0].contains(Bundle.main.bundleIdentifier!), "System controls and own recovery arrow must remain allowed")
+        let drawer = MenuBarDrawer(defaults: defaults, visibility: bridge)
+        drawer.permissionOverride = true; drawer.testNoPresentation = true; drawer.testSkipInput = true
+        let screen = NSScreen.main!, anchor = CGRect(x: screen.visibleFrame.maxX - 220, y: screen.visibleFrame.maxY, width: 30, height: 24)
+        drawer.anchorProvider = { anchor }
+        let a = "com.apple.finder", b = "com.apple.Safari", c = "com.apple.TextEdit"
+        func entry(_ bundle: String, _ x: CGFloat) -> MenuBarEntry { .init(bundle: bundle, frame: CGRect(x: x, y: 0, width: 20, height: 24)) }
+        let entries = [entry(a, 400), entry(b, 440), entry(c, 480), entry("com.apple.controlcenter", 510)]
+        var reads = 0, pressed = [String]()
+        drawer.readOverride = { token, receive in reads += 1; if !token.isCancelled { receive(entries) } }
+        drawer.pressOverride = { entry, token, receive in if !token.isCancelled { pressed.append(entry.bundle); receive(true) } }
+        drawer.start(); drawer.start()
+        try require(reads == 0 && bridge.calls.isEmpty, "Empty module must not scan or hide on launch")
+        drawer.hover(anchor, inside: true)
+        try require(drawer.isOpen && reads == 1, "Apple hover opens the native drawer and bounded on-demand inventory")
+        try require(!drawer.entries.contains { $0.bundle == "com.apple.controlcenter" }, "System controls never enter drawer inventory")
+        drawer.add(a)
+        try require(drawer.order.isEmpty && drawer.busy && defaults.stringArray(forKey: "menuBarShelf.drawerBundles.v1") == nil, "An in-flight hide cannot pretend membership was saved")
         let first = FixtureHandle(); bridge.pending.removeFirst()(first)
-        try require(module.state == .collapsed && module.hiddenCount == 1, "Success reflects actual activated restriction")
-        view.expanded.performClick(nil)
-        try require(first.invalidations == 1 && module.state == .expanded, "Whole expanded card releases the native restriction")
-        module.collapse(); deliver?(entries)
-        let stale = bridge.pending.removeFirst()
-        module.stop(); let late = FixtureHandle(); stale(late)
-        try require(late.invalidations == 1 && !module.active && module.state == .expanded, "Stop invalidates a late successful activation")
-        module.start(); module.permissionOverride = false; module.collapse()
-        try require(module.state == .expanded && module.issue != nil, "Missing permission fails open")
-        module.permissionOverride = true; bridge.available = false; module.collapse()
-        try require(module.state == .expanded && module.issue != nil, "Missing private backend fails open")
-        bridge.available = true; module.collapse(); deliver?([])
-        try require(module.state == .expanded && module.issue != nil, "Empty/unreadable inventory cannot hide all applications")
-        module.collapse(); deliver?(entries); bridge.pending.removeFirst()(nil)
-        try require(module.state == .expanded && module.hiddenCount == 0, "Backend failure cannot report success")
-        module.activationTimeout = 0.02
-        module.collapse(); deliver?(entries)
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.08))
-        let timedOut = FixtureHandle(); bridge.pending.removeFirst()(timedOut)
-        try require(module.state == .expanded && module.issue != nil && timedOut.invalidations == 1, "Timed out activation fails open and drops late handles")
-        module.autoCollapse = true; module.expand()
-        try require(module.hasAutoCollapseTimer, "Auto collapse owns only an expanded one-shot timer")
-        module.autoCollapse = false
-        try require(!module.hasAutoCollapseTimer && !defaults.bool(forKey: "menuBarShelf.autoCollapse"), "Disabling auto collapse cancels and persists")
-        module.autoCollapse = true; module.expand(); module.stop()
-        try require(!module.hasAutoCollapseTimer, "Stop releases auto-collapse work")
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 840, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.contentView = view
-        for width: CGFloat in [840, 460, 360] {
-            view.frame = CGRect(x: 0, y: 0, width: width, height: width < 430 ? 540 : 400)
-            view.needsLayout = true; view.layoutSubtreeIfNeeded()
-            try require(view.subviews.allSatisfy { view.bounds.contains($0.frame) }, "Every control and note fits narrow and wide dashboard bounds")
-            try require(!view.expanded.frame.intersects(view.collapsed.frame), "State choices must not overlap")
+        try require(drawer.order == [a] && drawer.hidden, "Successful native restriction commits membership")
+        try require(bridge.calls[0].contains(Bundle.main.bundleIdentifier!) && bridge.calls[0].contains("com.apple.controlcenter"), "Own apple and system recovery controls always remain visible")
+        drawer.add(b); bridge.pending.removeFirst()(nil)
+        try require(first.invalidations == 1 && drawer.order == [a] && !drawer.hidden && drawer.issue != nil, "Failure fails open and retains last committed membership")
+        drawer.add(b); let second = FixtureHandle(); bridge.pending.removeFirst()(second)
+        let calls = bridge.calls.count
+        drawer.move(b, to: 0)
+        try require(drawer.order == [b, a] && bridge.calls.count == calls, "Sorting persists immediately without recapturing or another native activation")
+        try require(defaults.stringArray(forKey: "menuBarShelf.drawerBundles.v1") == [b, a], "Membership order survives relaunch")
+        drawer.restore(b); let third = FixtureHandle(); bridge.pending.removeFirst()(third)
+        try require(drawer.order == [a] && second.invalidations == 1, "Drag-out restores a member while keeping the remaining selection")
+        drawer.openMenu(a)
+        try require(pressed == [a] && third.invalidations == 1 && !drawer.isOpen, "Click restores real items and forwards one AX press, never a simulated menu")
+        drawer.show(); drawer.dismissDelay = 0.02
+        drawer.pointer = { CGPoint(x: anchor.midX, y: anchor.minY - 2) }
+        drawer.presence(false)
+        try require(!drawer.hasDismissWork, "Apple-to-drawer connector corridor must not schedule collapse")
+        drawer.pointer = { CGPoint(x: screen.visibleFrame.minX, y: screen.visibleFrame.minY) }
+        drawer.presence(false)
+        try require(drawer.hasDismissWork, "Leaving creates one delayed dismissal")
+        drawer.pointer = { CGPoint(x: anchor.midX, y: anchor.midY) }
+        drawer.hover(anchor, inside: true)
+        try require(!bridge.pending.isEmpty, "Returning to apple reapplies saved collection after a menu action")
+        bridge.pending.removeFirst()(FixtureHandle())
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        try require(drawer.isOpen, "Re-entry cancels the old delayed dismissal")
+        drawer.pointer = { CGPoint(x: screen.visibleFrame.minX, y: screen.visibleFrame.minY) }
+        drawer.presence(false); RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        try require(!drawer.isOpen, "Leaving idle closes the drawer")
+        drawer.show(); drawer.beginDrag(entry(c, 480), at: CGPoint(x: 480, y: screen.frame.maxY - 10))
+        drawer.drag(to: CGPoint(x: anchor.midX, y: anchor.midY))
+        drawer.finishDrag(at: CGPoint(x: anchor.midX, y: anchor.midY))
+        try require(drawer.busy && drawer.order == [a], "Command drag into apple uses transactional hiding")
+        let fourth = FixtureHandle(); bridge.pending.removeFirst()(fourth)
+        try require(drawer.order == [a, c] && drawer.isOpen, "Drop keeps drawer open and saves the new icon")
+        drawer.activationTimeout = 0.02; drawer.add(b)
+        let late = bridge.pending.removeFirst()
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        let lateHandle = FixtureHandle(); late(lateHandle)
+        try require(lateHandle.invalidations == 1 && !drawer.busy && !drawer.hidden && drawer.order == [a, c], "Timeout drops late handles without committing false membership")
+        drawer.apply(); let duringStop = bridge.pending.removeFirst(); drawer.stop()
+        let stoppedHandle = FixtureHandle(); duringStop(stoppedHandle)
+        try require(stoppedHandle.invalidations == 1 && !drawer.active && !drawer.input.enabled && !drawer.isOpen && !drawer.hasDismissWork, "Stop restores icons and discards pending activation/input/popup")
+        let restored = MenuBarDrawer(defaults: defaults, visibility: bridge)
+        try require(restored.order == [a, c], "A new module reads the stored real membership")
+        restored.permissionOverride = false; restored.testNoPresentation = true; restored.testSkipInput = true
+        restored.start(); restored.prepareDrag()
+        try require(restored.issue != nil && !restored.hidden, "Missing permission must be explicit and fail open")
+        restored.stop()
+        // A late inventory cannot recreate a stopped module or install hiding.
+        let delayedDefaults = UserDefaults(suiteName: suite + ".delayed")!
+        defer { delayedDefaults.removePersistentDomain(forName: suite + ".delayed") }
+        let delayed = MenuBarDrawer(defaults: delayedDefaults, visibility: bridge)
+        delayed.permissionOverride = true; delayed.testSkipInput = true; delayed.testNoPresentation = true
+        var readBack: (([MenuBarEntry]) -> Void)?, readToken: MenuBarReadToken?
+        delayed.readOverride = { token, callback in readToken = token; readBack = callback }
+        delayed.start(); delayed.prepareDrag(); delayed.stop(); readBack?(entries)
+        try require(readToken?.isCancelled == true && delayed.entries.isEmpty && !delayed.input.enabled, "Stopped inventory never restores stale entries or input capture")
+        let latest = MenuBarDrawer(defaults: delayedDefaults, visibility: bridge)
+        latest.permissionOverride = true; latest.testSkipInput = true; latest.testNoPresentation = true
+        latest.readOverride = { _, callback in readBack = callback }
+        var latestPresses = [String]()
+        latest.pressOverride = { entry, _, callback in latestPresses.append(entry.bundle); callback(true) }
+        latest.start(); latest.openMenu(a); latest.openMenu(b); readBack?(entries)
+        try require(latestPresses == [b], "Only the latest requested menu may open after queued inventory; earlier clicks cannot open two apps")
+        latest.stop()
+        // Tap tests run in-memory: they do not install a tap or post real events.
+        let input = MenuBarDrawerInput(); input.enabled = true; input.entries = [entry(a, 400)]
+        var begin = 0, drag = 0, end = 0
+        input.onBegin = { _, _ in begin += 1 }; input.onDrag = { _ in drag += 1 }; input.onEnd = { _ in end += 1 }
+        func event(_ type: CGEventType, _ x: CGFloat, command: Bool = true) -> CGEvent {
+            let event = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: CGPoint(x: x, y: 12), mouseButton: .left)!
+            event.flags = command ? .maskCommand : []; return event
         }
-        module.start(); view.frame.size = CGSize(width: 840, height: 400); view.needsLayout = true; view.layoutSubtreeIfNeeded()
-        try require(view.expanded.accessibilityLabel()?.contains("展开") == true && view.collapsed.accessibilityLabel()?.contains("收起") == true, "State choices expose meaningful native actions")
+        try require(!input.consume(.leftMouseDown, event: event(.leftMouseDown, 410, command: false)), "Ordinary application clicks remain untouched")
+        try require(!input.consume(.leftMouseDown, event: event(.leftMouseDown, 700)), "Unknown/system/own icons remain native")
+        input.canBegin = { false }
+        try require(!input.consume(.leftMouseDown, event: event(.leftMouseDown, 410)), "Busy module cannot swallow a native mouse gesture")
+        input.canBegin = { true }
+        try require(input.consume(.leftMouseDown, event: event(.leftMouseDown, 410)), "Known Command-drag starts from bounded cache")
+        try require(input.consume(.leftMouseDragged, event: event(.leftMouseDragged, 500)) && input.consume(.leftMouseUp, event: event(.leftMouseUp, 500)), "Consumed drag owns its matching mouse-up")
+        try require(begin == 1 && drag == 1 && end == 1 && !input.dragging, "Each real gesture completes exactly once")
+        let marked = event(.leftMouseDown, 410); marked.setIntegerValueField(.eventSourceUserData, value: MenuBarDrawerInput.eventMark)
+        try require(!input.consume(.leftMouseDown, event: marked), "Native reorder replay cannot recursively enter our tap")
+        input.stop()
+        // Existing native UI is rendered using fixture app identities, not the
+        // user's live inventory or preferences. Wide and narrow bounds are checked.
+        let module = MenuBarShelfModule(defaults: defaults, visibility: bridge, native: true)
+        module.configureDrawer = { $0.permissionOverride = false; $0.testSkipInput = true; $0.testNoPresentation = true }
+        module.start(); let owned = module.drawer
+        try require(owned?.active == true, "Native module owns exactly one apple drawer")
+        module.stop()
+        try require(owned?.active == false && module.drawer == nil, "Module disable releases the drawer and its event resources")
+        let view = module.makeDashboard()
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 840, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view
+        let examples = [MenuDrawerItem(bundle: a, name: "Finder", icon: NSWorkspace.shared.icon(forFile: "/System/Library/CoreServices/Finder.app")), MenuDrawerItem(bundle: b, name: "Safari", icon: NSWorkspace.shared.icon(forFile: "/Applications/Safari.app")), MenuDrawerItem(bundle: c, name: "TextEdit", icon: NSWorkspace.shared.icon(forFile: "/System/Applications/TextEdit.app"))]
+        view.setItems(drawer: examples, visible: examples.reversed())
+        view.update(active: true, state: .collapsed, auto: false, issue: nil, count: 3, native: true)
+        for width: CGFloat in [840, 460, 360, 220] {
+            view.frame = CGRect(x: 0, y: 0, width: width, height: width < 520 ? 580 : 500)
+            view.needsLayout = true; view.layoutSubtreeIfNeeded()
+            try require(view.subviews.filter { !$0.isHidden }.allSatisfy { view.bounds.contains($0.frame) }, "Every visible control fits wide and narrow settings")
+            try require(view.drawer.items.count == 3 && view.visible.items.count == 3, "Compact settings preserve all app identities")
+        }
+        var moved: (String, Int)?
+        view.drawer.onMove = { moved = ($0, $1) }
+        func localEvent(_ type: NSEvent.EventType, _ point: CGPoint, command: Bool = true) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: view.drawer.convert(point, to: nil), modifierFlags: command ? .command : [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        }
+        let firstCell = view.drawer.cellFrame(0), lastCell = view.drawer.cellFrame(2)
+        view.drawer.mouseDown(with: localEvent(.leftMouseDown, CGPoint(x: firstCell.midX, y: firstCell.midY)))
+        view.drawer.mouseDragged(with: localEvent(.leftMouseDragged, CGPoint(x: lastCell.midX, y: lastCell.midY)))
+        view.drawer.mouseUp(with: localEvent(.leftMouseUp, CGPoint(x: lastCell.midX, y: lastCell.midY)))
+        try require(moved?.0 == a && moved?.1 == 2 && view.drawer.items[2].bundle == a, "Real Command-drag view handlers reorder live before release and commit matching index")
         if let directory = ProcessInfo.processInfo.environment["MENU_BAR_SHELF_PREVIEW_DIR"] {
             let path = URL(fileURLWithPath: directory); try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
-            let image = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
-            view.cacheDisplay(in: view.bounds, to: image)
-            try image.representation(using: .png, properties: [:])!.write(to: path.appendingPathComponent("menu-bar-shelf.png"))
+            for width: CGFloat in [840, 360] {
+                view.frame = CGRect(x: 0, y: 0, width: width, height: width < 520 ? 580 : 500); view.needsLayout = true; view.layoutSubtreeIfNeeded()
+                let image = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+                view.cacheDisplay(in: view.bounds, to: image)
+                try image.representation(using: .png, properties: [:])!.write(to: path.appendingPathComponent("menu-drawer-\(Int(width)).png"))
+            }
+            let popup = MenuBarDrawerView(frame: CGRect(x: 0, y: 0, width: 344, height: 108)); popup.items = examples; popup.selected = b
+            window.contentView = popup; window.setContentSize(CGSize(width: 344, height: 108))
+            popup.message = "点击打开 · ⌘ 拖动排序，拖出恢复"
+            let image = popup.bitmapImageRepForCachingDisplay(in: popup.bounds)!; popup.cacheDisplay(in: popup.bounds, to: image)
+            try image.representation(using: .png, properties: [:])!.write(to: path.appendingPathComponent("menu-drawer-popup.png"))
         }
-        module.stop(); window.orderOut(nil)
-        print("Menu bar shelf regression passed; native bridge available: \(NativeMenuVisibility().available). No real application icons were hidden.")
+        window.orderOut(nil)
+        print("Menu drawer regression passed: transactional membership, saved order, real view drag, native action routing, hover corridor, idle delay, failure/timeout/stop, input capture isolation and narrow settings. No real application icons were hidden or events posted.")
     }
 }

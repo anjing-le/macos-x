@@ -1,0 +1,123 @@
+import AppKit
+
+struct MenuDrawerItem {
+    let bundle: String
+    let name: String
+    let icon: NSImage?
+    var available = true
+}
+
+/// The identical native view is used in the popover and in the dashboard.
+/// App icons identify real AX-backed entries; they do not simulate a menu.
+@MainActor final class MenuBarDrawerView: NSView {
+    var items: [MenuDrawerItem] = [] { didSet { needsDisplay = true; updateAccessibility() } }
+    var selected: String? { didSet { needsDisplay = true } }
+    var accepting = false { didSet { needsDisplay = true } }
+    var onClose: (() -> Void)?
+    var onOpen: ((String) -> Void)?
+    var onMove: ((String, Int) -> Void)?
+    var onRestore: ((String, CGPoint) -> Void)?
+    var onPresence: ((Bool) -> Void)?
+    var onInteraction: (() -> Void)?
+    var message = "⌘ 拖入图标，收纳在这里" { didSet { needsDisplay = true } }
+    private var down: (String, CGPoint, Bool)?
+    private var dragging = false
+    private var tracking: NSTrackingArea?
+    override var isFlipped: Bool { true }
+    override var acceptsFirstResponder: Bool { true }
+    static let cell: CGFloat = 64
+    var singleRow = false
+    var columns: Int { singleRow ? max(1, items.count) : max(1, Int((bounds.width - 24) / Self.cell)) }
+    func cellFrame(_ index: Int) -> CGRect {
+        CGRect(x: 12 + CGFloat(index % columns) * Self.cell, y: 14 + CGFloat(index / columns) * 62, width: Self.cell - 4, height: 58)
+    }
+    func index(at point: CGPoint) -> Int? { items.indices.first { cellFrame($0).contains(point) } }
+    func insertion(at point: CGPoint) -> Int { min(items.count - 1, max(0, Int((point.y - 14) / 62) * columns + Int((point.x - 12) / Self.cell))) }
+    static func height(count: Int, width: CGFloat) -> CGFloat {
+        let columns = max(1, Int((width - 24) / cell))
+        return CGFloat(max(1, (count + columns - 1) / columns)) * 62 + 46
+    }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas(); if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self)
+        addTrackingArea(area); tracking = area
+    }
+    override func mouseEntered(with event: NSEvent) { onPresence?(true) }
+    override func mouseExited(with event: NSEvent) { onPresence?(false) }
+    override func mouseMoved(with event: NSEvent) {
+        selected = index(at: convert(event.locationInWindow, from: nil)).map { items[$0].bundle }
+        onInteraction?()
+    }
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self); onInteraction?()
+        let point = convert(event.locationInWindow, from: nil)
+        guard let index = index(at: point) else { down = nil; return }
+        selected = items[index].bundle; down = (items[index].bundle, point, event.modifierFlags.contains(.command)); dragging = false
+    }
+    override func mouseDragged(with event: NSEvent) {
+        guard let down, down.2 else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        guard dragging || hypot(point.x - down.1.x, point.y - down.1.y) > 4 else { return }
+        dragging = true; onInteraction?()
+        if onMove != nil, bounds.contains(point), let from = items.firstIndex(where: { $0.bundle == down.0 }) {
+            let to = insertion(at: point)
+            if from != to { let item = items.remove(at: from); items.insert(item, at: to) }
+        }
+        needsDisplay = true
+    }
+    override func mouseUp(with event: NSEvent) {
+        guard let down else { return }; self.down = nil; onInteraction?()
+        let point = convert(event.locationInWindow, from: nil)
+        if dragging {
+            dragging = false
+            if bounds.insetBy(dx: -6, dy: -6).contains(point), let index = items.firstIndex(where: { $0.bundle == down.0 }) { onMove?(down.0, index) }
+            else if let window { onRestore?(down.0, window.convertPoint(toScreen: event.locationInWindow)) }
+        } else if index(at: point).map({ items[$0].bundle }) == down.0 { onOpen?(down.0) }
+    }
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 { onClose?() }
+        else if event.keyCode == 36, let selected { onOpen?(selected) }
+        else if event.keyCode == 123 || event.keyCode == 124 {
+            guard !items.isEmpty else { return }
+            let current = selected.flatMap { id in items.firstIndex { $0.bundle == id } } ?? 0
+            selected = items[max(0, min(items.count - 1, current + (event.keyCode == 123 ? -1 : 1)))].bundle
+        } else { super.keyDown(with: event) }
+    }
+    override func draw(_ dirtyRect: NSRect) {
+        let outline = SketchPencil.outline(in: bounds.insetBy(dx: 2, dy: 2), radius: 12)
+        SketchPalette.fill(outline, color: SketchPalette.paper)
+        SketchPencil.stroke(outline, color: accepting ? SketchPalette.blue : SketchPalette.line, width: accepting ? 2.4 : 1.5)
+        for (index, item) in items.enumerated() {
+            let frame = cellFrame(index), isSelected = selected == item.bundle
+            if isSelected {
+                let shape = SketchPencil.outline(in: frame, radius: 8)
+                SketchPalette.fill(shape, color: SketchPalette.blue.withAlphaComponent(0.10))
+                SketchPencil.stroke(shape, color: SketchPalette.blue, width: 1.8)
+            }
+            item.icon?.draw(in: CGRect(x: frame.midX - 15, y: frame.minY + 4, width: 30, height: 30), from: .zero, operation: .sourceOver, fraction: item.available ? 1 : 0.35, respectFlipped: true, hints: nil)
+            let style = NSMutableParagraphStyle(); style.alignment = .center; style.lineBreakMode = .byTruncatingTail
+            (item.name as NSString).draw(in: CGRect(x: frame.minX + 2, y: frame.minY + 38, width: frame.width - 4, height: 16), withAttributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: item.available ? SketchPalette.ink : SketchPalette.muted, .paragraphStyle: style])
+        }
+        if items.isEmpty {
+            let plus = NSImage(systemSymbolName: "tray.and.arrow.down", accessibilityDescription: nil)
+            plus?.draw(in: CGRect(x: bounds.midX - 15, y: 20, width: 30, height: 26), from: .zero, operation: .sourceOver, fraction: 0.5, respectFlipped: true, hints: nil)
+        }
+        let style = NSMutableParagraphStyle(); style.alignment = .center
+        (message as NSString).draw(in: CGRect(x: 10, y: bounds.height - 29, width: bounds.width - 20, height: 18), withAttributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: accepting ? SketchPalette.blue : SketchPalette.muted, .paragraphStyle: style])
+    }
+    private func updateAccessibility() {
+        setAccessibilityElement(false)
+        setAccessibilityChildren(items.map { item -> NSAccessibilityElement in
+            let element = MenuDrawerAccessibilityItem()
+            element.setAccessibilityRole(.button); element.setAccessibilityLabel(item.name)
+            element.setAccessibilityParent(self)
+            element.onPress = { [weak self] in self?.onOpen?(item.bundle) }
+            return element
+        })
+    }
+}
+
+@MainActor private final class MenuDrawerAccessibilityItem: NSAccessibilityElement {
+    var onPress: (() -> Void)?
+    override func accessibilityPerformPress() -> Bool { onPress?(); return onPress != nil }
+}

@@ -4,6 +4,8 @@ import ApplicationServices
 struct MenuBarEntry {
     let bundle: String
     let frame: CGRect
+    var element: AXUIElement? = nil
+    var pid: pid_t = 0
 }
 
 /// Failed/unreadable applications remain allowed. A partial inventory must not
@@ -34,6 +36,22 @@ final class MenuBarReadToken {
 /// 64 items per app. Nothing reads AX on the status-item event callback.
 final class MenuBarInventory {
     private let queue = DispatchQueue(label: "cc.anjing.macos-x.menu-bar-inventory", qos: .userInitiated)
+    func press(_ entry: MenuBarEntry, token: MenuBarReadToken, onClosed: @escaping () -> Void,
+               completion: @escaping (Bool, MenuBarMenuWatch?) -> Void) {
+        queue.async {
+            guard !token.isCancelled, let element = entry.element else {
+                DispatchQueue.main.async { if !token.isCancelled { completion(false, nil) } }; return
+            }
+            AXUIElementSetMessagingTimeout(element, 0.15)
+            let watch = MenuBarMenuWatch(pid: entry.pid, onClosed: onClosed)
+            let ok = AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
+            DispatchQueue.main.async {
+                guard !token.isCancelled else { watch?.cancel(); return }
+                if ok { watch?.attach() } else { watch?.cancel() }
+                completion(ok, ok ? watch : nil)
+            }
+        }
+    }
     func read(_ apps: [(pid_t, String)], token: MenuBarReadToken, completion: @escaping ([MenuBarEntry]) -> Void) {
         queue.async {
             let deadline = ProcessInfo.processInfo.systemUptime + 3
@@ -65,7 +83,7 @@ final class MenuBarInventory {
                           AXValueGetValue(unsafeBitCast(sizeValue, to: AXValue.self), .cgSize, &size) else { complete = false; break }
                     guard point.x.isFinite, point.y.isFinite, size.width.isFinite, size.height.isFinite,
                           size.width > 0, size.height > 0 else { complete = false; break }
-                    appEntries.append(.init(bundle: bundle, frame: CGRect(origin: point, size: size)))
+                    appEntries.append(.init(bundle: bundle, frame: CGRect(origin: point, size: size), element: item, pid: pid))
                 }
                 // Refuse to classify a bundle if a sibling item could not be read.
                 if complete, items.count < 64 { entries += appEntries }
@@ -74,4 +92,34 @@ final class MenuBarInventory {
             DispatchQueue.main.async { if !token.isCancelled { completion(entries) } }
         }
     }
+}
+
+/// One observer scoped to the currently opened real menu. Registration and
+/// teardown AX messages stay off the UI thread. No menu-state polling.
+final class MenuBarMenuWatch {
+    private var observer: AXObserver?
+    private let app: AXUIElement
+    private let onClosed: () -> Void
+    private static let cleanup = DispatchQueue(label: "cc.anjing.macos-x.menu-watch-cleanup")
+    init?(pid: pid_t, onClosed: @escaping () -> Void) {
+        guard pid > 0 else { return nil }
+        app = AXUIElementCreateApplication(pid); self.onClosed = onClosed
+        AXUIElementSetMessagingTimeout(app, 0.1)
+        var raw: AXObserver?
+        guard AXObserverCreate(pid, { _, _, _, context in
+            guard let context else { return }
+            let watch = Unmanaged<MenuBarMenuWatch>.fromOpaque(context).takeUnretainedValue()
+            watch.onClosed()
+        }, &raw) == .success, let raw else { return nil }
+        observer = raw
+        guard AXObserverAddNotification(raw, app, kAXMenuClosedNotification as CFString, Unmanaged.passUnretained(self).toOpaque()) == .success else { observer = nil; return nil }
+    }
+    func attach() { if let observer { CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes) } }
+    func cancel() {
+        guard let observer else { return }; self.observer = nil
+        CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+        let app = app
+        Self.cleanup.async { AXObserverRemoveNotification(observer, app, kAXMenuClosedNotification as CFString) }
+    }
+    deinit { cancel() }
 }

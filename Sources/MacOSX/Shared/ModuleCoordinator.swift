@@ -18,6 +18,9 @@ final class ModuleCoordinator {
     private var systemStatus: SystemStatusModule?
     private var shortcutRadar: ShortcutRadarModule?
     private var menuBarShelf: MenuBarShelfModule?
+    var menuBarAnchor: (() -> CGRect?)?
+    func menuBarHover(_ frame: CGRect, inside: Bool) { menuBarShelf?.appleHover(frame, inside: inside) }
+    func menuBarClick() { menuBarShelf?.appleClick() }
     private var issues: [ShortcutAction: String] = [:]
     private var tapIssue: String?
     private var activeObserver: NSObjectProtocol?
@@ -91,6 +94,7 @@ final class ModuleCoordinator {
         case .menuBarShelf:
             if menuBarShelf == nil {
                 menuBarShelf = MenuBarShelfModule(defaults: defaults)
+                menuBarShelf?.anchorProvider = { [weak self] in self?.menuBarAnchor?() }
                 menuBarShelf?.onStatusChange = { [weak self] in self?.onStateChanged?(.menuBarShelf) }
             }
         case .shortcutRadar:

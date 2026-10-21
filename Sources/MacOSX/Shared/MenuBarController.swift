@@ -4,6 +4,9 @@ import os
 /// One permanent entry point, with no timer or background polling.
 @MainActor final class MenuBarController: NSObject, NSMenuItemValidation {
     private var item: NSStatusItem?
+    var onHover: ((CGRect, Bool) -> Void)?
+    var onSingleClick: (() -> Void)?
+    var screenFrame: CGRect? { item?.button?.window?.frame }
     private var lastLeftClick: TimeInterval?
     private let logger = Logger(subsystem: "cc.anjing.macos-x", category: "menu-bar")
     private let onOpen: () -> Void
@@ -39,6 +42,13 @@ import os
         button.setAccessibilityLabel("macos-x，双击打开主界面，右键打开菜单")
         button.target = self; button.action = #selector(clicked)
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        let hover = MenuBarHoverView(frame: button.bounds)
+        hover.autoresizingMask = [.width, .height]
+        hover.onHover = { [weak self] inside in
+            guard let self, let frame = self.screenFrame else { return }
+            self.onHover?(frame, inside)
+        }
+        button.addSubview(hover)
     }
     static func icon() -> NSImage? {
         let symbol = NSImage(systemSymbolName: "apple.logo", accessibilityDescription: "macos-x")
@@ -66,7 +76,7 @@ import os
             // count. Recognize consecutive actions using the user's OS interval.
             if let previous = lastLeftClick, now >= previous, now - previous <= NSEvent.doubleClickInterval {
                 lastLeftClick = nil; logger.info("double click opens client"); onOpen()
-            } else { lastLeftClick = now }
+            } else { lastLeftClick = now; onSingleClick?() }
         } else if event.type == .keyDown { lastLeftClick = nil; onOpen() }
     }
     @objc private func openClient() { onOpen() }
@@ -75,4 +85,19 @@ import os
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         menuItem.action == #selector(checkUpdates) ? canCheckUpdates() : true
     }
+}
+
+/// Tracking-only overlay: never intercepts the status button's native clicks
+/// or Command-drag. No global mouse move monitor is needed for apple hover.
+@MainActor private final class MenuBarHoverView: NSView {
+    var onHover: ((Bool) -> Void)?
+    private var tracking: NSTrackingArea?
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas(); if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        addTrackingArea(area); tracking = area
+    }
+    override func mouseEntered(with event: NSEvent) { onHover?(true) }
+    override func mouseExited(with event: NSEvent) { onHover?(false) }
 }

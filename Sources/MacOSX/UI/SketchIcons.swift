@@ -105,12 +105,19 @@ enum SketchIcons {
             SketchPencil.stroke(lens, color: SketchPalette.ink, width: 1.8)
             line([(50, 12), (59, 3)]); line([(40, 18), (46, 18)]); line([(43, 15), (43, 21)])
         case .menuBar:
-            tile(NSRect(x: 3, y: 13, width: 58, height: 38), SketchPalette.paper)
-            line([(4, 40), (60, 40)])
+            // A real apple entry above a pulled-out tray, not the previous
+            // left/right separator diagram.
+            let rail = SketchPencil.outline(in: NSRect(x: 3, y: 45, width: 58, height: 13), radius: 4)
+            SketchPalette.fill(rail, color: SketchPalette.paper)
+            SketchPencil.stroke(rail, color: SketchPalette.line, width: 1.2)
+            NSImage(systemSymbolName: "apple.logo", accessibilityDescription: nil)?.draw(in: NSRect(x: 43, y: 47, width: 8, height: 10))
+            let drawer = SketchPencil.outline(in: NSRect(x: 10, y: 10, width: 47, height: 29), radius: 5)
+            SketchPalette.fill(drawer, color: SketchPalette.paper)
+            SketchPencil.stroke(drawer, color: SketchPalette.ink, width: 1.6)
             for index in 0..<3 {
-                tile(NSRect(x: 10 + CGFloat(index) * 10, y: 22, width: 7, height: 10), [SketchPalette.blue, SketchPalette.purple, SketchPalette.green][index])
+                tile(NSRect(x: 16 + CGFloat(index) * 12, y: 20, width: 8, height: 11), [SketchPalette.blue, SketchPalette.purple, SketchPalette.green][index])
             }
-            line([(44, 24), (49, 28), (44, 32)]); line([(53, 22), (53, 34)])
+            line([(47, 44), (47, 40)]); line([(28, 14), (39, 14)])
         case .plus: line([(13, 32), (51, 32)]); line([(32, 13), (32, 51)])
         case .back: line([(40, 12), (20, 32), (40, 52)])
         case .update: line([(32, 53), (32, 20)]); line([(19, 33), (32, 20), (45, 33)]); line([(14, 12), (50, 12)])

@@ -10,9 +10,12 @@ import AppKit
             NSEvent.mouseEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0,
                                windowNumber: 0, context: nil, eventNumber: 0, clickCount: count, pressure: 0)!
         }
+        var drawerClicks = 0
+        controller.onSingleClick = { drawerClicks += 1 }
         controller.handleClick(click(1), now: 10)
         precondition(opened == 0, "Single click must not raise the main window")
         controller.handleClick(click(1), now: 10 + NSEvent.doubleClickInterval / 2)
+        precondition(drawerClicks == 1, "Apple single click can toggle its drawer without firing a second time on double click")
         precondition(opened == 1 && checked == 0 && quit == 0, "Two status actions with count one must open exactly once without other actions")
         controller.handleClick(click(1), now: 20)
         controller.handleClick(click(1), now: 20 + NSEvent.doubleClickInterval + 1)
