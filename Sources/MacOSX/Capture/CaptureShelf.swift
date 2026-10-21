@@ -124,7 +124,10 @@ import AppKit
     }
     private func act(_ action: ShelfView.Action, panel: ShelfPanel) {
         guard running, !busy else {
-            if case .place = action { panel.shelfView.completeLayoutCommit() }
+            if case .place = action {
+                panel.shelfView.applySavedItems(records,preserveLayout:false)
+                onStatus?("收纳正在处理，位置未修改。")
+            }
             return
         }
         switch action {
