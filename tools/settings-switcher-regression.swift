@@ -427,6 +427,7 @@ import MacOSXCore
                     try require(shelfCard.shortcut.control === keys[4], "Shelf illustration hosts the real shared F4 recorder")
                     try require(board.bounds.contains(shelfCard.frame) && !shelfCard.frame.intersects(settings.frame), "Shelf stays inside screenshot settings above the recording footer")
                     try require(shelfCard.bounds.contains(shelfCard.shortcut.frame), "Shelf keycap stays in its illustration")
+                    try require(shelfCard.shortcut.frame.size == shortcutRows[0].frame.size, "Shelf keycap uses the exact F1 keycap dimensions instead of a stretched button")
                     try require(shortcutRows[1].frame.maxY <= shortcutRows[2].frame.minY, "pin shortcuts do not overlap")
                 }
                 try require(shortcutRows.filter { $0.control is NSStackView }.allSatisfy { $0.control.frame == $0.bounds }, "shortcut controls use the full row without arrow gutters")

@@ -159,6 +159,7 @@ import AppKit
 /// The picture describes the top-of-screen shelf; it never collects a screenshot.
 @MainActor final class CaptureShelfSettingsCard: NSView {
     let shortcut: ShortcutSettingsRow
+    var keySize = CGSize(width: 64, height: 41) { didSet { needsLayout = true; needsDisplay = true } }
     private let title = NSTextField(labelWithString: "晾衣杆")
     private let hint = NSTextField(labelWithString: "收纳图片 · 顶部悬停查看")
     override var isFlipped: Bool { true }
@@ -166,8 +167,8 @@ import AppKit
         self.shortcut = shortcut
         super.init(frame: .zero)
         identifier = .init("capture-shelf-settings")
-        title.font = SketchPalette.heading(15); title.textColor = SketchPalette.ink
-        hint.font = .systemFont(ofSize: 11); hint.textColor = SketchPalette.muted
+        title.font = SketchPalette.heading(18); title.textColor = SketchPalette.ink
+        hint.font = .systemFont(ofSize: 12); hint.textColor = SketchPalette.muted
         toolTip = "收纳当前选区、选中的贴图或剪贴板图片；顶部悬停查看。左右键选择，⌘C 复制，⌘⌫ 删除，Esc 收起。"
         setAccessibilityLabel("截图晾衣杆：将图片收纳到屏幕顶部")
         shortcut.setAccessibilityLabel("晾衣杆收纳快捷键")
@@ -176,28 +177,37 @@ import AppKit
     required init?(coder: NSCoder) { nil }
     override func layout() {
         super.layout()
-        title.frame = CGRect(x: 67, y: 3, width: max(0, bounds.width - 169), height: 22)
-        shortcut.frame = CGRect(x: max(67, bounds.width - 96), y: 0, width: 94, height: 32)
+        title.frame = CGRect(x: 76, y: 9, width: max(0, bounds.width - keySize.width - 90), height: 25)
+        shortcut.frame = CGRect(x: max(76, bounds.width - keySize.width - 8), y: 6, width: keySize.width, height: keySize.height)
         shortcut.layoutSubtreeIfNeeded()
-        hint.frame = CGRect(x: 67, y: 34, width: max(0, bounds.width - 67), height: 17)
+        hint.frame = CGRect(x: 76, y: shortcut.frame.maxY + 4, width: max(0, bounds.width - 76), height: 17)
     }
     override func draw(_ dirtyRect: NSRect) {
-        let rope = NSBezierPath(); rope.move(to: CGPoint(x: 2, y: 7))
-        rope.curve(to: CGPoint(x: 58, y: 7), controlPoint1: CGPoint(x: 20, y: 13), controlPoint2: CGPoint(x: 40, y: 13))
+        let artwork = IllustratedSettingChoice.artwork("SettingsCaptureBoard")
+        let rope = NSBezierPath(); rope.move(to: CGPoint(x: 2, y: 8))
+        rope.curve(to: CGPoint(x: 70, y: 8), controlPoint1: CGPoint(x: 24, y: 15), controlPoint2: CGPoint(x: 48, y: 15))
         SketchPencil.stroke(rope, color: SketchPalette.line, width: 1.7)
-        for (index, color) in [SketchPalette.blue, SketchPalette.green, SketchPalette.purple].enumerated() {
-            let x = CGFloat(index) * 18 + 4, y: CGFloat = index == 1 ? 14 : 11
-            let clip = NSBezierPath(); clip.move(to: CGPoint(x: x + 7, y: y - 4)); clip.line(to: CGPoint(x: x + 7, y: y + 1))
+        for index in 0..<3 {
+            let x = CGFloat(index) * 22 + 3, y: CGFloat = index == 1 ? 17 : 13
+            let clip = NSBezierPath(); clip.move(to: CGPoint(x: x + 10, y: y - 4)); clip.line(to: CGPoint(x: x + 10, y: y + 1))
             SketchPencil.stroke(clip, color: index == 0 ? SketchPalette.blue : SketchPalette.line, width: 2)
-            let photo = SketchPencil.outline(in: CGRect(x: x, y: y + 1, width: 16, height: 24), radius: 1)
-            SketchPalette.fill(photo, color: color.withAlphaComponent(0.3))
-            SketchPencil.stroke(photo, color: index == 0 ? SketchPalette.blue : SketchPalette.line, width: index == 0 ? 1.8 : 1.2)
-            let mountain = NSBezierPath(); mountain.move(to: CGPoint(x: x + 2, y: y + 20)); mountain.line(to: CGPoint(x: x + 7, y: y + 12)); mountain.line(to: CGPoint(x: x + 14, y: y + 20))
-            SketchPencil.stroke(mountain, color: color, width: 1.5)
+            let rect = CGRect(x: x, y: y + 1, width: 21, height: 29)
+            let photo = SketchPencil.outline(in: rect, radius: 1.5)
+            SketchPalette.fill(photo, color: SketchPalette.paper)
+            artwork?.draw(in: rect.insetBy(dx: 2, dy: 2), from: CGRect(x: 729.44, y: 332, width: 57.12, height: 84), operation: .sourceOver, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
+            SketchPencil.stroke(photo, color: index == 0 ? SketchPalette.blue : SketchPalette.line, width: index == 0 ? 2 : 1.5)
         }
-        let key = SketchPencil.outline(in: shortcut.frame.insetBy(dx: 2, dy: 2), radius: 6)
-        SketchPalette.fill(key, color: SketchPalette.paper)
-        SketchPencil.stroke(key, color: SketchPalette.line, width: 1)
+        if let artwork {
+            // Reuse the actual F1 keycap artwork and its scale. The live shortcut
+            // recorder supplies the text, including custom bindings and errors.
+            let scale = keySize.width / (0.07 * artwork.size.width)
+            let tile = CGRect(x: shortcut.frame.minX + (250 - 0.148 * artwork.size.width) * scale,
+                              y: shortcut.frame.minY + (105 - 0.065 * artwork.size.width) * scale,
+                              width: 154 * scale, height: 102 * scale)
+            artwork.draw(in: tile, from: CGRect(x: 250, y: artwork.size.height - 207, width: 154, height: 102), operation: .sourceOver, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
+        } else {
+            SketchPencil.stroke(SketchPencil.outline(in: shortcut.frame, radius: 6), color: SketchPalette.line, width: 1.7)
+        }
     }
 }
 
@@ -242,7 +252,7 @@ import AppKit
         if hostsShortcut { return max(0, settings.intrinsicContentSize.height) }
         if kind == "windowLayout" { return layoutFooterY + settings.fittingSize.height }
         if usesBackdrop { return kind == "capture" ? max(backdropHeight,backdropHeight*0.838+settings.fittingSize.height) : backdropHeight }
-        return kind == "kaomoji" ? max(compact ? 848 : 490,50+settings.fittingSize.height) : (kind == "capture" ? max(compact ? 864 : 440,(compact ? (shelfCard == nil ? 664 : 790) : 352)+settings.fittingSize.height) : (compact ? 550 : 410))
+        return kind == "kaomoji" ? max(compact ? 848 : 490,50+settings.fittingSize.height) : (kind == "capture" ? max(compact ? 864 : 440,(compact ? (shelfCard == nil ? 664 : 804) : 352)+settings.fittingSize.height) : (compact ? 550 : 410))
     }
     override var intrinsicContentSize: NSSize { NSSize(width:840,height:bodyHeight+issueHeight) }
     init(kind: String, settings: NSView, shortcuts: [NSView]) {
@@ -406,8 +416,8 @@ import AppKit
         for choice in selectors { choice.backdropOnly=true; choice.checkOnly=kind == "capture" }
         if kind == "capture" {
             for (i,view) in shortcuts.prefix(4).enumerated() { view.frame=slot(Self.captureKeySlots[i]) }
-            shelfCard?.frame = slot(CGRect(x: 0.028, y: 0.68, width: 0.31, height: 0.128))
-            if let shelfCard { shelfCard.frame.size.height = max(52, shelfCard.frame.height) }
+            shelfCard?.keySize = shortcuts[0].frame.size
+            shelfCard?.frame = slot(CGRect(x: 0.028, y: 0.665, width: 0.31, height: 0.165))
             shelfCard?.layoutSubtreeIfNeeded()
             for (i,view) in selectors.enumerated() { view.frame=slot(Self.captureOutlineSlots[i]) }
             for (i,hint) in captureHints.enumerated() { hint.isHidden=i == 0 && shelfCard != nil; hint.frame=slot(CGRect(x:i == 0 ? 0.03 : 0.68,y:0.68,width:0.29,height:0.07)) }
@@ -486,9 +496,10 @@ import AppKit
             }
             layoutAudio(in: CGRect(x: 0, y: 654, width: w, height: 32))
             let footerY: CGFloat = audioChoices.isEmpty ? 664 : 700
-            shelfCard?.frame = CGRect(x: 0, y: footerY, width: w, height: 66)
+            shelfCard?.keySize = CGSize(width: 64, height: 41)
+            shelfCard?.frame = CGRect(x: 0, y: footerY, width: w, height: 80)
             shelfCard?.layoutSubtreeIfNeeded()
-            settings.frame = CGRect(x: 0, y: footerY + (shelfCard == nil ? 0 : 78), width: w, height: settings.fittingSize.height)
+            settings.frame = CGRect(x: 0, y: footerY + (shelfCard == nil ? 0 : 92), width: w, height: settings.fittingSize.height)
         } else if compact && kind == "windowSwitcher" {
             for (i,view) in selectors.enumerated() { view.frame=CGRect(x:0,y:CGFloat(i)*164,width:w,height:156) }
             shortcuts.first?.frame=CGRect(x:0,y:332,width:w,height:50)
@@ -499,7 +510,8 @@ import AppKit
             let xs=[CGFloat(0),col+12,col+12,2*(col+12)]
             let ys=[CGFloat(154),154,202,154]
             for (i,view) in shortcuts.prefix(4).enumerated() { view.frame=CGRect(x:xs[i],y:ys[i],width:col,height:48) }
-            shelfCard?.frame = CGRect(x: 0, y: 285, width: col, height: 56)
+            shelfCard?.keySize = CGSize(width: 64, height: 41)
+            shelfCard?.frame = CGRect(x: 0, y: 274, width: col, height: 76)
             shelfCard?.layoutSubtreeIfNeeded()
             for (i,view) in selectors.enumerated() { view.frame=CGRect(x:col+12+CGFloat(i)*col/2,y:252,width:col/2-4,height:88) }
             layoutAudio(in: CGRect(x: 2 * (col + 12), y: 210, width: col, height: 32))
