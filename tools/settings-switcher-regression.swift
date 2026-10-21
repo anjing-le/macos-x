@@ -389,7 +389,7 @@ import MacOSXCore
             for pass in 0...1 {
                 let keys: [NSView]
                 if kind == "capture" {
-                    keys = [ShortcutAction.capture,.pin,.togglePins,.recording].map {
+                    keys = [ShortcutAction.capture,.pin,.togglePins,.recording,.shelf].map {
                         ShortcutPicker(title:"",binding:$0.defaultBinding,allowsDoubleTap:false,recordingChanged:{ _ in },accepts:{ $0.keyCode == 120 ? "与“贴图”重复，请选择其他快捷键" : nil },didChange:{ _ in })
                     }
                 } else { let key=NSTextField(labelWithString:"⌘ Tab"); key.alignment = .center; key.font = .systemFont(ofSize:16); keys = [key] }
@@ -423,6 +423,10 @@ import MacOSXCore
                         try require(row.frame == board.slot(SettingsBoardView.captureKeySlots[index]),"native keycap follows the image slot")
                         try require(row.control.subviews.count > 0,"real shortcut recorder remains installed")
                     }
+                    let shelfCard = board.subviews.compactMap { $0 as? CaptureShelfSettingsCard }.first!
+                    try require(shelfCard.shortcut.control === keys[4], "Shelf illustration hosts the real shared F4 recorder")
+                    try require(board.bounds.contains(shelfCard.frame) && !shelfCard.frame.intersects(settings.frame), "Shelf stays inside screenshot settings above the recording footer")
+                    try require(shelfCard.bounds.contains(shelfCard.shortcut.frame), "Shelf keycap stays in its illustration")
                     try require(shortcutRows[1].frame.maxY <= shortcutRows[2].frame.minY, "pin shortcuts do not overlap")
                 }
                 try require(shortcutRows.filter { $0.control is NSStackView }.allSatisfy { $0.control.frame == $0.bounds }, "shortcut controls use the full row without arrow gutters")
@@ -449,6 +453,13 @@ import MacOSXCore
                 }
                 if kind == "capture" {
                     if pass == 0 {
+                        let shelfRecorder = descendants(keys[4]).compactMap { $0 as? NSButton }.first!
+                        let shelfIssue = board.subviews.compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "shortcut-board-issue" }!
+                        shelfRecorder.performClick(nil); shelfRecorder.keyDown(with: key(120))
+                        try require(!shelfIssue.isHidden && shelfIssue.stringValue.contains("晾衣杆"), "Shelf recorder reports its own named conflict")
+                        shelfRecorder.performClick(nil); shelfRecorder.keyDown(with: key(96))
+                        try require(shelfIssue.isHidden && shelfRecorder.title == "F5", "Shelf keycap displays a newly accepted custom shortcut")
+                        shelfRecorder.performClick(nil); shelfRecorder.keyDown(with: key(118))
                         let recorder=descendants(keys[0]).compactMap { $0 as? NSButton }.first!
                         for width:CGFloat in [912,312] {
                             rootWidth.constant=width; root.frame.size.width=width
@@ -468,10 +479,19 @@ import MacOSXCore
                             try require(error.isHidden,"capture accepted shortcut clears conflict")
                         }
                     }
+                    for width: CGFloat in [740, 739, 312] {
+                        rootWidth.constant = width; root.frame.size.width = width; root.needsLayout = true; root.layoutSubtreeIfNeeded()
+                        root.frame.size.height = root.fittingSize.height; root.layoutSubtreeIfNeeded(); board.layoutSubtreeIfNeeded()
+                        let card = board.subviews.compactMap { $0 as? CaptureShelfSettingsCard }.first!
+                        try require(board.bounds.contains(card.frame) && card.frame.maxY <= settings.frame.minY, "Shelf never overlaps footer at responsive layout boundaries")
+                        try require(card.subviews.allSatisfy { card.bounds.contains($0.frame) }, "Shelf title, help and recorder fit at every supported width")
+                    }
                     rootWidth.constant=312; root.frame.size.width=312; root.needsLayout=true; root.layoutSubtreeIfNeeded()
                     root.frame.size.height=root.fittingSize.height; root.layoutSubtreeIfNeeded()
                     board.layoutSubtreeIfNeeded()
                     try require(!board.usesBackdrop,"narrow layout uses native sections")
+                    let shelfCard = board.subviews.compactMap { $0 as? CaptureShelfSettingsCard }.first!
+                    try require(shelfCard.frame.maxY <= settings.frame.minY && board.bounds.contains(shelfCard.frame), "Narrow layout retains the complete shelf section")
                     try require(board.subviews.filter { !$0.isHidden }.allSatisfy { board.bounds.contains($0.frame) },"narrow capture controls stay within board")
                 }
                 settings.removeFromSuperview()

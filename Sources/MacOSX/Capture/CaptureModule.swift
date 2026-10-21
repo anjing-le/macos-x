@@ -34,11 +34,6 @@ final class CaptureModule: NSObject {
     private var terminating = false
     private lazy var view: NSView = buildSettings()
     var settingsView: NSView { view }
-    func installShelfShortcut(_ shortcut: NSView) {
-        let row = NSStackView(views: [NSTextField(labelWithString: "截图晾衣杆"), shortcut]); row.spacing = 12; row.identifier = .init("shelf-shortcut-row")
-        row.toolTip = "当前选区、选中贴图或剪贴板图片 → 收纳；屏幕顶部悬停查看。"
-        (settingsView as? NSStackView)?.addArrangedSubview(row)
-    }
     var isRecording: Bool { recordingState != .idle }
     /// Observed success in this process; a later actual refusal clears it.
     /// Never persisted or inferred from the permission UI/preflight alone.

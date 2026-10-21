@@ -187,12 +187,7 @@ final class ModuleCoordinator {
         ensure(tool)
         switch tool {
         case .kaomoji: return wheel!.settingsView
-        case .capture:
-            if capture!.settingsView.subviews.first(where: { $0.identifier?.rawValue == "shelf-shortcut-row" }) == nil {
-                let picker = shortcutPicker(.shelf, showsTitle: false)
-                capture!.installShelfShortcut(picker)
-            }
-            return capture!.settingsView
+        case .capture: return capture!.settingsView
         case .windowSwitcher: return switcher!.settingsView
         case .windowLayout:return layout!.settingsView
         case .menuBarShelf:return menuBarShelf!.makeDashboard()
