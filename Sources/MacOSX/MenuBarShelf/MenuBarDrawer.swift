@@ -30,6 +30,7 @@ import ApplicationServices
     private var generation = 0
     private var restrictionGeneration = 0
     private var menuGeneration = 0
+    private var movementGeneration = 0
     private var dismissWork: DispatchWorkItem?
     private var watchdog: DispatchWorkItem?
     private var menuWatch: MenuBarMenuWatch?
@@ -95,7 +96,7 @@ import ApplicationServices
         changed()
     }
     func stop() {
-        guard active else { return }; active = false; generation += 1; restrictionGeneration += 1
+        guard active else { return }; active = false; generation += 1; restrictionGeneration += 1; movementGeneration += 1
         readToken?.cancel(); readToken = nil; actionToken?.cancel(); actionToken = nil
         reading = false; busy = false; pendingAfterRead = nil
         dismissWork?.cancel(); dismissWork = nil; watchdog?.cancel(); watchdog = nil
@@ -254,8 +255,7 @@ import ApplicationServices
             self.readEntries(force: true) { [weak self] in
                 guard let self, let source = self.entries.first(where: { $0.bundle == bundle }) else { return }
                 let top = NSScreen.screens.first?.frame.maxY ?? 0
-                self.busy = true
-                MenuBarDrawerInput.move(from: CGPoint(x: source.frame.midX, y: source.frame.midY), to: CGPoint(x: point.x, y: top - point.y)) { [weak self] in self?.busy = false; self?.changed() }
+                self.replayMove(from: CGPoint(x: source.frame.midX, y: source.frame.midY), to: CGPoint(x: point.x, y: top - point.y))
             }
         }
     }
@@ -274,7 +274,9 @@ import ApplicationServices
         if proposed.isEmpty { order = []; persist(); issue = nil; changed(); completion?(true); return }
         let confirmed = Set(entries.map(\.bundle)).intersection(proposed)
         guard !confirmed.isEmpty else {
-            issue = "未读到已收纳应用的菜单栏入口，图标保持显示。"; changed(); completion?(false); return
+            // Offline/unreadable members stay configured but visible. Removing
+            // another member must still succeed when no remaining app is running.
+            order = proposed; persist(); issue = nil; changed(); completion?(true); return
         }
         busy = true; changed()
         let all = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
@@ -362,11 +364,18 @@ import ApplicationServices
         if contains(point) { add(source.bundle); show() }
         else if inMenuBand(point) {
             let top = NSScreen.screens.first?.frame.maxY ?? 0
-            busy = true
-            MenuBarDrawerInput.move(from: CGPoint(x: source.frame.midX, y: source.frame.midY), to: CGPoint(x: point.x, y: top - point.y)) { [weak self] in
-                self?.busy = false; self?.readDate = 0; self?.prepareDrag(); self?.presence(false)
-            }
+            replayMove(from: CGPoint(x: source.frame.midX, y: source.frame.midY), to: CGPoint(x: point.x, y: top - point.y))
         } else { presence(false) }
+    }
+    private func replayMove(from start: CGPoint, to end: CGPoint) {
+        guard active else { return }
+        let expected = movementGeneration; busy = true
+        MenuBarDrawerInput.move(from: start, to: end, isCurrent: { [weak self] in
+            self?.active == true && self?.movementGeneration == expected
+        }) { [weak self] in
+            guard let self, self.active, self.movementGeneration == expected else { return }
+            self.busy = false; self.readDate = 0; self.prepareDrag(); self.changed(); self.presence(false)
+        }
     }
     private func cancelDrag() { dragSource = nil; dragMoved = false; ghost?.close(); ghost = nil; view.accepting = false }
     private func inMenuBand(_ point: CGPoint) -> Bool {
@@ -379,6 +388,8 @@ import ApplicationServices
         view.message = issue ?? (order.isEmpty ? "⌘ 拖入图标，收纳在这里" : "点击打开 · ⌘ 拖动排序，拖出恢复")
     }
     private func environmentChanged() {
+        movementGeneration += 1
+        input.cancelPendingGesture()
         generation += 1; readToken?.cancel(); readToken = nil; reading = false; pendingAfterRead = nil
         actionToken?.cancel(); actionToken = nil; entries.removeAll(); input.entries.removeAll(); appIcons.removeAll(); readDate = 0
         cancelDrag(); close(); showAll(); reapplyOnHover = !order.isEmpty

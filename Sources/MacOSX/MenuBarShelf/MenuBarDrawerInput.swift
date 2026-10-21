@@ -16,6 +16,10 @@ import AppKit
     private var source: CFRunLoopSource?
     private(set) var dragging = false
     private var prepared = false
+    private var preparation: DispatchWorkItem?
+    private var deliveryEpoch: UInt64 = 0
+    private var dragDelivery: DispatchWorkItem?
+    private var latestDrag: CGPoint?
     func start() -> Bool {
         guard tap == nil else { return true }
         let types: [CGEventType] = [.leftMouseDown, .leftMouseDragged, .leftMouseUp, .flagsChanged]
@@ -26,7 +30,8 @@ import AppKit
                 return MainActor.assumeIsolated {
                     let owner = Unmanaged<MenuBarDrawerInput>.fromOpaque(context).takeUnretainedValue()
                     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-                        owner.dragging = false; owner.onCancel?()
+                        owner.cancelPendingGesture()
+                        owner.deferDelivery { $0.onCancel?() }
                         if let tap = owner.tap { CGEvent.tapEnable(tap: tap, enable: true) }
                         return Unmanaged.passUnretained(event)
                     }
@@ -40,38 +45,86 @@ import AppKit
     }
     func consume(_ type: CGEventType, event: CGEvent) -> Bool {
         guard enabled, event.getIntegerValueField(.eventSourceUserData) != Self.eventMark else { return false }
+        guard dragging || type == .flagsChanged || (type == .leftMouseDown && event.flags.contains(.maskCommand)) else { return false }
         let q = event.location, top = NSScreen.screens.first?.frame.maxY ?? 0
         let point = CGPoint(x: q.x, y: top - q.y)
         if type == .flagsChanged {
             if !event.flags.contains(.maskCommand) { prepared = false }
             else if !prepared, NSScreen.screens.contains(where: { $0.frame.contains(point) && point.y >= $0.visibleFrame.maxY }) {
-                prepared = true; onPrepare?()
+                prepared = true
+                // The tap only records intent. Metadata/icon preparation happens
+                // after this input callback has returned to WindowServer.
+                if preparation == nil {
+                    let expected = deliveryEpoch
+                    let work = DispatchWorkItem { [weak self] in
+                        guard let self, self.enabled, self.deliveryEpoch == expected else { return }
+                        self.preparation = nil; self.onPrepare?()
+                    }
+                    preparation = work; DispatchQueue.main.async(execute: work)
+                }
             }
         }
         if type == .leftMouseDown, canBegin(), event.flags.contains(.maskCommand),
            let entry = entries.first(where: { $0.frame.contains(q) }) {
-            dragging = true; onBegin?(entry, point); return true
+            dragging = true
+            deferDelivery { $0.onBegin?(entry, point) }; return true
         }
-        if dragging, type == .leftMouseDragged { onDrag?(point); return true }
-        if dragging, type == .leftMouseUp { dragging = false; onEnd?(point); return true }
+        if dragging, type == .leftMouseDragged {
+            latestDrag = point
+            if dragDelivery == nil {
+                let expected = deliveryEpoch
+                let work = DispatchWorkItem { [weak self] in
+                    guard let self, self.enabled, self.deliveryEpoch == expected else { return }
+                    self.dragDelivery = nil
+                    if let point = self.latestDrag { self.latestDrag = nil; self.onDrag?(point) }
+                }
+                dragDelivery = work; DispatchQueue.main.async(execute: work)
+            }
+            return true
+        }
+        if dragging, type == .leftMouseUp {
+            dragging = false
+            let last = latestDrag; latestDrag = nil; dragDelivery?.cancel(); dragDelivery = nil
+            deferDelivery { owner in
+                if let last { owner.onDrag?(last) }
+                owner.onEnd?(point)
+            }
+            return true
+        }
         return false
     }
+    private func deferDelivery(_ action: @escaping (MenuBarDrawerInput) -> Void) {
+        let expected = deliveryEpoch
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.enabled, self.deliveryEpoch == expected else { return }; action(self)
+        }
+    }
+    func cancelPendingGesture() {
+        dragging = false; prepared = false
+        deliveryEpoch &+= 1
+        preparation?.cancel(); preparation = nil
+        dragDelivery?.cancel(); dragDelivery = nil; latestDrag = nil
+    }
     func stop() {
-        enabled = false; dragging = false; prepared = false; entries.removeAll()
+        enabled = false; entries.removeAll(); cancelPendingGesture()
         if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }; source = nil
         if let tap { CFMachPortInvalidate(tap) }; tap = nil
     }
     /// Replays only a drag the user just performed. Marked events bypass our
     /// own tap; no synthetic clicks or clipboard/paste injection are involved.
-    static func move(from start: CGPoint, to end: CGPoint, completion: @escaping () -> Void) {
+    static func move(from start: CGPoint, to end: CGPoint, isCurrent: @escaping () -> Bool = { true },
+                     send: ((CGEventType, CGPoint) -> Void)? = nil, completion: @escaping () -> Void) {
         let source = CGEventSource(stateID: .hidSystemState)
         func post(_ type: CGEventType, _ point: CGPoint) {
+            if let send { send(type, point); return }
             let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: .left)
             event?.flags = .maskCommand; event?.setIntegerValueField(.eventSourceUserData, value: eventMark)
             event?.post(tap: .cgSessionEventTap)
         }
+        guard isCurrent() else { completion(); return }
         post(.leftMouseDown, start)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) {
+            guard isCurrent() else { post(.leftMouseUp, start); completion(); return }
             post(.leftMouseDragged, end)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { post(.leftMouseUp, end); completion() }
         }

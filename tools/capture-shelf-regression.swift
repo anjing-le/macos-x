@@ -511,6 +511,13 @@ enum CaptureEditor {
         for _ in 0..<150 { if actionHost.canAdd { break }; try await Task.sleep(nanoseconds:10_000_000) }
         precondition(actionView.records.count == 1 && actionView.selected != nil && actionPanel.firstResponder === actionView,
                      "Native Command-Z restores an image into the focused empty shelf")
+        let beforeAddThumbnail = actionView.thumbnails[actionView.records[0].id]!
+        let beforeAddID = actionView.records[0].id
+        let windowsBeforeAdd = Set(NSApp.windows.map(ObjectIdentifier.init))
+        let added = await withCheckedContinuation { continuation in actionHost.add(image(48,48)) { continuation.resume(returning: $0) } }
+        precondition(added)
+        let afterAddPanels = NSApp.windows.compactMap { $0 as? ShelfPanel }.filter { !windowsBeforeAdd.contains(ObjectIdentifier($0)) }
+        precondition(afterAddPanels.contains { $0.shelfView.thumbnails[beforeAddID] === beforeAddThumbnail }, "Adding a photo reuses old thumbnails; only the new image is decoded")
         actionHost.stop()
         let host = CaptureShelf(directory: directory,presenting: false)
         host.start()

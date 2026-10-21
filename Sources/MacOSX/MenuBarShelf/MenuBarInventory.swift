@@ -44,6 +44,7 @@ final class MenuBarInventory {
             }
             AXUIElementSetMessagingTimeout(element, 0.15)
             let watch = MenuBarMenuWatch(pid: entry.pid, onClosed: onClosed)
+            guard !token.isCancelled else { watch?.cancel(); return }
             let ok = AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
             DispatchQueue.main.async {
                 guard !token.isCancelled else { watch?.cancel(); return }

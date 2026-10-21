@@ -45,18 +45,22 @@ import AppKit
     }
     func add(_ image: CGImage, completion: @escaping (Bool) -> Void) {
         guard canAdd else { showMessage(busy || !loaded ? "收纳正在处理，请稍后再试。" : "晾衣杆已满，请先整理。"); completion(false); return }
-        busy = true; let expected = epoch, store = store
+        busy = true; let expected = epoch, store = store, known = Set(thumbnails.keys)
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }?.frame
         queue.async { [weak self] in
             let result = Result { try store.add(image) }
-            let thumbs = Self.loadThumbnails(store)
+            let thumbs = Self.loadThumbnails(store, skipping: known)
             let items = store.items
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }; self.busy = false
                 guard self.running, self.epoch == expected else { completion(false); return }
                 switch result {
                 case .success(let item):
-                    self.records = items; self.thumbnails = thumbs; self.rebuildPanels()
+                    self.records = items
+                    let available = Set(items.map(\.id))
+                    self.thumbnails = self.thumbnails.filter { available.contains($0.key) }
+                    self.thumbnails.merge(thumbs) { _, new in new }
+                    self.rebuildPanels()
                     self.onStatus?("已收纳 · 鼠标移到屏幕顶部查看")
                     completion(true)
                     self.reveal(item.id, keyboard: true, on: screen)

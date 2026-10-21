@@ -117,10 +117,55 @@ import AppKit
         input.canBegin = { true }
         try require(input.consume(.leftMouseDown, event: event(.leftMouseDown, 410)), "Known Command-drag starts from bounded cache")
         try require(input.consume(.leftMouseDragged, event: event(.leftMouseDragged, 500)) && input.consume(.leftMouseUp, event: event(.leftMouseUp, 500)), "Consumed drag owns its matching mouse-up")
+        try require(begin == 0 && drag == 0 && end == 0, "Window work must not execute inside the event-tap callback")
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
         try require(begin == 1 && drag == 1 && end == 1 && !input.dragging, "Each real gesture completes exactly once")
         let marked = event(.leftMouseDown, 410); marked.setIntegerValueField(.eventSourceUserData, value: MenuBarDrawerInput.eventMark)
         try require(!input.consume(.leftMouseDown, event: marked), "Native reorder replay cannot recursively enter our tap")
         input.stop()
+        input.enabled = true; input.entries = [entry(a, 400)]
+        _ = input.consume(.leftMouseDown, event: event(.leftMouseDown, 410))
+        input.stop(); input.enabled = true
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
+        try require(begin == 1, "Stopping input discards queued UI work even after immediate re-enable")
+        input.stop()
+        var prepared = 0
+        input.enabled = true; input.onPrepare = { prepared += 1 }
+        let flags = CGEvent(source: nil)!; flags.type = .flagsChanged; flags.flags = .maskCommand
+        flags.location = CGPoint(x: screen.frame.midX, y: 1)
+        _ = input.consume(.flagsChanged, event: flags)
+        try require(prepared == 0, "Preparation cannot execute within a flags callback")
+        input.stop(); input.enabled = true
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
+        try require(prepared == 0, "Stopping discards pending metadata preparation even after re-enable")
+        input.entries = [entry(a, 400)]
+        _ = input.consume(.leftMouseDown, event: event(.leftMouseDown, 410))
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
+        let beforeBurst = drag
+        for x in 420..<520 { _ = input.consume(.leftMouseDragged, event: event(.leftMouseDragged, CGFloat(x))) }
+        try require(drag == beforeBurst, "A burst of mouse events cannot perform inline UI work")
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
+        try require(drag == beforeBurst + 1, "Queued drag work coalesces to the latest pointer position")
+        _ = input.consume(.leftMouseUp, event: event(.leftMouseUp, 520))
+        let beforeEnvironment = end
+        input.cancelPendingGesture()
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
+        try require(end == beforeEnvironment && input.enabled && !input.dragging, "Environment changes discard queued drops without disabling native input")
+        input.stop()
+        var stillCurrent = true, replayed: [CGEventType] = [], replayFinished = false
+        MenuBarDrawerInput.move(from: .zero, to: CGPoint(x: 20, y: 0), isCurrent: { stillCurrent }, send: { type, _ in replayed.append(type); if type == .leftMouseDown { stillCurrent = false } }) { replayFinished = true }
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.10))
+        try require(replayed == [.leftMouseDown, .leftMouseUp] && replayFinished, "Cancelled replay releases its own mouse down but never posts a new drag")
+        let offlineDefaults = UserDefaults(suiteName: suite + ".offline")!
+        defer { offlineDefaults.removePersistentDomain(forName: suite + ".offline") }
+        offlineDefaults.set([a, b], forKey: "menuBarShelf.drawerBundles.v1")
+        let offline = MenuBarDrawer(defaults: offlineDefaults, visibility: bridge)
+        offline.permissionOverride = true; offline.testSkipInput = true; offline.testNoPresentation = true
+        offline.readOverride = { _, done in done([]) }
+        let callsBeforeOffline = bridge.calls.count
+        offline.start(); offline.restore(a)
+        try require(offline.order == [b] && !offline.hidden && !offline.busy && bridge.calls.count == callsBeforeOffline, "An unreadable remaining app cannot prevent removing a saved drawer member")
+        offline.stop()
         // Existing native UI is rendered using fixture app identities, not the
         // user's live inventory or preferences. Wide and narrow bounds are checked.
         let module = MenuBarShelfModule(defaults: defaults, visibility: bridge, native: true)
@@ -129,6 +174,17 @@ import AppKit
         try require(owned?.active == true, "Native module owns exactly one apple drawer")
         module.stop()
         try require(owned?.active == false && module.drawer == nil, "Module disable releases the drawer and its event resources")
+        for _ in 0..<20 {
+            weak var releasedOwner: MenuBarDrawer?
+            weak var releasedView: MenuBarDrawerView?
+            autoreleasepool {
+                let owner = MenuBarDrawer(defaults: delayedDefaults, visibility: bridge)
+                releasedOwner = owner; releasedView = owner.view
+                owner.permissionOverride = false; owner.testSkipInput = true; owner.testNoPresentation = true
+                owner.start(); owner.view.items = [.init(bundle: a, name: "Finder", icon: nil)]; owner.stop()
+            }
+            try require(releasedOwner == nil && releasedView == nil, "Repeated enable/disable must release drawer, accessibility children and view")
+        }
         let view = module.makeDashboard()
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 840, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = view
