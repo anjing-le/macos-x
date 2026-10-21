@@ -10,6 +10,7 @@ final class CaptureShelfStore: @unchecked Sendable {
         let width: Int
         let height: Int
         let bytes: Int
+        var positions: [String:Double]? = nil
     }
     static let limit = 40
     static let byteLimit = 128_000_000
@@ -28,11 +29,15 @@ final class CaptureShelfStore: @unchecked Sendable {
         removed = nil
         guard FileManager.default.fileExists(atPath: manifest.path) else { return [] }
         let size = try manifest.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-        guard size <= 32_768 else { throw Failure.message("收纳目录索引过大，未加载。") }
+        guard size <= 131_072 else { throw Failure.message("收纳目录索引过大，未加载。") }
         let decoded = try JSONDecoder().decode([Item].self, from: Data(contentsOf: manifest))
         guard decoded.count <= Self.limit, Set(decoded.map(\.id)).count == decoded.count,
               decoded.allSatisfy({ $0.bytes > 0 && $0.bytes <= 32_000_000 && $0.width > 0 && $0.height > 0 && $0.width <= 32_768 && $0.height <= 32_768 && Int64($0.width) * Int64($0.height) <= 16_000_000 }),
-              decoded.reduce(0, { $0 + $1.bytes }) <= Self.byteLimit else { throw Failure.message("收纳索引无效，未加载。") }
+              decoded.reduce(0, { $0 + $1.bytes }) <= Self.byteLimit,
+              decoded.allSatisfy({ item in
+                  guard let positions=item.positions else { return true }
+                  return positions.count <= 16 && positions.allSatisfy { !$0.key.isEmpty && $0.key.utf8.count <= 128 && $0.value.isFinite && (0...1).contains($0.value) }
+              }) else { throw Failure.message("收纳索引无效，未加载。") }
         let valid = decoded.filter { item in
             (try? file(item.id).resourceValues(forKeys: [.fileSizeKey]).fileSize) == item.bytes
         }
@@ -77,6 +82,26 @@ final class CaptureShelfStore: @unchecked Sendable {
         guard let old = items.firstIndex(where: { $0.id == id }) else { return }
         var next = items; let item = next.remove(at: old)
         next.insert(item, at: max(0, min(index, next.count))); try write(next)
+    }
+    /// A drag commits its final order and display-relative positions together.
+    /// Intermediate mouse events never write files or decode images.
+    func arrange(on display: String, order: [UUID], positions: [UUID:Double]) throws {
+        guard !display.isEmpty, display.utf8.count <= 128,
+              order.count == items.count, Set(order).count == order.count, Set(order) == Set(items.map(\.id)),
+              Set(positions.keys).isSubset(of:Set(order)), positions.values.allSatisfy({ $0.isFinite && (0...1).contains($0) }) else {
+            throw Failure.message("收纳位置无效，原位置已保留。")
+        }
+        let indexed=Dictionary(uniqueKeysWithValues:items.map { ($0.id,$0) })
+        let next=try order.map { id -> Item in
+            var item=indexed[id]!
+            if let position=positions[id] {
+                var saved=item.positions ?? [:]; saved[display]=position
+                guard saved.count <= 16 else { throw Failure.message("已保存的显示器位置过多，原位置已保留。") }
+                item.positions=saved
+            }
+            return item
+        }
+        try write(next)
     }
     func remove(_ id: UUID) throws {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }

@@ -34,6 +34,11 @@ enum CaptureEditor {
             RunLoop.current.run(until:Date().addingTimeInterval(0.01))
         }
     }
+    @MainActor static func waitForReflow(_ view:ShelfView) {
+        let deadline=Date().addingTimeInterval(0.6)
+        while view.hasReflowAnimation && Date() < deadline { RunLoop.current.run(until:Date().addingTimeInterval(0.01)) }
+        precondition(!view.hasReflowAnimation,"Real neighbour movement finishes and removes its animation timer")
+    }
     @MainActor static func motionPreview(_ panel:ShelfPanel, name:String) throws {
         guard let path=ProcessInfo.processInfo.environment["MACOSX_SHELF_PREVIEW"], let rail=panel.railView else { return }
         let width=panel.screenFrame.width, height:CGFloat=220
@@ -76,6 +81,34 @@ enum CaptureEditor {
         precondition(broken.items.isEmpty)
         let fixture = [first,second,third]
         let thumbs = Dictionary(uniqueKeysWithValues: fixture.map { item in (item.id,NSImage(cgImage: image(item.width,item.height,color: item.id == second.id ? .systemOrange : .systemBlue,title: item.id == first.id ? "设计草稿" : "参考图片"),size: .zero)) })
+        let legacy=try JSONDecoder().decode(CaptureShelfStore.Item.self,from:Data("{\"id\":\"\(first.id.uuidString)\",\"width\":360,\"height\":240,\"bytes\":1}".utf8))
+        precondition(legacy.positions == nil,"Existing image indexes require no destructive migration")
+        let layoutStore=CaptureShelfStore(directory:directory.appendingPathComponent("positions"))
+        let positioned=try (0..<3).map { _ in try layoutStore.add(image(10,10)) }
+        let savedOrder=positioned.map(\.id)
+        let desired=Dictionary(uniqueKeysWithValues:zip(savedOrder,[0.08,0.5,0.92]))
+        try layoutStore.arrange(on:"display-a",order:savedOrder,positions:desired)
+        let layoutRestart=CaptureShelfStore(directory:layoutStore.directory)
+        let restored=try layoutRestart.load()
+        precondition(restored.map(\.id) == savedOrder && restored.allSatisfy { $0.positions?["display-a"] == desired[$0.id] },"Free positions and order survive restart")
+        try layoutStore.arrange(on:"display-b",order:savedOrder,positions:[savedOrder[0]:0.25])
+        precondition(layoutStore.items[0].positions?["display-a"] == 0.08 && layoutStore.items[0].positions?["display-b"] == 0.25,"Each display keeps its own positions")
+        let beforeInvalid=layoutStore.items
+        do { try layoutStore.arrange(on:"display-a",order:savedOrder,positions:[savedOrder[0]:.nan]); preconditionFailure("Invalid position must fail") } catch {}
+        do { try layoutStore.arrange(on:"display-a",order:[savedOrder[0],savedOrder[0],savedOrder[1]],positions:[:]); preconditionFailure("Duplicate order must fail") } catch {}
+        precondition(layoutStore.items == beforeInvalid,"Invalid layout cannot alter saved data")
+        let originalIndex=layoutStore.directory.appendingPathComponent("items.json")
+        let indexBytes=try Data(contentsOf:originalIndex)
+        try FileManager.default.removeItem(at:originalIndex)
+        try FileManager.default.createDirectory(at:originalIndex,withIntermediateDirectories:false)
+        do { try layoutStore.arrange(on:"display-a",order:savedOrder.reversed(),positions:[savedOrder[0]:0.75]); preconditionFailure("Blocked manifest must fail atomically") } catch {}
+        precondition(layoutStore.items == beforeInvalid,"Failed disk write leaves order and all positions unchanged")
+        try FileManager.default.removeItem(at:originalIndex); try indexBytes.write(to:originalIndex,options:.atomic)
+        var geometry=CaptureShelfLayout(items:restored,display:"display-a",width:1512,cardWidth:132)
+        let source=geometry.order[0], neighbour=geometry.order[1], oldSlot=geometry.centers[source]!
+        precondition(geometry.drag(source,to:0.55) && geometry.order[1] == source && geometry.centers[neighbour] == oldSlot,"Crossed neighbours occupy the old slot during the drag")
+        geometry.drop(source,at:0.97)
+        precondition(geometry.centers[source]! > 0.9,"Drop position is independent of the center cluster or grid")
         guard let screen = NSScreen.screens.first else { preconditionFailure("Native display required") }
         let panel = ShelfPanel(screen: screen,records: fixture,thumbnails: thumbs,presenting: false)
         defer { panel.dispose() }
@@ -189,7 +222,11 @@ enum CaptureEditor {
             precondition(hypot(before.x-after.x,before.y-after.y)<0.01,"Grabbing an already-swinging rope preserves its current shape")
         }
         panel.collapse(); panel.expand()
-        var actions = [ShelfView.Action](); view.onAction = { actions.append($0) }
+        var actions = [ShelfView.Action](); view.onAction = {
+            actions.append($0)
+            // Mock the async index acknowledgement; persistence is tested separately.
+            if case .place = $0 { view.completeLayoutCommit() }
+        }
         let center = CGPoint(x: view.cardRect(0).midX,y: view.cardRect(0).midY)
         view.mouseDown(with: event(.leftMouseDown,center,view: view)); view.mouseUp(with: event(.leftMouseUp,center,view: view))
         guard case .preview(let clicked) = actions.last else { preconditionFailure("Whole card selects and previews without leaving keyboard interaction") }; precondition(clicked == first.id && view.selected == first.id)
@@ -199,20 +236,29 @@ enum CaptureEditor {
         view.mouseDown(with: event(.leftMouseDown,center,view: view))
         let target = CGPoint(x: view.cardRect(1).midX,y: center.y)
         view.mouseDragged(with: event(.leftMouseDragged,target,view: view))
+        precondition(actions.isEmpty && view.records[1].id == first.id,"Order changes before mouse-up, without a placeholder or disk commit")
+        precondition(view.hasReflowAnimation,"Crossing a neighbour starts its visible movement")
+        waitForReflow(view)
+        let shifted=view.cardRect(0)
+        precondition(abs(shifted.midX-center.x)<30,"The crossed neighbour visibly takes the vacated position")
         precondition(panel.ropePull != nil && !panel.hasRopeAnimation,"Real dragging tugs the rope without starting a timer")
         try motionPreview(panel,name:"rope-drag")
         view.mouseExited(with: event(.mouseExited,target,view: view)); view.mouseUp(with: event(.leftMouseUp,target,view: view))
-        guard case .move(let moved, 1) = actions.last else { preconditionFailure("Horizontal drag reorders, despite tracking exit") }; precondition(moved == first.id)
+        guard case .place(let moved,_,let order,let positions) = actions.last else { preconditionFailure("Horizontal drag commits position and order together") }
+        precondition(moved == first.id && order[1] == first.id && positions[first.id] != nil)
         panel.advanceRope(at:ProcessInfo.processInfo.systemUptime+ShelfRope.Pull.duration+1)
         actions.removeAll()
-        view.mouseDown(with: event(.leftMouseDown,center,view: view))
-        let below = CGPoint(x: center.x,y: 245)
+        view.finishReflow()
+        let movedRect=view.cardRect(view.records.firstIndex { $0.id == first.id }!)
+        let movedCenter=CGPoint(x:movedRect.midX,y:movedRect.midY)
+        view.mouseDown(with: event(.leftMouseDown,movedCenter,view: view))
+        let below = CGPoint(x:movedCenter.x,y:245)
         view.mouseDragged(with: event(.leftMouseDragged,below,view: view)); view.mouseUp(with: event(.leftMouseUp,below,view: view))
         guard case .pin(let pulled, .some) = actions.last else { preconditionFailure("Downward drag creates positioned pin") }; precondition(pulled == first.id)
         panel.advanceRope(at:ProcessInfo.processInfo.systemUptime+ShelfRope.Pull.duration+1)
         view.keyDown(with: event(.keyDown,.zero,view: view,key: 8,flags: .command))
         guard case .copy = actions.last else { preconditionFailure("Keyboard copy routes original image") }
-        view.mouseMoved(with: event(.mouseMoved,CGPoint(x: view.cardRect(1).midX,y: center.y),view: view))
+        view.mouseMoved(with:event(.mouseMoved,CGPoint(x:view.cardRect(0).midX,y:view.cardRect(0).midY),view:view))
         guard case .preview = actions.last else { preconditionFailure("Hover requests a bounded preview") }
         precondition((view.accessibilityChildren()?.count ?? 0) >= fixture.count)
         view.mouseExited(with: event(.mouseExited,CGPoint(x: 50,y: 500),view: view))
@@ -254,7 +300,7 @@ enum CaptureEditor {
         let enter = NSEvent.enterExitEvent(with: .mouseEntered,location: .zero,modifierFlags: [],timestamp: 0,windowNumber: lineView.window!.windowNumber,context: nil,eventNumber: 0,trackingNumber: 0,userData: nil)!
         lineView.mouseEntered(with: enter)
         for _ in 0..<100 { if panel.expanded { break }; try await Task.sleep(nanoseconds: 10_000_000) }
-        precondition(panel.expanded && panel.frame.width < panel.railFrame.width && !panel.isVisible, "Full-width line hover opens a detail window sized to its occupied slots")
+        precondition(panel.expanded && panel.frame.width == panel.railFrame.width && !panel.isVisible, "Full-width line hover opens the entire display span for free placement")
         panel.collapse()
         lineView.mouseEntered(with: enter)
         lineView.mouseExited(with: enter)
@@ -274,6 +320,61 @@ enum CaptureEditor {
         try await Task.sleep(nanoseconds: 240_000_000)
         precondition(!panel.expanded, "Escape does not reopen underneath a stationary pointer on the trigger")
         panel.triggerExited()
+        let freePanel=ShelfPanel(screen:screen,records:fixture,thumbnails:thumbs,presenting:false)
+        defer { freePanel.dispose() }
+        freePanel.expand()
+        precondition(freePanel.frame.minX == screen.frame.minX && freePanel.frame.width == screen.frame.width,"The picture interaction window spans the entire current display")
+        let free=freePanel.shelfView
+        var savedLayoutItems:[CaptureShelfStore.Item]=fixture
+        var placementSucceeds=true
+        free.onAction = { action in
+            if case .place(_,let display,let order,let positions)=action {
+                let indexed=Dictionary(uniqueKeysWithValues:savedLayoutItems.map { ($0.id,$0) })
+                if placementSucceeds {
+                    savedLayoutItems=order.map { id in var item=indexed[id]!; var p=item.positions ?? [:]; p[display]=positions[id]; item.positions=p; return item }
+                }
+                free.applySavedItems(savedLayoutItems,preserveLayout:placementSucceeds)
+            }
+        }
+        let freeStart=free.cardRect(free.records.firstIndex { $0.id == first.id }!)
+        let startPoint=CGPoint(x:freeStart.midX,y:freeStart.midY)
+        let farRight=CGPoint(x:free.bounds.width-85,y:startPoint.y)
+        free.mouseDown(with:event(.leftMouseDown,startPoint,view:free))
+        free.mouseDragged(with:event(.leftMouseDragged,farRight,view:free))
+        free.mouseUp(with:event(.leftMouseUp,farRight,view:free))
+        free.finishReflow(); freePanel.advanceRope(at:ProcessInfo.processInfo.systemUptime+ShelfRope.Pull.duration+1)
+        let landed=free.cardRect(free.records.firstIndex { $0.id == first.id }!)
+        precondition(abs(landed.midX-farRight.x)<1,"Dropping at the screen edge does not snap back into the old center cluster")
+        try motionPreview(freePanel,name:"shelf-free-right")
+        let restoredPanel=ShelfPanel(screen:screen,records:savedLayoutItems,thumbnails:thumbs,presenting:false)
+        restoredPanel.expand()
+        let restoredView=restoredPanel.shelfView
+        let restoredRect=restoredView.cardRect(restoredView.records.firstIndex { $0.id == first.id }!)
+        precondition(abs(restoredRect.midX-farRight.x)<1,"A recreated native shelf restores its display-relative coordinate")
+        restoredPanel.dispose()
+        let beforeCancel=free.records.map(\.id), previousX=landed.midX
+        let left=CGPoint(x:85,y:landed.midY)
+        free.mouseDown(with:event(.leftMouseDown,CGPoint(x:landed.midX,y:landed.midY),view:free))
+        free.mouseDragged(with:event(.leftMouseDragged,left,view:free))
+        try motionPreview(freePanel,name:"shelf-live-swap")
+        freePanel.collapse(); freePanel.expand()
+        precondition(free.records.map(\.id) == beforeCancel && !free.hasReflowAnimation,"Escape/collapse cancels live swaps and their animation")
+        precondition(abs(free.cardRect(free.records.firstIndex { $0.id == first.id }!).midX-previousX)<1,"Cancellation preserves the committed free position")
+        let committedStart=CGPoint(x:previousX,y:free.cardRect(free.records.firstIndex { $0.id == first.id }!).midY)
+        free.mouseDown(with:event(.leftMouseDown,committedStart,view:free))
+        free.mouseDragged(with:event(.leftMouseDragged,left,view:free))
+        free.mouseUp(with:event(.leftMouseUp,left,view:free))
+        free.finishReflow(); freePanel.advanceRope(at:ProcessInfo.processInfo.systemUptime+ShelfRope.Pull.duration+1)
+        precondition(abs(free.cardRect(free.records.firstIndex { $0.id == first.id }!).midX-85)<1,"The left edge is also a free drop location")
+        try motionPreview(freePanel,name:"shelf-free-left")
+        placementSucceeds=false
+        let failedStart=free.cardRect(free.records.firstIndex { $0.id == first.id }!)
+        let failedTarget=CGPoint(x:free.bounds.midX,y:failedStart.midY)
+        free.mouseDown(with:event(.leftMouseDown,CGPoint(x:failedStart.midX,y:failedStart.midY),view:free))
+        free.mouseDragged(with:event(.leftMouseDragged,failedTarget,view:free))
+        free.mouseUp(with:event(.leftMouseUp,failedTarget,view:free))
+        freePanel.advanceRope(at:ProcessInfo.processInfo.systemUptime+ShelfRope.Pull.duration+1)
+        precondition(abs(free.cardRect(free.records.firstIndex { $0.id == first.id }!).midX-85)<1,"Failed save restores the last acknowledged coordinate")
         let many = (0..<12).map { _ in CaptureShelfStore.Item(id: UUID(),width: 360,height: 240,bytes: 1) }
         let wide = ShelfView(records: many,thumbnails: [:])
         let wideWindow = NSPanel(contentRect: CGRect(x: 0,y: 0,width: 1512,height: ShelfRope.detailHeight),styleMask: [.borderless],backing: .buffered,defer: false)
@@ -306,6 +407,6 @@ enum CaptureEditor {
         host.start()
         for _ in 0..<100 { if host.canAdd { break }; try await Task.sleep(nanoseconds: 10_000_000) }
         precondition(host.canAdd); host.stop()
-        print("PASS shelf: original PNG persistence/restart, ordering, delete/undo, bounds, failed save, native hover/whole-card/drag/keyboard, fixed-end rope tug, full-screen multimode wave, short attachments and pivot swing, bounded rebound/reduced motion, hidden trigger and stop/restart; no shown windows, clipboard writes or installed preferences")
+        print("PASS shelf: original PNG persistence/restart, ordering, delete/undo, bounds, failed save, native hover/whole-card/drag/keyboard, fixed-end rope tug, full-screen free placement, live neighbour movement, per-display position persistence and rollback, full-screen multimode wave, short attachments and pivot swing, bounded rebound/reduced motion, hidden trigger and stop/restart; no shown windows, clipboard writes or installed preferences")
     }
 }

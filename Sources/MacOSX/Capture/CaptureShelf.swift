@@ -99,6 +99,7 @@ import AppKit
         guard running, !suspended, !records.isEmpty else { return }
         for screen in NSScreen.screens {
             let panel = ShelfPanel(screen: screen, records: records, thumbnails: thumbnails, presenting: presenting)
+            panel.shelfView.canEdit = { [weak self] in self?.running == true && self?.busy == false }
             panel.shelfView.onAction = { [weak self, weak panel] action in
                 guard let self, let panel else { return }; self.act(action, panel: panel)
             }
@@ -122,7 +123,10 @@ import AppKit
         else { panel?.scheduleCollapse(after: 1.5) }
     }
     private func act(_ action: ShelfView.Action, panel: ShelfPanel) {
-        guard running, !busy else { return }
+        guard running, !busy else {
+            if case .place = action { panel.shelfView.completeLayoutCommit() }
+            return
+        }
         switch action {
         case .preview(let id):
             previewRequest = (id, panel); loadPreview()
@@ -151,9 +155,31 @@ import AppKit
                     }
                 }
             }
-        case .move(let id, let index): mutate(focusID: id) { try $0.move(id, to: index) }
+        case .place(_, let display, let order, let positions):
+            savePlacement(display:display,order:order,positions:positions,source:panel)
+        case .move(let id, let index): mutate(focusID: id, on:panel.screenFrame) { try $0.move(id, to: index) }
         case .remove(let id): mutate { try $0.remove(id) }
         case .undo: mutate { try $0.undo() }
+        }
+    }
+    private func savePlacement(display:String,order:[UUID],positions:[UUID:Double],source:ShelfPanel) {
+        busy=true; let expected=epoch, store=store
+        queue.async { [weak self,weak source] in
+            let result=Result { try store.arrange(on:display,order:order,positions:positions) }
+            let items=store.items
+            DispatchQueue.main.async { [weak self,weak source] in
+                guard let self else { return }; self.busy=false
+                guard self.running, self.epoch == expected else { return }
+                let success:Bool
+                switch result {
+                case .success: success=true
+                case .failure(let error): success=false; self.onStatus?(error.localizedDescription)
+                }
+                self.records=items
+                for panel in self.panels {
+                    panel.shelfView.applySavedItems(items,preserveLayout:success && panel === source)
+                }
+            }
         }
     }
     private func loadPreview() {
@@ -173,10 +199,10 @@ import AppKit
             }
         }
     }
-    private func mutate(focusID: UUID? = nil, _ action: @escaping (CaptureShelfStore) throws -> Void) {
+    private func mutate(focusID: UUID? = nil, on sourceScreen: CGRect? = nil, _ action: @escaping (CaptureShelfStore) throws -> Void) {
         busy = true; let expected = epoch, store = store
         let active = panels.first { $0.keyboardSession }
-        let keyboard = active != nil, screen = active?.screenFrame, selected = focusID ?? active?.shelfView.selected
+        let keyboard = active != nil, screen = sourceScreen ?? active?.screenFrame, selected = focusID ?? active?.shelfView.selected
         let rebounds = panels.compactMap { panel in panel.ropePull.map { (panel.screenFrame,$0) } }
         queue.async { [weak self] in
             let error: Error?; do { try action(store); error = nil } catch let caught { error = caught }
@@ -184,7 +210,7 @@ import AppKit
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }; self.busy = false
                 guard self.running, self.epoch == expected else { return }
-                if let error { self.onStatus?(error.localizedDescription); return }
+                if let error { self.onStatus?(error.localizedDescription) }
                 self.records = items; self.thumbnails = thumbs; self.rebuildPanels()
                 if let first = items.first {
                     let id = selected.flatMap { id in items.contains(where: { $0.id == id }) ? id : nil } ?? first.id
@@ -314,12 +340,16 @@ enum ShelfRope {
     init(screen: NSScreen, records: [CaptureShelfStore.Item], thumbnails: [UUID: NSImage], presenting: Bool = true) {
         self.presenting = presenting
         screenFrame = screen.frame
-        detailCenterX = screen.visibleFrame.midX
+        detailCenterX = screen.frame.midX
         top = min(screen.visibleFrame.maxY, screen.frame.maxY - screen.safeAreaInsets.top)
-        railWidth = min(max(160,screen.visibleFrame.width-32),max(220,CGFloat(records.count)*144+28))
+        railWidth = screen.frame.width
         shelfView = ShelfView(records: records, thumbnails: thumbnails)
         shelfView.ropeWidth = screen.frame.width
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        if let id=screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32,
+           let uuid=CGDisplayCreateUUIDFromDisplayID(id)?.takeRetainedValue() {
+            shelfView.displayKey=CFUUIDCreateString(nil,uuid) as String
+        }
         title = "截图晾衣杆"; isReleasedWhenClosed = false; contentView = shelfView
         backgroundColor = .clear; isOpaque = false; hasShadow = false; hidesOnDeactivate = false
         level = .floating; collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
@@ -345,6 +375,7 @@ enum ShelfRope {
         shelfView.ropeOriginX = detailCenterX-railWidth/2-screenFrame.minX
         railPanel?.setFrame(CGRect(x: screenFrame.minX,y: top-ShelfRope.height,width: screenFrame.width,height: ShelfRope.height),display: true)
         setFrame(CGRect(x: detailCenterX-railWidth/2, y: top-height, width: railWidth, height: height), display: true)
+        shelfView.prepareLayout()
         shelfView.needsDisplay = true; if presenting { orderFrontRegardless() }
     }
     func collapse() {
@@ -535,10 +566,19 @@ enum ShelfRope {
 }
 
 @MainActor final class ShelfView: NSView {
-    enum Action { case preview(UUID), pin(UUID, CGPoint?), copy(UUID), move(UUID, Int), remove(UUID), undo }
-    let records: [CaptureShelfStore.Item]
+    enum Action { case preview(UUID), pin(UUID, CGPoint?), copy(UUID), move(UUID, Int), place(UUID,String,[UUID],[UUID:Double]), remove(UUID), undo }
+    private(set) var records: [CaptureShelfStore.Item]
     let thumbnails: [UUID: NSImage]
     var onAction: ((Action) -> Void)?
+    var canEdit: () -> Bool = { true }
+    var displayKey = "default"
+    private var layout: CaptureShelfLayout?
+    private var dragBaseline: (records:[CaptureShelfStore.Item],layout:CaptureShelfLayout)?
+    private var layoutCommitting = false
+    private var reflowFrom: [UUID:Double] = [:]
+    private var reflowStart: Double = 0
+    private var reflowTimer: Timer?
+    var hasReflowAnimation: Bool { reflowTimer != nil }
     var expanded = false
     var notice: String?
     var selected: UUID?
@@ -554,10 +594,8 @@ enum ShelfRope {
     private var offset = 0
     private var dragging: (id: UUID, start: CGPoint)?
     private var moved = false
-    private var insertion: Int?
     private var dragPoint: CGPoint?
     private var grab: (point: CGPoint, anchor: CGFloat)?
-    private var lastDragPageAt = -Double.infinity
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -571,6 +609,7 @@ enum ShelfRope {
     required init?(coder: NSCoder) { nil }
     override func accessibilityChildren() -> [Any]? {
         guard expanded else { return [] }
+        prepareLayout()
         var children: [Any] = records.indices.filter { $0 >= offset && $0 < offset+capacity }.map { index in
             let item = records[index]
             return ShelfAccessibleItem(view: self, rect: swungBounds(cardRect(index),index:index), title: "贴出图片 \(index+1)，\(item.width) × \(item.height)") { [weak self] in
@@ -585,31 +624,77 @@ enum ShelfRope {
     }
     private var capacity: Int { ShelfRope.capacity(bounds.width) }
     private var cardWidth: CGFloat { min(132, bounds.width-32) }
+    func prepareLayout() {
+        guard layout == nil, bounds.width > 0 else { return }
+        let end=min(records.count,offset+capacity)
+        layout=CaptureShelfLayout(items:Array(records[offset..<end]),display:displayKey,width:bounds.width,cardWidth:cardWidth)
+        applyOrder()
+    }
+    private func applyOrder() {
+        guard let layout else { return }
+        let indexed=Dictionary(uniqueKeysWithValues:records.map { ($0.id,$0) })
+        records.replaceSubrange(offset..<min(records.count,offset+capacity),with:layout.order.compactMap { indexed[$0] })
+    }
+    private func center(_ id:UUID, animated:Bool = true) -> Double {
+        let target=layout?.centers[id] ?? 0.5
+        guard animated, reflowTimer != nil, let from=reflowFrom[id] else { return target }
+        let t=min(1,max(0,(ProcessInfo.processInfo.systemUptime-reflowStart)/0.16))
+        let eased=1-pow(1-t,3)
+        return from+(target-from)*eased
+    }
+    private func startReflow(from:[UUID:Double]) {
+        reflowTimer?.invalidate(); reflowFrom=from; reflowStart=ProcessInfo.processInfo.systemUptime
+        let timer=Timer(timeInterval:1.0/60,target:self,selector:#selector(reflowTick),userInfo:nil,repeats:true)
+        reflowTimer=timer; RunLoop.main.add(timer,forMode:.common)
+        needsDisplay=true
+    }
+    @objc private func reflowTick() {
+        if ProcessInfo.processInfo.systemUptime-reflowStart >= 0.16 { finishReflow() }
+        else { needsDisplay=true }
+    }
+    func finishReflow() { reflowTimer?.invalidate(); reflowTimer=nil; reflowFrom.removeAll(); needsDisplay=true }
+    func completeLayoutCommit() { layoutCommitting=false }
+    func applySavedItems(_ items:[CaptureShelfStore.Item],preserveLayout:Bool) {
+        records=items; layoutCommitting=false; dragBaseline=nil
+        if preserveLayout { applyOrder() }
+        else { finishReflow(); layout=nil; prepareLayout() }
+        needsDisplay=true
+    }
     func cardRect(_ index: Int) -> CGRect {
-        let x = 16+CGFloat(index-offset)*144
-        let point=ropePoint(x+cardWidth/2)
+        prepareLayout()
+        let x=CGFloat(center(records[index].id))*bounds.width
+        let point=ropePoint(x)
         return CGRect(x:point.x-cardWidth/2,y:point.y+12,width:cardWidth,height:100)
     }
     private func ropePoint(_ x:CGFloat) -> CGPoint {
         let point=pose.point(ropeOriginX+x,width:ropeWidth)
         return CGPoint(x:point.x-ropeOriginX,y:point.y)
     }
-    func cancelDrag() { dragging=nil; moved=false; insertion=nil; dragPoint=nil; grab=nil }
+    func cancelDrag() {
+        if let baseline=dragBaseline { records=baseline.records; layout=baseline.layout }
+        dragging=nil; moved=false; dragPoint=nil; grab=nil; dragBaseline=nil
+        finishReflow()
+    }
     private func closeRect(_ index: Int) -> CGRect {
         let card = cardRect(index)
         let picture = thumbnails[records[index].id].map { hangingPicture($0.size,in:card) } ?? card
         return CGRect(x: picture.maxX-16,y: picture.minY-4,width: 20,height: 20)
     }
     func select(_ id: UUID) {
-        selected = id
+        prepareLayout(); selected = id
         if let index = records.firstIndex(where: { $0.id == id }) {
+            let oldOffset=offset
             if index < offset { offset = index }
             if index >= offset+capacity { offset = index-capacity+1 }
+            if offset != oldOffset { finishReflow(); layout=nil; prepareLayout() }
         }
         needsDisplay = true
     }
     private func item(at point: CGPoint) -> Int? {
-        records.indices.first { $0 >= offset && $0 < offset+capacity && cardRect($0).contains(unrotated(point,index:$0)) }
+        prepareLayout()
+        let visible=records.indices.filter { $0 >= offset && $0 < offset+capacity }
+        let front=visible.filter { records[$0].id == selected }+visible.reversed().filter { records[$0].id != selected }
+        return front.first { cardRect($0).contains(unrotated(point,index:$0)) }
     }
     private func hangingPicture(_ size:CGSize,in rect:CGRect) -> CGRect {
         var picture=fit(size,in:rect.insetBy(dx:4,dy:4)); picture.origin.y=rect.minY+4; return picture
@@ -618,7 +703,7 @@ enum ShelfRope {
         let card=cardRect(index); return CGPoint(x:card.midX,y:card.minY+1)
     }
     private func swingAngle(_ index:Int) -> CGFloat {
-        pose.angle(ropeOriginX+16+CGFloat(index-offset)*144+cardWidth/2,width:ropeWidth)
+        pose.angle(ropeOriginX+CGFloat(center(records[index].id))*bounds.width,width:ropeWidth)
     }
     private func unrotated(_ point:CGPoint,index:Int) -> CGPoint {
         ShelfRope.rotate(point,around:hangingPivot(index),angle:-swingAngle(index))
@@ -664,7 +749,7 @@ enum ShelfRope {
         if expanded { addCursorRect(CGRect(x: 12,y: 10,width: bounds.width-24,height: ShelfRope.footerY-12), cursor: .openHand) }
     }
     override func mouseDown(with event: NSEvent) {
-        guard expanded else { return }; if let panel = window as? ShelfPanel { panel.focusForInteraction() }; window?.makeFirstResponder(self)
+        guard expanded, !layoutCommitting, canEdit() else { return }; if let panel = window as? ShelfPanel { panel.focusForInteraction() }; window?.makeFirstResponder(self)
         keyboardPointer = nil
         let point = convert(event.locationInWindow, from: nil)
         if point.y > ShelfRope.footerY && point.y < ShelfRope.footerY+28 {
@@ -674,7 +759,9 @@ enum ShelfRope {
         guard let index = item(at: point) else { return }
         let id = records[index].id; selected = id
         if closeRect(index).contains(unrotated(point,index:index)) { onAction?(.remove(id)); return }
-        grab=(point,ropeOriginX+16+CGFloat(index-offset)*144+cardWidth/2)
+        finishReflow(); prepareLayout()
+        if let layout { dragBaseline=(records,layout) }
+        grab=(point,ropeOriginX+CGFloat(center(id,animated:false))*bounds.width)
         dragging = (id, window?.convertPoint(toScreen: event.locationInWindow) ?? event.locationInWindow); moved = false; needsDisplay = true
     }
     override func mouseDragged(with event: NSEvent) {
@@ -685,34 +772,50 @@ enum ShelfRope {
         let local = convert(event.locationInWindow, from: nil)
         dragPoint = local
         if let grab {
-            (window as? ShelfPanel)?.pullRope(anchorX:min(ropeWidth-12,max(12,grab.anchor+local.x-grab.point.x)),
+            let fraction=layout?.clamped(Double((grab.anchor-ropeOriginX+local.x-grab.point.x)/max(1,bounds.width))) ?? 0.5
+            (window as? ShelfPanel)?.pullRope(anchorX:CGFloat(fraction)*bounds.width+ropeOriginX,
                 offset:CGSize(width:local.x-grab.point.x,height:local.y-grab.point.y))
         }
-        if event.timestamp-lastDragPageAt > 0.25 {
-            if local.x < 16, offset > 0 { offset -= 1; lastDragPageAt = event.timestamp }
-            else if local.x > bounds.width-16, offset+capacity < records.count { offset += 1; lastDragPageAt = event.timestamp }
+        if let grab, var next=layout {
+            let target=Double((grab.anchor-ropeOriginX+local.x-grab.point.x)/max(1,bounds.width))
+            let current=Dictionary(uniqueKeysWithValues:next.order.map { ($0,center($0)) })
+            if next.drag(dragging.id,to:target) {
+                layout=next; applyOrder(); startReflow(from:current)
+            }
         }
-        insertion = max(0,min(records.count-1,offset+Int(max(0,local.x-16)/144)))
         needsDisplay = true
     }
     override func mouseUp(with event: NSEvent) {
-        guard let drag = dragging else { return }; dragging = nil; NSCursor.openHand.set()
-        let point = convert(event.locationInWindow, from: nil)
+        guard let drag=dragging else { return }
+        let point=convert(event.locationInWindow,from:nil)
+        var action:Action?
         if moved {
             (window as? ShelfPanel)?.releaseRope()
-            if point.y > ShelfRope.detailHeight { onAction?(.pin(drag.id,window?.convertPoint(toScreen: event.locationInWindow))) }
-            else if let insertion { onAction?(.move(drag.id,insertion)) }
-        } else if event.clickCount >= 2 { onAction?(.pin(drag.id,nil)) }
-        else { hovered = drag.id; preview = nil; onAction?(.preview(drag.id)) }
-        moved = false; insertion = nil; dragPoint = nil; grab = nil; needsDisplay = true
-        if let panel = window as? ShelfPanel, !panel.frame.contains(NSEvent.mouseLocation) { panel.scheduleCollapse() }
+            if point.y > ShelfRope.detailHeight {
+                let location=window?.convertPoint(toScreen:event.locationInWindow)
+                cancelDrag(); action = .pin(drag.id,location)
+            } else if let grab, var next=layout {
+                next.drop(drag.id,at:Double((grab.anchor-ropeOriginX+point.x-grab.point.x)/max(1,bounds.width)))
+                layout=next; applyOrder(); reflowFrom.removeValue(forKey:drag.id)
+                dragBaseline=nil; layoutCommitting=true
+                action = .place(drag.id,displayKey,records.map(\.id),next.centers)
+            }
+        } else if event.clickCount >= 2 { action = .pin(drag.id,nil) }
+        else { hovered=drag.id; preview=nil; action = .preview(drag.id) }
+        dragging=nil; moved=false; dragPoint=nil; grab=nil; dragBaseline=nil; NSCursor.openHand.set()
+        needsDisplay=true
+        if let action { onAction?(action) }
+        if let panel=window as? ShelfPanel, !panel.frame.contains(NSEvent.mouseLocation) { panel.scheduleCollapse() }
     }
+
     private func scrollItems(_ steps: Int) {
+        finishReflow(); layout=nil
         offset = max(0,min(max(0,records.count-capacity),offset+steps))
+        prepareLayout()
         hovered = nil; preview = nil; needsDisplay = true
     }
     override func scrollWheel(with event: NSEvent) {
-        guard expanded, event.momentumPhase.isEmpty else { return }
+        guard expanded, !layoutCommitting, dragging == nil, event.momentumPhase.isEmpty else { return }
         let delta = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) ? event.scrollingDeltaX : event.scrollingDeltaY
         guard records.count > capacity else { return }
         if event.hasPreciseScrollingDeltas {
@@ -730,13 +833,22 @@ enum ShelfRope {
         let command = event.modifierFlags.contains(.command)
         if event.keyCode == 53 { (window as? ShelfPanel)?.dismissFromKeyboard(); return }
         if command && event.charactersIgnoringModifiers?.lowercased() == "z" { undo(nil); return }
-        guard let selected else { return }
+        guard !layoutCommitting, canEdit(), let selected else { return }
         if command && event.charactersIgnoringModifiers?.lowercased() == "c" { copy(nil); return }
         if event.keyCode == 36 { onAction?(.pin(selected,nil)); return }
         if event.keyCode == 51 || event.keyCode == 117 { onAction?(.remove(selected)); return }
         if event.keyCode == 123 || event.keyCode == 124 {
             let index = max(0,min(records.count-1,(records.firstIndex { $0.id == selected } ?? 0)+(event.keyCode == 124 ? 1 : -1)))
-            if event.modifierFlags.contains(.option) { onAction?(.move(selected,index)); return }
+            if event.modifierFlags.contains(.option) {
+                prepareLayout()
+                let other=records[index].id
+                if var next=layout, next.centers[other] != nil {
+                    let from=Dictionary(uniqueKeysWithValues:next.order.map { ($0,center($0)) })
+                    next.swap(selected,other); layout=next; applyOrder(); startReflow(from:from)
+                    layoutCommitting=true; onAction?(.place(selected,displayKey,records.map(\.id),next.centers))
+                } else { onAction?(.move(selected,index)) }
+                return
+            }
             keyboardPointer = NSEvent.mouseLocation
             select(records[index].id)
             hovered = self.selected; if let hovered { onAction?(.preview(hovered)) }; needsDisplay = true
@@ -748,11 +860,14 @@ enum ShelfRope {
         if let notice {
             pill(notice,in: bounds.insetBy(dx: 1,dy: 1),size: 12); return
         }
+        prepareLayout()
         // Individual pencil frames identify attached images without bringing
         // back a paper container around the whole shelf.
-        for index in records.indices where index >= offset && index < offset+capacity {
+        let visible=records.indices.filter { $0 >= offset && $0 < offset+capacity }
+        let paintOrder=visible.filter { records[$0].id != selected }+visible.filter { records[$0].id == selected }
+        for index in paintOrder {
             let item = records[index], rect = cardRect(index)
-            let anchor=ropePoint(16+CGFloat(index-offset)*144+cardWidth/2)
+            let anchor=ropePoint(CGFloat(center(item.id))*bounds.width)
             if !(moved && dragging?.id == item.id) {
                 if let image = thumbnails[item.id] {
                     withSwing(index) { drawFramedImage(image,in:rect,attachment:CGPoint(x:anchor.x,y:anchor.y+13)) }
@@ -769,14 +884,11 @@ enum ShelfRope {
             }
         }
         if moved, let dragPoint, let dragging, let grab, let image = thumbnails[dragging.id] {
-            let ropeX=min(ropeWidth-12,max(12,grab.anchor+dragPoint.x-grab.point.x))
+            let ropeX=CGFloat(layout?.clamped(Double((grab.anchor-ropeOriginX+dragPoint.x-grab.point.x)/max(1,bounds.width))) ?? 0.5)*bounds.width+ropeOriginX
             let anchor=ropePoint(ropeX-ropeOriginX)
             let ghost=CGRect(x:anchor.x-cardWidth/2,y:anchor.y+12,width:cardWidth,height:100)
             drawFramedImage(image,in:ghost,opacity:0.95,attachment:CGPoint(x:anchor.x,y:anchor.y+13))
             drawClip(at:anchor,selected:true)
-        }
-        if let insertion, moved {
-            SketchPalette.blue.setFill(); CGRect(x: cardRect(insertion).minX-5,y: cardRect(insertion).minY+2,width: 2,height: 96).fill()
         }
         pill("撤销",in: CGRect(x: 16,y: ShelfRope.footerY,width: 52,height: 24),size: 11)
         if bounds.width > 430 { pill("← → 选择 · ⌘C 复制 · Esc 收起",in: CGRect(x: 82,y: ShelfRope.footerY,width: 225,height: 24),size: 11) }
