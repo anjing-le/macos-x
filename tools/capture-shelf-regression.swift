@@ -41,7 +41,7 @@ enum CaptureEditor {
     }
     @MainActor static func motionPreview(_ panel:ShelfPanel, name:String) throws {
         guard let path=ProcessInfo.processInfo.environment["MACOSX_SHELF_PREVIEW"], let rail=panel.railView else { return }
-        let width=panel.screenFrame.width, height:CGFloat=220
+        let width=panel.screenFrame.width, height=max(CGFloat(220),panel.frame.height)
         let stage=NSImage(size:CGSize(width:width,height:height))
         stage.lockFocus()
         NSColor(calibratedWhite:0.93,alpha:1).setFill(); CGRect(x:0,y:0,width:width,height:height).fill()
@@ -276,7 +276,11 @@ enum CaptureEditor {
         let borderX = Int(borderPoint.x*CGFloat(bitmap.pixelsWide)/view.bounds.width)
         let borderY = Int(borderPoint.y*CGFloat(bitmap.pixelsHigh)/view.bounds.height)
         let borderColor = bitmap.colorAt(x: borderX,y: borderY)!.usingColorSpace(.deviceRGB)!
-        precondition(borderColor.alphaComponent > 0.25 && borderColor.redComponent < 0.6, "Individual images have a visible dark pencil frame")
+        let selectedBorder=view.selected == view.records[0].id
+        let expectedBorder = selectedBorder
+            ? borderColor.blueComponent > borderColor.redComponent+0.08 && borderColor.blueComponent > borderColor.greenComponent+0.025
+            : borderColor.redComponent < 0.6
+        precondition(borderColor.alphaComponent > 0.25 && expectedBorder, "The real photo frame is blue when selected and pencil gray otherwise")
         if let path = ProcessInfo.processInfo.environment["MACOSX_SHELF_PREVIEW"] {
             try bitmap.representation(using: .png,properties: [:])!.write(to: URL(fileURLWithPath: path))
             let stage = NSImage(size: CGSize(width: 1280,height: 230))
@@ -362,8 +366,14 @@ enum CaptureEditor {
         try await Task.sleep(nanoseconds:60_000_000)
         precondition(idlePanel.expanded && idlePanel.keyboardSession, "Starting keyboard selection cancels an already pending pointer deadline")
         idlePanel.dismissFromKeyboard()
+        precondition(ShelfRope.panelHeight(available:900,preview:true) > 420, "Large screens give the image more height than the former 420-point panel")
+        precondition(ShelfRope.panelHeight(available:500,preview:true) == 500 && ShelfRope.panelHeight(available:900,preview:false) == ShelfRope.detailHeight,
+                     "Preview fits a short display without enlarging the idle photo shelf")
         idlePanel.expand(preview:true); idlePanel.focusForInteraction()
+        precondition(idlePanel.frame.maxY <= screen.visibleFrame.maxY && idlePanel.frame.minY >= screen.visibleFrame.minY+16,
+                     "Expanded preview stays between the menu bar and Dock with bottom breathing room")
         idlePanel.shelfView.hovered=fixture[0].id; idlePanel.shelfView.preview=thumbs[fixture[0].id]
+        try motionPreview(idlePanel,name:"shelf-preview-first")
         let boundaries=[CGPoint(x:idlePanel.railFrame.midX,y:idlePanel.railFrame.midY),
                         idlePanel.convertPoint(toScreen:CGPoint(x:idlePanel.frame.width/2,y:idlePanel.frame.height-110)),
                         CGPoint(x:idlePanel.frame.midX,y:idlePanel.frame.minY+60)]
@@ -378,6 +388,9 @@ enum CaptureEditor {
                          "Stale tracking exits between overlapping rope/detail/preview windows cannot clear selection or dismiss")
             precondition(idlePanel.firstResponder === idlePanel.shelfView, "Area transitions retain the native selection responder")
         }
+        idlePanel.shelfView.keyDown(with:event(.keyDown,.zero,view:idlePanel.shelfView,key:124))
+        idlePanel.shelfView.preview=idlePanel.shelfView.selected.flatMap { thumbs[$0] }
+        try motionPreview(idlePanel,name:"shelf-preview-next")
         idlePanel.shelfView.select(fixture[2].id); idlePanel.collapse(); idlePanel.expand()
         precondition(idlePanel.shelfView.selected == idlePanel.shelfView.records.first?.id, "A fresh open defaults to the first visible picture")
         idlePanel.collapse()

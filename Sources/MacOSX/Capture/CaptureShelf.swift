@@ -187,7 +187,7 @@ import AppKit
         previewRequest = nil; previewBusy = true
         let expected = epoch, store = store
         queue.async { [weak self, weak panel] in
-            let image = store.image(id, maximum: 1200)
+            let image = store.image(id, maximum: 2400)
             DispatchQueue.main.async { [weak self, weak panel] in
                 guard let self else { return }; self.previewBusy = false
                 if self.running, self.epoch == expected, let panel, panel.expanded,
@@ -229,6 +229,9 @@ enum ShelfRope {
     static let height: CGFloat = 80
     static let footerY: CGFloat = 188
     static let detailHeight: CGFloat = 220
+    static func panelHeight(available: CGFloat, preview: Bool) -> CGFloat {
+        min(preview ? 740 : detailHeight, max(detailHeight, available))
+    }
     static func y(_ x: CGFloat, width: CGFloat) -> CGFloat {
         let t = min(1,max(0,x/max(1,width)))
         return 3 + 56*t*(1-t)
@@ -319,7 +322,7 @@ enum ShelfRope {
 @MainActor final class ShelfPanel: NSPanel {
     let shelfView: ShelfView
     let screenFrame: CGRect
-    private let top: CGFloat, railWidth: CGFloat, detailCenterX: CGFloat
+    private let top: CGFloat, railWidth: CGFloat, detailCenterX: CGFloat, availableHeight: CGFloat
     private var work: DispatchWorkItem?
     nonisolated static let idleCollapseDelay: Double = 3
     var pointerLocation: () -> CGPoint = { NSEvent.mouseLocation }
@@ -346,6 +349,7 @@ enum ShelfRope {
         screenFrame = screen.frame
         detailCenterX = screen.frame.midX
         top = min(screen.visibleFrame.maxY, screen.frame.maxY - screen.safeAreaInsets.top)
+        availableHeight = max(ShelfRope.detailHeight, top-screen.visibleFrame.minY-16)
         railWidth = screen.frame.width
         shelfView = ShelfView(records: records, thumbnails: thumbnails)
         shelfView.ropeWidth = screen.frame.width
@@ -376,7 +380,7 @@ enum ShelfRope {
         work?.cancel(); work = nil; expanded = true
         (railPanel?.contentView as? ShelfRailView)?.showsRope = true
         shelfView.expanded = true
-        let height = min(preview ? 420.0 : ShelfRope.detailHeight, max(ShelfRope.detailHeight, screenFrame.height - 80))
+        let height = ShelfRope.panelHeight(available: availableHeight, preview: preview)
         shelfView.ropeOriginX = detailCenterX-railWidth/2-screenFrame.minX
         railPanel?.setFrame(CGRect(x: screenFrame.minX,y: top-ShelfRope.height,width: screenFrame.width,height: ShelfRope.height),display: true)
         setFrame(CGRect(x: detailCenterX-railWidth/2, y: top-height, width: railWidth, height: height), display: true)
@@ -946,7 +950,7 @@ enum ShelfRope {
             let anchor=ropePoint(CGFloat(center(item.id))*bounds.width)
             if !(moved && dragging?.id == item.id) {
                 if let image = thumbnails[item.id] {
-                    withSwing(index) { drawFramedImage(image,in:rect,attachment:CGPoint(x:anchor.x,y:anchor.y+13)) }
+                    withSwing(index) { drawFramedImage(image,in:rect,attachment:CGPoint(x:anchor.x,y:anchor.y+13),selected:selected == item.id) }
                 }
                 drawClip(at:anchor,selected:selected == item.id)
             }
@@ -963,7 +967,7 @@ enum ShelfRope {
             let ropeX=CGFloat(layout?.clamped(Double((grab.anchor-ropeOriginX+dragPoint.x-grab.point.x)/max(1,bounds.width))) ?? 0.5)*bounds.width+ropeOriginX
             let anchor=ropePoint(ropeX-ropeOriginX)
             let ghost=CGRect(x:anchor.x-cardWidth/2,y:anchor.y+12,width:cardWidth,height:100)
-            drawFramedImage(image,in:ghost,opacity:0.95,attachment:CGPoint(x:anchor.x,y:anchor.y+13))
+            drawFramedImage(image,in:ghost,opacity:0.95,attachment:CGPoint(x:anchor.x,y:anchor.y+13),selected:true)
             drawClip(at:anchor,selected:true)
         }
         if records.isEmpty { pill("没有图片 · ⌘Z 撤销删除",in: CGRect(x: max(16,bounds.midX-110),y: 78,width: min(220,bounds.width-32),height: 28),size: 13) }
@@ -974,26 +978,26 @@ enum ShelfRope {
         } else { pill("\(records.count) 张",in: CGRect(x: bounds.width-63,y: ShelfRope.footerY,width: 47,height: 24),size: 11) }
         if let preview, bounds.height > ShelfRope.detailHeight {
             let area = CGRect(x:16,y:ShelfRope.detailHeight+8,width:bounds.width-32,height:bounds.height-ShelfRope.detailHeight-24)
-            drawFramedImage(preview,in: area)
+            drawFramedImage(preview,in: area,selected:selected != nil)
         }
     }
     private func drawClip(at point:CGPoint, selected:Bool) {
         let clip=CGRect(x:point.x-5,y:point.y-5,width:10,height:18)
         (selected ? SketchPalette.blue : SketchPalette.yellow).setFill()
         NSBezierPath(roundedRect:clip,xRadius:2,yRadius:2).fill()
-        SketchPencil.stroke(NSBezierPath(roundedRect:clip,xRadius:2,yRadius:2),color:SketchPalette.line,width:0.6)
+        SketchPencil.stroke(NSBezierPath(roundedRect:clip,xRadius:2,yRadius:2),color:selected ? SketchPalette.blue : SketchPalette.line,width:0.6)
     }
-    private func drawFramedImage(_ image: NSImage, in rect: CGRect, opacity: CGFloat = 1, attachment: CGPoint? = nil) {
+    private func drawFramedImage(_ image: NSImage, in rect: CGRect, opacity: CGFloat = 1, attachment: CGPoint? = nil, selected: Bool = false) {
         let picture = attachment == nil ? fit(image.size,in:rect.insetBy(dx:4,dy:4)) : hangingPicture(image.size,in:rect)
         if let attachment, picture.minY > attachment.y {
             let tie = NSBezierPath(); tie.move(to: attachment)
             tie.line(to: CGPoint(x: picture.midX,y: picture.minY))
-            SketchPencil.stroke(tie,color: SketchPalette.line,width: 1.6)
+            SketchPencil.stroke(tie,color: (selected ? SketchPalette.blue : SketchPalette.line).withAlphaComponent(opacity),width: 1.6)
         }
         image.draw(in: picture,from: .zero,operation: .sourceOver,fraction: opacity,
                    respectFlipped: true,hints: [.interpolation:NSImageInterpolation.high])
         let frame = SketchPencil.outline(in: picture.insetBy(dx: -2,dy: -2),radius: 3)
-        SketchPencil.stroke(frame,color: SketchPalette.ink.withAlphaComponent(opacity),width: 3.8)
+        SketchPencil.stroke(frame,color: (selected ? SketchPalette.blue : SketchPalette.ink).withAlphaComponent(opacity),width: 3.8)
     }
     private func pill(_ text: String, in rect: CGRect, size: CGFloat) {
         SketchPalette.paper.withAlphaComponent(0.95).setFill()
