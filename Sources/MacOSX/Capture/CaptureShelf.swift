@@ -73,9 +73,10 @@ import AppKit
         let panel = ShelfPanel(screen: screen, records: [], thumbnails: [:], presenting: presenting)
         messagePanel = panel; panel.showNotice(text)
     }
-    private nonisolated static func loadThumbnails(_ store: CaptureShelfStore) -> [UUID: NSImage] {
+    private nonisolated static func loadThumbnails(_ store: CaptureShelfStore, skipping known: Set<UUID> = []) -> [UUID: NSImage] {
         var result: [UUID: NSImage] = [:]
         for item in store.items {
+            if known.contains(item.id) { continue }
             if let cg = store.image(item.id, maximum: 280) { result[item.id] = NSImage(cgImage: cg, size: .zero) }
         }
         return result
@@ -107,18 +108,18 @@ import AppKit
         }
     }
     @discardableResult func showForKeyboard() -> Bool {
-        guard running, !suspended, let id = records.first?.id else { return false }
-        reveal(id, keyboard: true); return true
+        guard running, !suspended, !records.isEmpty else { return false }
+        reveal(nil, keyboard: true); return true
     }
     func focusIfAlreadyOpen() -> Bool {
         guard let panel = panels.first(where: { $0.expanded }) else { return false }
         panel.beginKeyboardSelection(); return true
     }
-    private func reveal(_ id: UUID, keyboard: Bool = false, on frame: CGRect? = nil) {
+    private func reveal(_ id: UUID?, keyboard: Bool = false, on frame: CGRect? = nil) {
         guard !suspended else { return }
         let panel = frame.flatMap { frame in panels.first { $0.screenFrame == frame } }
             ?? panels.first { $0.screenFrame.contains(NSEvent.mouseLocation) } ?? panels.first
-        panel?.expand(); panel?.shelfView.select(id)
+        panel?.expand(); if let id { panel?.shelfView.select(id) }
         if keyboard { panel?.beginKeyboardSelection() }
         else { panel?.scheduleCollapse() }
     }
@@ -142,21 +143,22 @@ import AppKit
                 DispatchQueue.main.async { [weak self, weak panel] in
                     guard let self else { return }; self.busy = false
                     guard self.running, self.epoch == expected else { return }
+                    defer { panel?.interactionOccurred() }
                     guard let image else { self.onStatus?("图片读取失败，原记录已保留。"); return }
                     if copy {
                         guard let data else { self.onStatus?("图片编码失败。"); return }
                         NSPasteboard.general.clearContents()
                         self.onStatus?(NSPasteboard.general.setData(data, forType: .png) ? "已复制收纳原图。" : "复制失败。")
                     } else {
-                        self.onPin?(image, nil); panel?.scheduleCollapse()
+                        self.onPin?(image, nil)
                     }
                 }
             }
         case .place(_, let display, let order, let positions):
             savePlacement(display:display,order:order,positions:positions,source:panel)
-        case .move(let id, let index): mutate(focusID: id, on:panel.screenFrame) { try $0.move(id, to: index) }
-        case .remove(let id): mutate { try $0.remove(id) }
-        case .undo: mutate { try $0.undo() }
+        case .move(let id, let index): mutate(source: panel, focusID: id) { try $0.move(id, to: index) }
+        case .remove(let id): mutate(source: panel) { try $0.remove(id) }
+        case .undo: mutate(source: panel) { try $0.undo() }
         }
     }
     private func savePlacement(display:String,order:[UUID],positions:[UUID:Double],source:ShelfPanel) {
@@ -197,25 +199,25 @@ import AppKit
             }
         }
     }
-    private func mutate(focusID: UUID? = nil, on sourceScreen: CGRect? = nil, _ action: @escaping (CaptureShelfStore) throws -> Void) {
-        busy = true; let expected = epoch, store = store
-        let active = panels.first { $0.keyboardSession }
-        let keyboard = active != nil, screen = sourceScreen ?? active?.screenFrame, selected = focusID ?? active?.shelfView.selected
-        let rebounds = panels.compactMap { panel in panel.ropePull.map { (panel.screenFrame,$0) } }
-        queue.async { [weak self] in
+    private func mutate(source: ShelfPanel, focusID: UUID? = nil, _ action: @escaping (CaptureShelfStore) throws -> Void) {
+        busy = true; let expected = epoch, store = store, known = Set(thumbnails.keys)
+        // Membership changes update the existing windows, keeping their first
+        // responder and preview geometry. They must not reopen an exited shelf.
+        queue.async { [weak self, weak source] in
             let error: Error?; do { try action(store); error = nil } catch let caught { error = caught }
-            let items = store.items, thumbs = Self.loadThumbnails(store)
-            DispatchQueue.main.async { [weak self] in
+            let items = store.items, thumbs = Self.loadThumbnails(store, skipping: known)
+            DispatchQueue.main.async { [weak self, weak source] in
                 guard let self else { return }; self.busy = false
                 guard self.running, self.epoch == expected else { return }
                 if let error { self.onStatus?(error.localizedDescription) }
-                self.records = items; self.thumbnails = thumbs; self.rebuildPanels()
-                if let first = items.first {
-                    let id = selected.flatMap { id in items.contains(where: { $0.id == id }) ? id : nil } ?? first.id
-                    self.reveal(id, keyboard: keyboard, on: screen)
-                    for (frame,pull) in rebounds {
-                        self.panels.first { $0.screenFrame == frame && $0.expanded }?.resumeRope(pull)
-                    }
+                self.previewRequest = nil; self.records = items
+                let available = Set(items.map(\.id))
+                self.thumbnails = self.thumbnails.filter { available.contains($0.key) }
+                self.thumbnails.merge(thumbs) { _, new in new }
+                for panel in self.panels {
+                    if panel.shelfView.isInteracting { panel.releaseRope() }
+                    panel.shelfView.replaceItems(items, thumbnails: self.thumbnails, preferred: panel === source ? focusID : nil)
+                    if panel.expanded { panel.interactionOccurred() }
                 }
             }
         }
@@ -324,6 +326,8 @@ enum ShelfRope {
     private let presenting: Bool
     private var railPanel: NSPanel?
     var railFrame: CGRect { railPanel?.frame ?? .zero }
+    var interactionFrame: CGRect { expanded ? frame.union(railFrame) : railFrame }
+    func containsInteraction(_ point: CGPoint) -> Bool { interactionFrame.contains(point) }
     var railView: NSView? { railPanel?.contentView }
     private(set) var expanded = false
     private(set) var keyboardSession = false
@@ -368,6 +372,7 @@ enum ShelfRope {
     }
     func expand(preview: Bool = false) {
         guard !disposed else { return }
+        let wasExpanded = expanded
         work?.cancel(); work = nil; expanded = true
         (railPanel?.contentView as? ShelfRailView)?.showsRope = true
         shelfView.expanded = true
@@ -376,6 +381,7 @@ enum ShelfRope {
         railPanel?.setFrame(CGRect(x: screenFrame.minX,y: top-ShelfRope.height,width: screenFrame.width,height: ShelfRope.height),display: true)
         setFrame(CGRect(x: detailCenterX-railWidth/2, y: top-height, width: railWidth, height: height), display: true)
         shelfView.prepareLayout()
+        if !wasExpanded { shelfView.selectFirst() }
         shelfView.needsDisplay = true; if presenting { orderFrontRegardless() }
     }
     func collapse() {
@@ -392,13 +398,13 @@ enum ShelfRope {
     }
     func scheduleCollapse(after delay: Double = ShelfPanel.idleCollapseDelay) {
         work?.cancel(); work = nil
-        guard expanded, !disposed, !keyboardSession, !pullingRope, !shelfView.isInteracting else { return }
+        guard expanded, !disposed, !keyboardSession, !pullingRope, !shelfView.isInteracting, shelfView.canEdit() else { return }
         let next = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.work = nil
-            guard self.expanded, !self.disposed, !self.keyboardSession, !self.pullingRope, !self.shelfView.isInteracting else { return }
+            guard self.expanded, !self.disposed, !self.keyboardSession, !self.pullingRope, !self.shelfView.isInteracting, self.shelfView.canEdit() else { return }
             let point = self.pointerLocation()
-            if self.frame.contains(point) || self.railFrame.contains(point) { return }
+            if self.containsInteraction(point) { return }
             self.collapse()
         }
         let remaining=ropePull?.releasedAt.map { max(0,ShelfRope.Pull.duration-(ProcessInfo.processInfo.systemUptime-$0))+0.15 } ?? 0
@@ -408,7 +414,7 @@ enum ShelfRope {
         guard expanded, !disposed else { return }
         work?.cancel(); work = nil
         let point = pointerLocation()
-        if !frame.contains(point), !railFrame.contains(point) { scheduleCollapse() }
+        if !containsInteraction(point) { scheduleCollapse() }
     }
     func hoverEntered() {
         guard !waitsForTriggerExit else { return }
@@ -422,7 +428,16 @@ enum ShelfRope {
         waitsForTriggerExit = idle.contains(pointer ?? NSEvent.mouseLocation)
         collapse()
     }
-    func triggerExited() { waitsForTriggerExit = false; scheduleCollapse() }
+    func pointerExited() {
+        guard expanded else { return }
+        if containsInteraction(pointerLocation()) { interactionOccurred(); return }
+        guard !keyboardSession, !shelfView.isInteracting else { return }
+        shelfView.hovered = nil; scheduleCollapse()
+    }
+    func triggerExited() {
+        waitsForTriggerExit = false
+        if expanded { pointerExited() } else { work?.cancel(); work = nil }
+    }
     func showNotice(_ text: String) {
         work?.cancel(); expanded = true; shelfView.expanded = true; shelfView.notice = text
         let width = min(520, screenFrame.width-32)
@@ -438,13 +453,16 @@ enum ShelfRope {
     func focusForInteraction() {
         pointerInteractionOccurred()
         if presenting { makeKeyAndOrderFront(nil) }
+        makeFirstResponder(shelfView)
     }
     func beginKeyboardSelection() {
         guard !disposed else { return }
         work?.cancel(); work = nil
         if !expanded { expand() }; keyboardSession = true
-        shelfView.keyboardPointer = NSEvent.mouseLocation
-        if presenting { makeKeyAndOrderFront(nil); makeFirstResponder(shelfView) }
+        shelfView.ensureSelection()
+        shelfView.keyboardPointer = pointerLocation()
+        if presenting { makeKeyAndOrderFront(nil) }
+        makeFirstResponder(shelfView)
     }
     override func resignKey() {
         super.resignKey()
@@ -585,7 +603,7 @@ enum ShelfRope {
 @MainActor final class ShelfView: NSView {
     enum Action { case preview(UUID), pin(UUID), copy(UUID), move(UUID, Int), place(UUID,String,[UUID],[UUID:Double]), remove(UUID), undo }
     private(set) var records: [CaptureShelfStore.Item]
-    let thumbnails: [UUID: NSImage]
+    private(set) var thumbnails: [UUID: NSImage]
     var onAction: ((Action) -> Void)?
     var canEdit: () -> Bool = { true }
     var displayKey = "default"
@@ -620,7 +638,7 @@ enum ShelfRope {
     init(records: [CaptureShelfStore.Item], thumbnails: [UUID: NSImage]) {
         self.records = records; self.thumbnails = thumbnails; selected = records.first?.id
         super.init(frame: .zero)
-        toolTip = "单击选中 · 双击贴出 · 拖动调整位置 · 离开 3 秒收起 · 左右键选择 · Esc 收起 · Option＋方向键排序 · ⌘C 复制 · Delete 删除 · ⌘Z 撤销"
+        toolTip = "单击选中 · 双击贴出 · 拖动调整位置 · 离开 3 秒收起 · 左右键选择 · Esc 收起 · Option＋方向键排序 · ⌘C 复制 · ⌘⌫ / Delete 删除 · ⌘Z 撤销"
         setAccessibilityElement(true); setAccessibilityRole(.group)
         setAccessibilityLabel("截图晾衣杆，左右选择，回车贴图，Command C 复制，Delete 删除，Command Z 撤销")
     }
@@ -708,6 +726,35 @@ enum ShelfRope {
         }
         needsDisplay = true
     }
+    func selectFirst() {
+        offset = 0; finishReflow(); layout = nil; prepareLayout()
+        selected = records.first?.id; hovered = nil; preview = nil; needsDisplay = true
+    }
+    func ensureSelection() {
+        if let selected, records.contains(where: { $0.id == selected }) { return }
+        selected = records.first?.id
+        if let selected { select(selected) }
+    }
+    func replaceItems(_ items: [CaptureShelfStore.Item], thumbnails: [UUID:NSImage], preferred: UUID? = nil) {
+        let previous = records.map(\.id), oldSelection = selected
+        let oldIndex = oldSelection.flatMap { previous.firstIndex(of: $0) } ?? 0
+        let available = Set(items.map(\.id))
+        var next: UUID?
+        if let preferred, available.contains(preferred) { next = preferred }
+        else if let oldSelection, available.contains(oldSelection) { next = oldSelection }
+        else if oldSelection != nil {
+            next = previous.dropFirst(oldIndex+1).first { available.contains($0) }
+            if next == nil { next = previous.prefix(oldIndex).reversed().first { available.contains($0) } }
+        }
+        if next == nil { next = items.first?.id }
+        cancelDrag(); self.thumbnails = thumbnails; records = items
+        layoutCommitting = false; offset = min(offset, max(0, items.count-capacity)); layout = nil
+        hovered = nil; preview = nil
+        prepareLayout(); selected = next
+        if let next { select(next) }
+        keyboardPointer = (window as? ShelfPanel)?.pointerLocation()
+        needsDisplay = true
+    }
     private func item(at point: CGPoint) -> Int? {
         prepareLayout()
         let visible=records.indices.filter { $0 >= offset && $0 < offset+capacity }
@@ -747,11 +794,8 @@ enum ShelfRope {
     }
     override func mouseEntered(with event: NSEvent) { (window as? ShelfPanel)?.hoverEntered() }
     override func mouseExited(with event: NSEvent) {
-        guard dragging == nil, let panel = window as? ShelfPanel, !panel.keyboardSession else { return }
-        let pointer = panel.convertPoint(toScreen: event.locationInWindow)
-        guard !panel.frame.contains(pointer) else { return }
-        // An in-flight hover preview must not reopen the shelf after exit.
-        hovered = nil; panel.scheduleCollapse()
+        guard dragging == nil else { return }
+        (window as? ShelfPanel)?.pointerExited()
     }
     override func mouseMoved(with event: NSEvent) {
         guard expanded, dragging == nil else { return }
@@ -822,7 +866,7 @@ enum ShelfRope {
         needsDisplay=true
         if let action { onAction?(action) }
         if let panel = window as? ShelfPanel {
-            if !panel.frame.contains(panel.convertPoint(toScreen: event.locationInWindow)) { hovered = nil }
+            if !panel.containsInteraction(panel.pointerLocation()) { hovered = nil }
             panel.interactionOccurred()
         }
     }
@@ -849,11 +893,22 @@ enum ShelfRope {
         guard expanded, let selected else { return }; (window as? ShelfPanel)?.interactionOccurred(); onAction?(.copy(selected))
     }
     @objc func undo(_ sender: Any?) { if expanded { (window as? ShelfPanel)?.interactionOccurred(); onAction?(.undo) } }
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection([.command,.shift,.control,.option])
+        guard expanded, window?.firstResponder === self, modifiers == .command,
+              event.keyCode == 51 || ["c","z"].contains(event.charactersIgnoringModifiers?.lowercased() ?? "") else {
+            return super.performKeyEquivalent(with: event)
+        }
+        keyDown(with: event); return true
+    }
     override func keyDown(with event: NSEvent) {
         (window as? ShelfPanel)?.interactionOccurred()
         let command = event.modifierFlags.contains(.command)
+        // Claim native deletion/copy for this selection before AppKit's menu
+        // dispatch can reroute Command-Backspace to another window.
         if event.keyCode == 53 { (window as? ShelfPanel)?.dismissFromKeyboard(); return }
         if command && event.charactersIgnoringModifiers?.lowercased() == "z" { undo(nil); return }
+        ensureSelection()
         guard !layoutCommitting, canEdit(), let selected else { return }
         if command && event.charactersIgnoringModifiers?.lowercased() == "c" { copy(nil); return }
         if event.keyCode == 36 { onAction?(.pin(selected)); return }
@@ -911,6 +966,7 @@ enum ShelfRope {
             drawFramedImage(image,in:ghost,opacity:0.95,attachment:CGPoint(x:anchor.x,y:anchor.y+13))
             drawClip(at:anchor,selected:true)
         }
+        if records.isEmpty { pill("没有图片 · ⌘Z 撤销删除",in: CGRect(x: max(16,bounds.midX-110),y: 78,width: min(220,bounds.width-32),height: 28),size: 13) }
         pill("撤销",in: CGRect(x: 16,y: ShelfRope.footerY,width: 52,height: 24),size: 11)
         if bounds.width > 430 { pill("← → 选择 · ⌘C 复制 · Esc 收起",in: CGRect(x: 82,y: ShelfRope.footerY,width: 225,height: 24),size: 11) }
         if records.count > capacity {

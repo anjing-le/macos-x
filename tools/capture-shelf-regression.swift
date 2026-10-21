@@ -23,8 +23,8 @@ enum CaptureEditor {
         }
         NSGraphicsContext.restoreGraphicsState(); return bitmap.cgImage!
     }
-    @MainActor static func event(_ type: NSEvent.EventType, _ point: CGPoint, view: NSView, key: UInt16? = nil, flags: NSEvent.ModifierFlags = [], clicks: Int = 1) -> NSEvent {
-        if let key { return NSEvent.keyEvent(with: .keyDown,location: .zero,modifierFlags: flags,timestamp: 0,windowNumber: view.window!.windowNumber,context: nil,characters: key == 8 ? "c" : "",charactersIgnoringModifiers: key == 8 ? "c" : "",isARepeat: false,keyCode: key)! }
+    @MainActor static func event(_ type: NSEvent.EventType, _ point: CGPoint, view: NSView, key: UInt16? = nil, flags: NSEvent.ModifierFlags = [], clicks: Int = 1, repeated: Bool = false) -> NSEvent {
+        if let key { return NSEvent.keyEvent(with: .keyDown,location: .zero,modifierFlags: flags,timestamp: 0,windowNumber: view.window!.windowNumber,context: nil,characters: key == 8 ? "c" : key == 6 ? "z" : "",charactersIgnoringModifiers: key == 8 ? "c" : key == 6 ? "z" : "",isARepeat: repeated,keyCode: key)! }
         if type == .mouseExited { return NSEvent.enterExitEvent(with: type,location: view.convert(point,to: nil),modifierFlags: [],timestamp: 0,windowNumber: view.window!.windowNumber,context: nil,eventNumber: 0,trackingNumber: 0,userData: nil)! }
         return NSEvent.mouseEvent(with: type,location: view.convert(point,to: nil),modifierFlags: [],timestamp: 0,windowNumber: view.window!.windowNumber,context: nil,eventNumber: 0,clickCount: clicks,pressure: 1)!
     }
@@ -255,10 +255,10 @@ enum CaptureEditor {
         let below = CGPoint(x:movedCenter.x,y:245)
         view.mouseDragged(with: event(.leftMouseDragged,below,view: view)); view.mouseUp(with: event(.leftMouseUp,below,view: view))
         guard case .place(let pulled,_,_,_) = actions.last else { preconditionFailure("Downward dragging only commits the hanging position, never opens F3") }
-        precondition(pulled == first.id && panel.expanded, "Releasing a downward drag keeps the shelf open")
+        precondition(pulled == first.id && panel.expanded && panel.firstResponder === view, "Releasing a downward drag keeps the shelf and its selection responder available")
         precondition(!actions.contains { if case .pin = $0 { return true }; return false }, "Dragging never dispatches an implicit pin")
         panel.advanceRope(at:ProcessInfo.processInfo.systemUptime+ShelfRope.Pull.duration+1)
-        view.keyDown(with: event(.keyDown,.zero,view: view,key: 8,flags: .command))
+        precondition(view.performKeyEquivalent(with:event(.keyDown,.zero,view:view,key:8,flags:.command)), "Native Command-C is claimed by the shelf after dropping")
         guard case .copy = actions.last else { preconditionFailure("Keyboard copy routes original image") }
         view.mouseMoved(with:event(.mouseMoved,CGPoint(x:view.cardRect(0).midX,y:view.cardRect(0).midY),view:view))
         guard case .preview = actions.last else { preconditionFailure("Hover requests a bounded preview") }
@@ -362,6 +362,25 @@ enum CaptureEditor {
         try await Task.sleep(nanoseconds:60_000_000)
         precondition(idlePanel.expanded && idlePanel.keyboardSession, "Starting keyboard selection cancels an already pending pointer deadline")
         idlePanel.dismissFromKeyboard()
+        idlePanel.expand(preview:true); idlePanel.focusForInteraction()
+        idlePanel.shelfView.hovered=fixture[0].id; idlePanel.shelfView.preview=thumbs[fixture[0].id]
+        let boundaries=[CGPoint(x:idlePanel.railFrame.midX,y:idlePanel.railFrame.midY),
+                        idlePanel.convertPoint(toScreen:CGPoint(x:idlePanel.frame.width/2,y:idlePanel.frame.height-110)),
+                        CGPoint(x:idlePanel.frame.midX,y:idlePanel.frame.minY+60)]
+        for pointer in boundaries {
+            idlePointer=pointer
+            precondition(idlePanel.containsInteraction(pointer), "Rope, photos and lower preview share the same interaction geometry")
+            idlePanel.scheduleCollapse(after:0.02)
+            idlePanel.shelfView.mouseExited(with:event(.mouseExited,CGPoint(x:10,y:10000),view:idlePanel.shelfView))
+            idlePanel.triggerExited()
+            try await Task.sleep(nanoseconds:45_000_000)
+            precondition(idlePanel.expanded && idlePanel.shelfView.hovered == fixture[0].id && idlePanel.shelfView.preview != nil,
+                         "Stale tracking exits between overlapping rope/detail/preview windows cannot clear selection or dismiss")
+            precondition(idlePanel.firstResponder === idlePanel.shelfView, "Area transitions retain the native selection responder")
+        }
+        idlePanel.shelfView.select(fixture[2].id); idlePanel.collapse(); idlePanel.expand()
+        precondition(idlePanel.shelfView.selected == idlePanel.shelfView.records.first?.id, "A fresh open defaults to the first visible picture")
+        idlePanel.collapse()
         let freePanel=ShelfPanel(screen:screen,records:fixture,thumbnails:thumbs,presenting:false)
         defer { freePanel.dispose() }
         freePanel.expand()
@@ -438,6 +457,48 @@ enum CaptureEditor {
             other.collapse(); precondition(other.railFrame.minX == display.frame.minX && other.railFrame.width == display.frame.width)
             other.dispose(); precondition(other.railFrame.isEmpty)
         }
+        // Exercise the real async delete/undo manager with real native windows,
+        // while substituting only copy's sink to keep the user's clipboard intact.
+        let actionDirectory=directory.appendingPathComponent("continuous-actions")
+        let actionStore=CaptureShelfStore(directory:actionDirectory); _ = try actionStore.load()
+        for _ in 0..<3 { _ = try actionStore.add(image(32,32)) }
+        let oldWindows=Set(NSApp.windows.map(ObjectIdentifier.init))
+        let actionHost=CaptureShelf(directory:actionDirectory,presenting:false)
+        actionHost.start(); defer { actionHost.stop() }
+        for _ in 0..<150 { if actionHost.canAdd { break }; try await Task.sleep(nanoseconds:10_000_000) }
+        precondition(actionHost.canAdd && actionHost.showForKeyboard())
+        let managed=NSApp.windows.compactMap { $0 as? ShelfPanel }.filter { !oldWindows.contains(ObjectIdentifier($0)) }
+        guard let actionPanel=managed.first(where: { $0.expanded }) else { preconditionFailure("The host must expose a native keyboard shelf") }
+        let actionView=actionPanel.shelfView, originalAction=actionPanel.shelfView.onAction
+        let windowIdentity=ObjectIdentifier(actionPanel), initialIDs=actionView.records.map(\.id)
+        let savedThumbnail=actionView.thumbnails[initialIDs[0]]!
+        var copiedSelection:UUID?
+        actionView.onAction = { action in
+            if case .copy(let id) = action { copiedSelection=id } else { originalAction?(action) }
+        }
+        precondition(actionView.selected == initialIDs[0] && actionPanel.firstResponder === actionView, "Opening chooses the first image with native keyboard focus")
+        actionView.select(initialIDs[1])
+        let delete=event(.keyDown,.zero,view:actionView,key:51,flags:.command)
+        precondition(actionView.performKeyEquivalent(with:delete), "Command-Backspace is consumed by the selected shelf")
+        _ = actionView.performKeyEquivalent(with:delete)
+        for _ in 0..<150 { if actionHost.canAdd { break }; try await Task.sleep(nanoseconds:10_000_000) }
+        precondition(actionView.records.count == 2 && actionView.selected == initialIDs[2], "Delete selects the next neighbour; a busy repeat cannot delete a second stale target")
+        precondition(ObjectIdentifier(actionView.window!) == windowIdentity && actionPanel.firstResponder === actionView && actionPanel.expanded,
+                     "Async deletion updates the same window without dropping focus or visibility")
+        precondition(actionView.thumbnails[initialIDs[0]] === savedThumbnail, "Deleting reuses unaffected thumbnails instead of decoding all images again")
+        precondition(actionView.performKeyEquivalent(with:event(.keyDown,.zero,view:actionView,key:8,flags:.command)) && copiedSelection == initialIDs[2], "Copy immediately after deletion uses the new selection")
+        _ = actionView.performKeyEquivalent(with:event(.keyDown,.zero,view:actionView,key:51,flags:.command,repeated:true))
+        for _ in 0..<150 { if actionHost.canAdd { break }; try await Task.sleep(nanoseconds:10_000_000) }
+        precondition(actionView.records.count == 1 && actionView.selected == initialIDs[0] && actionPanel.firstResponder === actionView, "Deleting the last position selects the previous item and accepts key repeat")
+        _ = actionView.performKeyEquivalent(with:delete)
+        for _ in 0..<150 { if actionHost.canAdd { break }; try await Task.sleep(nanoseconds:10_000_000) }
+        precondition(actionView.records.isEmpty && actionView.selected == nil && actionPanel.expanded && actionPanel.firstResponder === actionView,
+                     "An empty shelf retains its window and focus for undo, without inventing a selection")
+        _ = actionView.performKeyEquivalent(with:event(.keyDown,.zero,view:actionView,key:6,flags:.command))
+        for _ in 0..<150 { if actionHost.canAdd { break }; try await Task.sleep(nanoseconds:10_000_000) }
+        precondition(actionView.records.count == 1 && actionView.selected != nil && actionPanel.firstResponder === actionView,
+                     "Native Command-Z restores an image into the focused empty shelf")
+        actionHost.stop()
         let host = CaptureShelf(directory: directory,presenting: false)
         host.start()
         for _ in 0..<100 { if host.canAdd { break }; try await Task.sleep(nanoseconds: 10_000_000) }
@@ -449,6 +510,6 @@ enum CaptureEditor {
         host.start()
         for _ in 0..<100 { if host.canAdd { break }; try await Task.sleep(nanoseconds: 10_000_000) }
         precondition(host.canAdd); host.stop()
-        print("PASS shelf: original PNG persistence/restart, ordering, delete/undo, bounds, failed save, native hover/whole-card/drag/keyboard, drag-only placement and resettable three-second idle dismissal, fixed-end rope tug, full-screen free placement, live neighbour movement, per-display position persistence and rollback, full-screen multimode wave, short attachments and pivot swing, bounded rebound/reduced motion, hidden trigger and stop/restart; no shown windows, clipboard writes or installed preferences")
+        print("PASS shelf: original PNG persistence/restart, ordering, delete/undo, bounds, failed save, native hover/whole-card/drag/keyboard, drag-only placement and resettable three-second idle dismissal, unified rope/preview transitions, first selection and in-place continuous Command-Backspace/undo focus, fixed-end rope tug, full-screen free placement, live neighbour movement, per-display position persistence and rollback, full-screen multimode wave, short attachments and pivot swing, bounded rebound/reduced motion, hidden trigger and stop/restart; no shown windows, clipboard writes or installed preferences")
     }
 }
