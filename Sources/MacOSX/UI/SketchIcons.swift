@@ -3,7 +3,7 @@ import ImageIO
 
 @MainActor
 enum SketchIcons {
-    enum Kind: String { case capture, switcher, layout, prompt, radar, plus, back, update, settings, close, minimize, expand }
+    enum Kind: String { case capture, switcher, layout, prompt, radar, menuBar, plus, back, update, settings, close, minimize, expand }
     private static var images: [String: NSImage] = [:]
     static func kind(for symbol: String) -> Kind? {
         switch symbol {
@@ -11,6 +11,7 @@ enum SketchIcons {
         case "macwindow.on.rectangle": return .switcher
         case "text.bubble": return .prompt
         case "rectangle.split.2x1":return .layout
+        case "menubar.rectangle": return .menuBar
         case "keyboard.badge.ellipsis": return .radar
         case "plus": return .plus
         case "chevron.left": return .back
@@ -103,6 +104,13 @@ enum SketchIcons {
             SketchPalette.fill(lens, color: SketchPalette.paper)
             SketchPencil.stroke(lens, color: SketchPalette.ink, width: 1.8)
             line([(50, 12), (59, 3)]); line([(40, 18), (46, 18)]); line([(43, 15), (43, 21)])
+        case .menuBar:
+            tile(NSRect(x: 3, y: 13, width: 58, height: 38), SketchPalette.paper)
+            line([(4, 40), (60, 40)])
+            for index in 0..<3 {
+                tile(NSRect(x: 10 + CGFloat(index) * 10, y: 22, width: 7, height: 10), [SketchPalette.blue, SketchPalette.purple, SketchPalette.green][index])
+            }
+            line([(44, 24), (49, 28), (44, 32)]); line([(53, 22), (53, 34)])
         case .plus: line([(13, 32), (51, 32)]); line([(32, 13), (32, 51)])
         case .back: line([(40, 12), (20, 32), (40, 52)])
         case .update: line([(32, 53), (32, 20)]); line([(19, 33), (32, 20), (45, 33)]); line([(14, 12), (50, 12)])
@@ -267,6 +275,14 @@ enum SketchCardArt {
         }
         return result
     }()
+    private static let menuBarImage: NSImage = {
+        NSImage(size: CGSize(width: 256, height: 236), flipped: false) { _ in
+            MainActor.assumeIsolated {
+                SketchIcons.image(.menuBar, size: 236).draw(in: CGRect(x: 10, y: 0, width: 236, height: 236))
+                return true
+            }
+        }
+    }()
     private static let systemStatusImage: NSImage? = {
         guard let url = Bundle.main.url(forResource: "CardSystemStatus", withExtension: "png"),
               let source = CGImageSourceCreateWithURL(url as CFURL, nil),
@@ -294,6 +310,7 @@ enum SketchCardArt {
         return image
     }()
     static func image(_ symbol: String) -> NSImage? {
+        if symbol == "menubar.rectangle" { return menuBarImage }
         if symbol == "chart.xyaxis.line" { return systemStatusImage }
         if symbol == "keyboard.badge.ellipsis" { return radarImage }
         return images[symbol]

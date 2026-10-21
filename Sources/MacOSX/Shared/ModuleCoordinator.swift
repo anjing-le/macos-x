@@ -17,6 +17,7 @@ final class ModuleCoordinator {
     private var layout:WindowLayoutModule?
     private var systemStatus: SystemStatusModule?
     private var shortcutRadar: ShortcutRadarModule?
+    private var menuBarShelf: MenuBarShelfModule?
     private var issues: [ShortcutAction: String] = [:]
     private var tapIssue: String?
     private var activeObserver: NSObjectProtocol?
@@ -87,6 +88,11 @@ final class ModuleCoordinator {
 
     private func ensure(_ tool: Tool) {
         switch tool {
+        case .menuBarShelf:
+            if menuBarShelf == nil {
+                menuBarShelf = MenuBarShelfModule(defaults: defaults)
+                menuBarShelf?.onStatusChange = { [weak self] in self?.onStateChanged?(.menuBarShelf) }
+            }
         case .shortcutRadar:
             if shortcutRadar == nil {
                 shortcutRadar = ShortcutRadarModule(configuration: { [weak self] labels in
@@ -126,10 +132,11 @@ final class ModuleCoordinator {
 
     private func start(_ tool: Tool) {
         ensure(tool)
-        switch tool { case .kaomoji: wheel?.start(); case .capture: capture?.start(); case .windowSwitcher: switcher?.start();case .windowLayout:layout?.start(); layout?.refreshPermission(); case .systemStatus: systemStatus?.start(); case .shortcutRadar: shortcutRadar?.start() }
+        switch tool { case .kaomoji: wheel?.start(); case .capture: capture?.start(); case .windowSwitcher: switcher?.start();case .windowLayout:layout?.start(); layout?.refreshPermission(); case .systemStatus: systemStatus?.start(); case .shortcutRadar: shortcutRadar?.start(); case .menuBarShelf: menuBarShelf?.start() }
     }
     private func stop(_ tool: Tool, remove: Bool) {
         switch tool {
+        case .menuBarShelf: menuBarShelf?.stop(); if remove { menuBarShelf = nil }
         case .shortcutRadar: shortcutRadar?.stop(); if remove { shortcutRadar = nil }
         case .systemStatus: systemStatus?.stop(); if remove { systemStatus = nil }
         case .kaomoji: wheel?.stop(); if remove { wheel = nil }
@@ -184,6 +191,7 @@ final class ModuleCoordinator {
             return capture!.settingsView
         case .windowSwitcher: return switcher!.settingsView
         case .windowLayout:return layout!.settingsView
+        case .menuBarShelf:return menuBarShelf!.makeDashboard()
         case .shortcutRadar:return shortcutRadar!.makeDashboard()
         case .systemStatus:return systemStatus!.makeDashboard()
         }
@@ -234,7 +242,7 @@ final class ModuleCoordinator {
     }
 
     func needsAccessibility(_ tool: Tool) -> Bool {
-        (tool == .windowSwitcher || tool == .windowLayout || (tool == .kaomoji && shortcuts.binding(for: .wheel).kind == .doubleModifier))
+        (tool == .windowSwitcher || tool == .windowLayout || (tool == .menuBarShelf && ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27) || (tool == .kaomoji && shortcuts.binding(for: .wheel).kind == .doubleModifier))
             && !AXIsProcessTrusted()
     }
     func needsScreenCapture(_ tool: Tool) -> Bool {
@@ -244,6 +252,7 @@ final class ModuleCoordinator {
     }
     func issue(for tool: Tool) -> String? {
         if !isEnabled(tool) { return nil }
+        if tool == .menuBarShelf { return nil } // The dashboard owns actionable status.
         if tool == .shortcutRadar { return nil }
         if tool == .systemStatus { return systemStatus?.issue }
         if tool == .kaomoji {
@@ -287,7 +296,7 @@ final class ModuleCoordinator {
         terminating = true
         if let activeObserver { NotificationCenter.default.removeObserver(activeObserver); self.activeObserver = nil }
         input.stop()
-        wheel?.stop(); switcher?.stop(); layout?.stop(); systemStatus?.stop(); shortcutRadar?.stop()
+        wheel?.stop(); switcher?.stop(); layout?.stop(); systemStatus?.stop(); shortcutRadar?.stop(); menuBarShelf?.stop()
         let captures = Array(finishingCaptures.values) + (capture.map { [$0] } ?? [])
         guard !captures.isEmpty else { DispatchQueue.main.async { completion() }; return }
         var outstanding = captures.count

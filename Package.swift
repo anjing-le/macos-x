@@ -9,10 +9,11 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0")
     ],
     targets: [
+        .target(name: "MenuBarVisibilityBridge", cSettings: [.unsafeFlags(["-fobjc-arc"])]),
         .target(name: "MacOSXCore"),
         .executableTarget(
             name: "MacOSX",
-            dependencies: ["MacOSXCore", .product(name: "Sparkle", package: "Sparkle")],
+            dependencies: ["MacOSXCore", "MenuBarVisibilityBridge", .product(name: "Sparkle", package: "Sparkle")],
             linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
         ),
         .testTarget(name: "MacOSXCoreTests", dependencies: ["MacOSXCore"])

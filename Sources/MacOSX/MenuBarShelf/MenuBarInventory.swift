@@ -1,0 +1,77 @@
+import AppKit
+import ApplicationServices
+
+struct MenuBarEntry {
+    let bundle: String
+    let frame: CGRect
+}
+
+/// Failed/unreadable applications remain allowed. A partial inventory must not
+/// silently hide an app the user left on the visible side of the boundary.
+enum MenuBarSections {
+    static let systemOwners: Set<String> = ["com.apple.MenuBarAgent", "com.apple.controlcenter", "com.apple.systemuiserver"]
+    static func hidden(_ entries: [MenuBarEntry], boundary: CGRect, leftToRight: Bool) -> Set<String> {
+        var hidden = Set<String>(), visible = systemOwners
+        for entry in entries {
+            guard !entry.bundle.isEmpty, entry.frame.width > 0, entry.frame.height > 0,
+                  entry.frame.midX.isFinite, entry.frame.midY.isFinite,
+                  entry.frame.midY >= boundary.minY - 8, entry.frame.midY <= boundary.maxY + 8 else { continue }
+            let isHidden = leftToRight ? entry.frame.midX < boundary.midX : entry.frame.midX > boundary.midX
+            if isHidden { hidden.insert(entry.bundle) } else { visible.insert(entry.bundle) }
+        }
+        return hidden.subtracting(visible)
+    }
+}
+
+final class MenuBarReadToken {
+    private let lock = NSLock()
+    private var cancelled = false
+    func cancel() { lock.lock(); cancelled = true; lock.unlock() }
+    var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
+}
+
+/// One serial worker; one explicit collapse = at most 3 seconds / 128 apps /
+/// 64 items per app. Nothing reads AX on the status-item event callback.
+final class MenuBarInventory {
+    private let queue = DispatchQueue(label: "cc.anjing.macos-x.menu-bar-inventory", qos: .userInitiated)
+    func read(_ apps: [(pid_t, String)], token: MenuBarReadToken, completion: @escaping ([MenuBarEntry]) -> Void) {
+        queue.async {
+            let deadline = ProcessInfo.processInfo.systemUptime + 3
+            var entries: [MenuBarEntry] = []
+            for (pid, bundle) in apps.prefix(128) {
+                guard !token.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { break }
+                let application = AXUIElementCreateApplication(pid)
+                AXUIElementSetMessagingTimeout(application, 0.035)
+                var value: CFTypeRef?
+                guard AXUIElementCopyAttributeValue(application, "AXExtrasMenuBar" as CFString, &value) == .success,
+                      let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { continue }
+                let bar = unsafeBitCast(value, to: AXUIElement.self)
+                AXUIElementSetMessagingTimeout(bar, 0.035)
+                var children: CFArray?
+                guard AXUIElementCopyAttributeValues(bar, kAXChildrenAttribute as CFString, 0, 64, &children) == .success,
+                      let items = children as? [AXUIElement] else { continue }
+                var appEntries: [MenuBarEntry] = []
+                var complete = true
+                for item in items {
+                    guard !token.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { complete = false; break }
+                    AXUIElementSetMessagingTimeout(item, 0.035)
+                    var positionValue: CFTypeRef?, sizeValue: CFTypeRef?
+                    guard AXUIElementCopyAttributeValue(item, kAXPositionAttribute as CFString, &positionValue) == .success,
+                          AXUIElementCopyAttributeValue(item, kAXSizeAttribute as CFString, &sizeValue) == .success,
+                          let positionValue, let sizeValue,
+                          CFGetTypeID(positionValue) == AXValueGetTypeID(), CFGetTypeID(sizeValue) == AXValueGetTypeID() else { complete = false; break }
+                    var point = CGPoint.zero, size = CGSize.zero
+                    guard AXValueGetValue(unsafeBitCast(positionValue, to: AXValue.self), .cgPoint, &point),
+                          AXValueGetValue(unsafeBitCast(sizeValue, to: AXValue.self), .cgSize, &size) else { complete = false; break }
+                    guard point.x.isFinite, point.y.isFinite, size.width.isFinite, size.height.isFinite,
+                          size.width > 0, size.height > 0 else { complete = false; break }
+                    appEntries.append(.init(bundle: bundle, frame: CGRect(origin: point, size: size)))
+                }
+                // Refuse to classify a bundle if a sibling item could not be read.
+                if complete, items.count < 64 { entries += appEntries }
+            }
+            guard !token.isCancelled else { return }
+            DispatchQueue.main.async { if !token.isCancelled { completion(entries) } }
+        }
+    }
+}
