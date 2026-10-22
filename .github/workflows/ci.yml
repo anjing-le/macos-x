@@ -45,5 +45,10 @@ jobs:
         run: zsh tools/run-update-presentation-regression.sh
       - name: Check shared prompt layouts, preferences and keyboard selection
         run: zsh tools/run-prompt-wheel-regression.sh
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Build a development app with OTA explicitly disabled
         run: scripts/build.sh --disable-updates
+      - name: Check DMG layout, repeatable mounts and copied application identity
+        run: zsh tools/run-dmg-regression.sh dist/MacOSX.app

@@ -153,5 +153,6 @@ PY
 (cd "$release_dir" && /usr/bin/shasum -a 256 "$archive_name" > "$archive_name.sha256")
 echo "Prepared and signature-verified: $archive"
 echo "Appcast: $release_dir/appcast.xml"
-echo "Nothing uploaded. Publish both files as assets of GitHub release v$version after review."
+"$root_dir/scripts/build-dmg.sh" "$app" "$release_dir"
+echo "Nothing uploaded. Publish ZIP, DMG, both SHA-256 files and appcast.xml for v$version."
 echo "Ed25519 archive signing is not Apple Developer ID signing or notarization."
