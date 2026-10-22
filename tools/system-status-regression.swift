@@ -165,13 +165,13 @@ extension SystemStatusModule {
         var coalesced: [SystemStatusSnapshot] = []
         busy.onUpdate = { snapshot in
             coalesced.append(snapshot)
-            if coalesced.count == 2 { busy.stop() }
+            // Stall at the first delivery boundary. Polling for count == 1
+            // can miss it entirely when two 5ms callbacks beat the test task.
+            // Production keeps sampling and queues only its latest value.
+            if coalesced.count == 1 { stallFixtureMainQueue(busyReader) }
+            else if coalesced.count == 2 { busy.stop() }
         }
         busy.start()
-        try await wait("coalescing first delivery") { coalesced.count == 1 }
-        // Deliberately stall only the isolated fixture's main queue. Production
-        // continues serial sampling and should enqueue one latest-value delivery.
-        stallFixtureMainQueue(busyReader)
         try await wait("latest delivery after main queue stall") { coalesced.count == 2 }
         try require(busyReader.count >= 10 && coalesced[1].timestamp - coalesced[0].timestamp > 8,
                     "busy main queue receives latest reading rather than replaying every old timer sample")
