@@ -475,12 +475,19 @@ enum CaptureEditor {
         let actionDirectory=directory.appendingPathComponent("continuous-actions")
         let actionStore=CaptureShelfStore(directory:actionDirectory); _ = try actionStore.load()
         for _ in 0..<3 { _ = try actionStore.add(image(32,32)) }
-        let oldWindows=Set(NSApp.windows.map(ObjectIdentifier.init))
+        let retainedOldWindows = NSApp.windows
+        defer { withExtendedLifetime(retainedOldWindows) {} }
+        let oldWindows=Set(retainedOldWindows.map(ObjectIdentifier.init))
         let actionHost=CaptureShelf(directory:actionDirectory,presenting:false)
         actionHost.start(); defer { actionHost.stop() }
         for _ in 0..<150 { if actionHost.canAdd { break }; try await Task.sleep(nanoseconds:10_000_000) }
         precondition(actionHost.canAdd && actionHost.showForKeyboard())
-        let managed=NSApp.windows.compactMap { $0 as? ShelfPanel }.filter { !oldWindows.contains(ObjectIdentifier($0)) }
+        var managed = NSApp.windows.compactMap { $0 as? ShelfPanel }.filter { !oldWindows.contains(ObjectIdentifier($0)) }
+        let nativeWindowDeadline = Date(timeIntervalSinceNow: 5)
+        while !managed.contains(where: { $0.expanded }), Date() < nativeWindowDeadline {
+            try await Task.sleep(nanoseconds: 5_000_000)
+            managed = NSApp.windows.compactMap { $0 as? ShelfPanel }.filter { !oldWindows.contains(ObjectIdentifier($0)) }
+        }
         guard let actionPanel=managed.first(where: { $0.expanded }) else { preconditionFailure("The host must expose a native keyboard shelf") }
         let actionView=actionPanel.shelfView, originalAction=actionPanel.shelfView.onAction
         let windowIdentity=ObjectIdentifier(actionPanel), initialIDs=actionView.records.map(\.id)
@@ -513,10 +520,17 @@ enum CaptureEditor {
                      "Native Command-Z restores an image into the focused empty shelf")
         let beforeAddThumbnail = actionView.thumbnails[actionView.records[0].id]!
         let beforeAddID = actionView.records[0].id
-        let windowsBeforeAdd = Set(NSApp.windows.map(ObjectIdentifier.init))
+        let retainedWindowsBeforeAdd = NSApp.windows
+        defer { withExtendedLifetime(retainedWindowsBeforeAdd) {} }
+        let windowsBeforeAdd = Set(retainedWindowsBeforeAdd.map(ObjectIdentifier.init))
         let added = await withCheckedContinuation { continuation in actionHost.add(image(48,48)) { continuation.resume(returning: $0) } }
         precondition(added)
-        let afterAddPanels = NSApp.windows.compactMap { $0 as? ShelfPanel }.filter { !windowsBeforeAdd.contains(ObjectIdentifier($0)) }
+        var afterAddPanels = NSApp.windows.compactMap { $0 as? ShelfPanel }.filter { !windowsBeforeAdd.contains(ObjectIdentifier($0)) }
+        let addedWindowDeadline = Date(timeIntervalSinceNow: 5)
+        while afterAddPanels.isEmpty, Date() < addedWindowDeadline {
+            try await Task.sleep(nanoseconds: 5_000_000)
+            afterAddPanels = NSApp.windows.compactMap { $0 as? ShelfPanel }.filter { !windowsBeforeAdd.contains(ObjectIdentifier($0)) }
+        }
         precondition(afterAddPanels.contains { $0.shelfView.thumbnails[beforeAddID] === beforeAddThumbnail }, "Adding a photo reuses old thumbnails; only the new image is decoded")
         actionHost.stop()
         let host = CaptureShelf(directory: directory,presenting: false)
