@@ -13,6 +13,8 @@ struct MenuDrawerItem {
     var items: [MenuDrawerItem] = [] { didSet { needsDisplay = true; updateAccessibility() } }
     var selected: String? { didSet { needsDisplay = true } }
     var accepting = false { didSet { needsDisplay = true } }
+    var onDragImage: ((MenuDrawerItem, CGPoint) -> Void)?
+    var onDragFinished: (() -> Void)?
     var onClose: (() -> Void)?
     var onOpen: ((String) -> Void)?
     var onMove: ((String, Int) -> Void)?
@@ -22,20 +24,35 @@ struct MenuDrawerItem {
     var message = "⌘ 拖入图标，收纳在这里" { didSet { needsDisplay = true } }
     private var down: (String, CGPoint, Bool)?
     private var dragging = false
+    private var dragOriginal: [MenuDrawerItem]?
     private var tracking: NSTrackingArea?
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
-    static let cell: CGFloat = 64
     var singleRow = false
-    var columns: Int { singleRow ? max(1, items.count) : max(1, Int((bounds.width - 24) / Self.cell)) }
-    func cellFrame(_ index: Int) -> CGRect {
-        CGRect(x: 12 + CGFloat(index % columns) * Self.cell, y: 14 + CGFloat(index / columns) * 62, width: Self.cell - 4, height: 58)
+    private static func width(_ item: MenuDrawerItem) -> CGFloat { max(36, min(332, (item.icon?.size.width ?? 24) + 12)) }
+    static func rowWidth(_ items: [MenuDrawerItem]) -> CGFloat { 24 + items.reduce(0) { $0 + width($1) } }
+    private static func frames(_ items: [MenuDrawerItem], width: CGFloat, singleRow: Bool) -> [CGRect] {
+        var x: CGFloat = 12, y: CGFloat = 12
+        return items.map { item in
+            let w = min(Self.width(item), max(36, width - 24))
+            if !singleRow, x > 12, x + w > width - 12 { x = 12; y += 44 }
+            let result = CGRect(x: x, y: y, width: w, height: 40); x += w; return result
+        }
+    }
+    func cellFrame(_ index: Int) -> CGRect { Self.frames(items, width: bounds.width, singleRow: singleRow)[index] }
+    func iconFrame(_ index: Int) -> CGRect {
+        let frame = cellFrame(index), size = items[index].icon?.size ?? CGSize(width: 24, height: 24)
+        return CGRect(x: frame.midX - size.width / 2, y: frame.midY - size.height / 2, width: size.width, height: size.height)
     }
     func index(at point: CGPoint) -> Int? { items.indices.first { cellFrame($0).contains(point) } }
-    func insertion(at point: CGPoint) -> Int { min(items.count - 1, max(0, Int((point.y - 14) / 62) * columns + Int((point.x - 12) / Self.cell))) }
-    static func height(count: Int, width: CGFloat) -> CGFloat {
-        let columns = max(1, Int((width - 24) / cell))
-        return CGFloat(max(1, (count + columns - 1) / columns)) * 62 + 46
+    func insertion(at point: CGPoint) -> Int {
+        index(at: point) ?? items.indices.min { a, b in
+            let x = cellFrame(a), y = cellFrame(b)
+            return hypot(x.midX - point.x, x.midY - point.y) < hypot(y.midX - point.x, y.midY - point.y)
+        } ?? 0
+    }
+    static func height(items: [MenuDrawerItem], width: CGFloat) -> CGFloat {
+        (frames(items, width: width, singleRow: false).last?.maxY ?? 52) + 34
     }
     override func updateTrackingAreas() {
         super.updateTrackingAreas(); if let tracking { removeTrackingArea(tracking) }
@@ -46,12 +63,14 @@ struct MenuDrawerItem {
     override func mouseExited(with event: NSEvent) { onPresence?(false) }
     override func mouseMoved(with event: NSEvent) {
         selected = index(at: convert(event.locationInWindow, from: nil)).map { items[$0].bundle }
+        toolTip = selected.flatMap { id in items.first { $0.bundle == id }?.name }
         onInteraction?()
     }
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self); onInteraction?()
         let point = convert(event.locationInWindow, from: nil)
         guard let index = index(at: point) else { down = nil; return }
+        dragOriginal = items
         selected = items[index].bundle; down = (items[index].bundle, point, event.modifierFlags.contains(.command)); dragging = false
     }
     override func mouseDragged(with event: NSEvent) {
@@ -63,10 +82,12 @@ struct MenuDrawerItem {
             let to = insertion(at: point)
             if from != to { let item = items.remove(at: from); items.insert(item, at: to) }
         }
+        if let item = items.first(where: { $0.bundle == down.0 }), let window { onDragImage?(item, window.convertPoint(toScreen: event.locationInWindow)) }
         needsDisplay = true
     }
     override func mouseUp(with event: NSEvent) {
         guard let down else { return }; self.down = nil; onInteraction?()
+        defer { dragOriginal = nil; onDragFinished?(); needsDisplay = true }
         let point = convert(event.locationInWindow, from: nil)
         if dragging {
             dragging = false
@@ -74,8 +95,12 @@ struct MenuDrawerItem {
             else if let window { onRestore?(down.0, window.convertPoint(toScreen: event.locationInWindow)) }
         } else if index(at: point).map({ items[$0].bundle }) == down.0 { onOpen?(down.0) }
     }
+    func cancelDrag() {
+        if let original = dragOriginal { items = original }
+        down = nil; dragging = false; dragOriginal = nil; onDragFinished?(); needsDisplay = true
+    }
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 { onClose?() }
+        if event.keyCode == 53 { cancelDrag(); onClose?() }
         else if event.keyCode == 36, let selected { onOpen?(selected) }
         else if event.keyCode == 123 || event.keyCode == 124 {
             guard !items.isEmpty else { return }
@@ -89,15 +114,22 @@ struct MenuDrawerItem {
         SketchPencil.stroke(outline, color: accepting ? SketchPalette.blue : SketchPalette.line, width: accepting ? 2.4 : 1.5)
         for (index, item) in items.enumerated() {
             let frame = cellFrame(index), isSelected = selected == item.bundle
+            // Native pixels keep their original size and colours. The entire
+            // slot is clickable; selection is a small underline, not a card.
             if isSelected {
-                let shape = SketchPencil.outline(in: frame, radius: 8)
-                SketchPalette.fill(shape, color: SketchPalette.blue.withAlphaComponent(0.10))
-                SketchPencil.stroke(shape, color: SketchPalette.blue, width: 1.8)
+                let path = NSBezierPath(); path.move(to: CGPoint(x: frame.minX + 8, y: frame.maxY - 1))
+                path.line(to: CGPoint(x: frame.maxX - 8, y: frame.maxY - 1))
+                SketchPencil.stroke(path, color: SketchPalette.blue, width: 2)
             }
-            item.icon?.draw(in: CGRect(x: frame.midX - 15, y: frame.minY + 4, width: 30, height: 30), from: .zero, operation: .sourceOver, fraction: item.available ? 1 : 0.35, respectFlipped: true, hints: nil)
-            let style = NSMutableParagraphStyle(); style.alignment = .center; style.lineBreakMode = .byTruncatingTail
-            (item.name as NSString).draw(in: CGRect(x: frame.minX + 2, y: frame.minY + 38, width: frame.width - 4, height: 16), withAttributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: item.available ? SketchPalette.ink : SketchPalette.muted, .paragraphStyle: style])
+            if !(dragging && down?.0 == item.bundle) {
+                item.icon?.draw(in: iconFrame(index), from: .zero, operation: .sourceOver, fraction: item.available ? 1 : 0.35, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.none])
+            }
+            if item.icon == nil {
+                let style = NSMutableParagraphStyle(); style.alignment = .center; style.lineBreakMode = .byTruncatingTail
+                (item.name as NSString).draw(in: frame.insetBy(dx: 3, dy: 12), withAttributes: [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: SketchPalette.muted, .paragraphStyle: style])
+            }
         }
+
         if items.isEmpty {
             let plus = NSImage(systemSymbolName: "tray.and.arrow.down", accessibilityDescription: nil)
             plus?.draw(in: CGRect(x: bounds.midX - 15, y: 20, width: 30, height: 26), from: .zero, operation: .sourceOver, fraction: 0.5, respectFlipped: true, hints: nil)

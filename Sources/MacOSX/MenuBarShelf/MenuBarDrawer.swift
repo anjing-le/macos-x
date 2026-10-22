@@ -22,10 +22,15 @@ import ApplicationServices
     private let defaults: UserDefaults
     private let visibility: MenuVisibilityProviding
     private let inventory = MenuBarInventory()
+    private let iconCapture = MenuBarIconCapture()
+    private var originalIcons: [String: NSImage] = [:]
+    private var iconCosts: [String: Int] = [:]
     private var restriction: MenuVisibilityHandle?
     private var readToken: MenuBarReadToken?
     private var actionToken: MenuBarReadToken?
     private var reading = false
+    private var readWatchdog: DispatchWorkItem?
+    var iconReadTimeout: TimeInterval = 4
     private var readDate: TimeInterval = 0
     private var generation = 0
     private var restrictionGeneration = 0
@@ -37,6 +42,7 @@ import ApplicationServices
     private var reapplyOnHover = false
     private var panel: MenuDrawerPanel?
     private var ghost: NSPanel?
+    private var settlingGhost: NSPanel?
     private var dragSource: MenuBarEntry?
     private var dragOrigin = CGPoint.zero
     private var dragMoved = false
@@ -48,12 +54,14 @@ import ApplicationServices
     private var appIcons: [String: MenuDrawerItem] = [:]
     var permissionOverride: Bool?
     var readOverride: ((MenuBarReadToken, @escaping ([MenuBarEntry]) -> Void) -> Void)?
+    var iconReadOverride: (([MenuBarEntry], MenuBarReadToken, @escaping ([String: MenuBarIconPixels]) -> Void) -> Void)?
     var pressOverride: ((MenuBarEntry, MenuBarReadToken, @escaping (Bool) -> Void) -> Void)?
     var testNoPresentation = false
     var testSkipInput = false
     var activationTimeout: TimeInterval = 4
     var dismissDelay: TimeInterval = 1.2
     var pointer: () -> CGPoint = { NSEvent.mouseLocation }
+    var pressedButtons: () -> Int = { Int(NSEvent.pressedMouseButtons) }
     var isOpen: Bool { panel?.isVisible == true || (testNoPresentation && openForTest) }
     private var openForTest = false
     private var selectionKey = "menuBarShelf.drawerBundles.v1"
@@ -71,6 +79,8 @@ import ApplicationServices
         view.onMove = { [weak self] bundle, index in self?.move(bundle, to: index) }
         view.onRestore = { [weak self] bundle, point in self?.restore(bundle, at: point) }
         view.onOpen = { [weak self] bundle in self?.openMenu(bundle) }
+        view.onDragImage = { [weak self] item, point in self?.showDragImage(item, at: point) }
+        view.onDragFinished = { [weak self] in self?.settleDragImage() }
         input.canBegin = { [weak self] in self?.active == true && self?.busy == false }
         input.onCancel = { [weak self] in self?.cancelDrag(); self?.presence(false) }
         input.onPrepare = { [weak self] in self?.prepareDrag() }
@@ -97,8 +107,9 @@ import ApplicationServices
     }
     func stop() {
         guard active else { return }; active = false; generation += 1; restrictionGeneration += 1; movementGeneration += 1
-        readToken?.cancel(); readToken = nil; actionToken?.cancel(); actionToken = nil
+        readToken?.cancel(); readToken = nil; readWatchdog?.cancel(); readWatchdog = nil; actionToken?.cancel(); actionToken = nil
         reading = false; busy = false; pendingAfterRead = nil
+        iconCapture.clear(); originalIcons.removeAll(); iconCosts.removeAll()
         dismissWork?.cancel(); dismissWork = nil; watchdog?.cancel(); watchdog = nil
         menuWatch?.cancel(); menuWatch = nil; reapplyOnHover = false
         restriction?.invalidate(); restriction = nil; hidden = false
@@ -133,8 +144,9 @@ import ApplicationServices
         self.anchor = anchor; dismissWork?.cancel(); dismissWork = nil
         let screen = NSScreen.screens.first { $0.frame.contains(CGPoint(x: anchor.midX, y: anchor.midY)) } ?? NSScreen.main
         guard let screen else { return }
-        let width = min(max(280, CGFloat(min(8, max(4, order.count))) * 64 + 24), max(220, screen.visibleFrame.width - 24))
-        let height = min(MenuBarDrawerView.height(count: order.count, width: width), screen.visibleFrame.height - 24)
+        let icons = drawerItems
+        let width = min(max(240, min(620, MenuBarDrawerView.rowWidth(icons))), max(220, screen.visibleFrame.width - 24))
+        let height = min(MenuBarDrawerView.height(items: icons, width: width), screen.visibleFrame.height - 24)
         let origin = CGPoint(x: max(screen.visibleFrame.minX + 8, min(anchor.midX - width / 2, screen.visibleFrame.maxX - width - 8)), y: min(anchor.minY, screen.visibleFrame.maxY) - height - 4)
         if panel == nil {
             let panel = MenuDrawerPanel(contentRect: CGRect(origin: origin, size: CGSize(width: width, height: height)), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -151,7 +163,7 @@ import ApplicationServices
     }
     func close() {
         dismissWork?.cancel(); dismissWork = nil; panel?.orderOut(nil); openForTest = false
-        removeMonitors(); view.accepting = false
+        removeMonitors(); view.cancelDrag(); view.accepting = false
     }
     func contains(_ point: CGPoint) -> Bool {
         if let anchor = anchorProvider?() ?? anchor, anchor.insetBy(dx: -5, dy: -7).contains(point) { return true }
@@ -171,7 +183,7 @@ import ApplicationServices
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }; self.dismissWork = nil
             guard self.active, !self.contains(self.pointer()), self.dragSource == nil, !self.busy, !self.reading,
-                  NSEvent.pressedMouseButtons == 0 else { return }
+                  self.pressedButtons() == 0 else { return }
             self.close()
         }
         dismissWork = work; DispatchQueue.main.asyncAfter(deadline: .now() + dismissDelay, execute: work)
@@ -202,16 +214,45 @@ import ApplicationServices
         if !force, ProcessInfo.processInfo.systemUptime - readDate < 2 { after?(); return }
         reading = true; generation += 1; let expected = generation
         let token = MenuBarReadToken(); readToken?.cancel(); readToken = token
+        readWatchdog?.cancel()
+        let timeout = DispatchWorkItem { [weak self] in
+            guard let self, self.active, self.generation == expected, self.reading else { return }
+            token.cancel(); self.generation += 1; self.readToken = nil; self.readWatchdog = nil
+            self.reading = false; self.pendingAfterRead = nil; self.showAll()
+            self.issue = "原图标读取超时，已保留真实菜单栏；可点击读取图标重试。"; self.changed()
+        }
+        readWatchdog = timeout; DispatchQueue.main.asyncAfter(deadline: .now() + iconReadTimeout, execute: timeout)
         let receive: ([MenuBarEntry]) -> Void = { [weak self] entries in
             guard let self, self.active, self.generation == expected, !token.isCancelled else { return }
-            self.reading = false; self.readToken = nil; self.readDate = ProcessInfo.processInfo.systemUptime
             let own = Bundle.main.bundleIdentifier ?? "cc.anjing.macos-x"
-            self.entries = Array(entries.filter { !MenuBarSections.systemOwners.contains($0.bundle) && $0.bundle != own }.prefix(512))
-            self.input.entries = self.entries.filter { !self.order.contains($0.bundle) }
-            self.appIcons.removeAll(); self.changed()
-            after?(); let pending = self.pendingAfterRead; self.pendingAfterRead = nil; pending?()
-            self.presence(self.contains(self.pointer()))
+            let filtered = Array(entries.filter { !MenuBarSections.systemOwners.contains($0.bundle) && $0.bundle != own }.prefix(512))
+            let wanted = filtered.filter { !self.hidden || !self.order.contains($0.bundle) || self.originalIcons[$0.bundle] == nil }
+            let finish: ([String: MenuBarIconPixels]) -> Void = { [weak self] pixels in
+                guard let self, self.active, self.generation == expected, !token.isCancelled else { return }
+                self.reading = false; self.readToken = nil; self.readWatchdog?.cancel(); self.readWatchdog = nil; self.readDate = ProcessInfo.processInfo.systemUptime
+                self.entries = filtered
+                for (bundle, pixel) in pixels {
+                    self.originalIcons[bundle] = NSImage(cgImage: pixel.image, size: pixel.size)
+                    self.iconCosts[bundle] = pixel.image.bytesPerRow * pixel.image.height
+                }
+                let retained = Set(filtered.map(\.bundle)).union(self.order)
+                var keep = Set<String>(), bytes = 0
+                for bundle in self.order + filtered.map(\.bundle) where retained.contains(bundle) && !keep.contains(bundle) {
+                    guard let cost = self.iconCosts[bundle], keep.count < 64, bytes + cost <= 4_000_000 else { continue }
+                    keep.insert(bundle); bytes += cost
+                }
+                self.originalIcons = self.originalIcons.filter { keep.contains($0.key) }
+                self.iconCosts = self.iconCosts.filter { keep.contains($0.key) }
+                // Only cached native pixels may be dragged. Unknown items stay native.
+                self.input.entries = filtered.filter { !self.order.contains($0.bundle) && self.originalIcons[$0.bundle] != nil }
+                self.appIcons.removeAll(); self.changed()
+                after?(); let pending = self.pendingAfterRead; self.pendingAfterRead = nil; pending?()
+                self.presence(self.contains(self.pointer()))
+            }
+            if let read = self.iconReadOverride { read(wanted, token, finish) }
+            else { self.iconCapture.read(wanted, token: token, completion: finish) }
         }
+
         if let readOverride { readOverride(token, receive) }
         else {
             let apps = NSWorkspace.shared.runningApplications.filter { !$0.isTerminated && $0.processIdentifier != ProcessInfo.processInfo.processIdentifier && $0.bundleURL?.pathExtension == "app" }
@@ -224,8 +265,7 @@ import ApplicationServices
         let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundle).first
         let url = running?.bundleURL ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle)
         let name = running?.localizedName ?? url?.deletingPathExtension().lastPathComponent ?? bundle.split(separator: ".").last.map(String.init) ?? bundle
-        let icon = running?.icon ?? url.map { NSWorkspace.shared.icon(forFile: $0.path) }
-        icon?.size = CGSize(width: 32, height: 32)
+        let icon = originalIcons[bundle]
         let item = MenuDrawerItem(bundle: bundle, name: name, icon: icon, available: running != nil || entries.contains { $0.bundle == bundle })
         if appIcons.count < 128 { appIcons[bundle] = item }; return item
     }
@@ -234,12 +274,12 @@ import ApplicationServices
         var seen = Set(order)
         return entries.filter { seen.insert($0.bundle).inserted }.prefix(64).map { item($0.bundle) }
     }
-    func add(_ bundle: String, at index: Int? = nil) {
+    func add(_ bundle: String, at index: Int? = nil, completion: ((Bool) -> Void)? = nil) {
         guard active, permitted, visibility.available, !busy, !order.contains(bundle), order.count < 40,
               bundle != Bundle.main.bundleIdentifier, !MenuBarSections.systemOwners.contains(bundle),
-              entries.contains(where: { $0.bundle == bundle }) else { return }
+              entries.contains(where: { $0.bundle == bundle }) else { completion?(false); return }
         var next = order; next.insert(bundle, at: min(max(0, index ?? order.count), order.count))
-        apply(next: next)
+        apply(next: next, completion: completion)
     }
     func move(_ bundle: String, to index: Int) {
         guard !busy, let old = order.firstIndex(of: bundle) else { updateView(); return }
@@ -273,6 +313,10 @@ import ApplicationServices
         restriction?.invalidate(); restriction = nil; hidden = false
         if proposed.isEmpty { order = []; persist(); issue = nil; changed(); completion?(true); return }
         let confirmed = Set(entries.map(\.bundle)).intersection(proposed)
+        guard confirmed.allSatisfy({ originalIcons[$0] != nil }) else {
+            issue = CGPreflightScreenCaptureAccess() ? "原图标暂不可读取，已保留真实菜单栏；可点击读取图标重试。" : "需要屏幕录制权限读取原菜单栏图标；未读到的图标保持显示。"
+            changed(); completion?(false); return
+        }
         guard !confirmed.isEmpty else {
             // Offline/unreadable members stay configured but visible. Removing
             // another member must still succeed when no remaining app is running.
@@ -342,31 +386,33 @@ import ApplicationServices
     func beginDrag(_ entry: MenuBarEntry, at point: CGPoint) {
         guard active, !busy else { return }
         dragSource = entry; dragOrigin = point; dragMoved = false; dismissWork?.cancel(); dismissWork = nil
-        show(); view.accepting = true
+        show(); view.accepting = contains(point)
     }
     func drag(to point: CGPoint) {
         guard let entry = dragSource else { return }
         dragMoved = dragMoved || hypot(point.x - dragOrigin.x, point.y - dragOrigin.y) > 4
         guard dragMoved else { return }
         view.accepting = contains(point)
-        if ghost == nil, !testNoPresentation {
-            let panel = NSPanel(contentRect: CGRect(x: point.x - 18, y: point.y - 18, width: 36, height: 36), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-            panel.level = .popUpMenu; panel.isOpaque = false; panel.backgroundColor = .clear; panel.ignoresMouseEvents = true; panel.isReleasedWhenClosed = false
-            let image = NSImageView(frame: CGRect(x: 2, y: 2, width: 32, height: 32)); image.image = item(entry.bundle).icon
-            panel.contentView?.addSubview(image); ghost = panel; panel.orderFrontRegardless()
-        }
-        ghost?.setFrameOrigin(CGPoint(x: point.x - 18, y: point.y - 18))
+        showDragImage(item(entry.bundle), at: point)
     }
     func finishDrag(at point: CGPoint) {
         guard let source = dragSource else { return }
-        let moved = dragMoved; cancelDrag()
-        guard moved else { return }
-        if contains(point) { add(source.bundle); show() }
-        else if inMenuBand(point) {
+        let moved = dragMoved; dragSource = nil; dragMoved = false; view.accepting = false
+        guard moved else { finishDragImage(); return }
+        if contains(point) {
+            view.selected = source.bundle
+            add(source.bundle) { [weak self] success in
+                guard let self else { return }
+                if success { self.show(); self.settleDragImage() }
+                else { self.finishDragImage(at: self.dragOrigin, animated: true) }
+            }
+        } else if inMenuBand(point) {
+            finishDragImage()
             let top = NSScreen.screens.first?.frame.maxY ?? 0
             replayMove(from: CGPoint(x: source.frame.midX, y: source.frame.midY), to: CGPoint(x: point.x, y: top - point.y))
-        } else { presence(false) }
+        } else { finishDragImage(at: dragOrigin, animated: true); presence(false) }
     }
+
     private func replayMove(from start: CGPoint, to end: CGPoint) {
         guard active else { return }
         let expected = movementGeneration; busy = true
@@ -377,11 +423,53 @@ import ApplicationServices
             self.busy = false; self.readDate = 0; self.prepareDrag(); self.changed(); self.presence(false)
         }
     }
-    private func cancelDrag() { dragSource = nil; dragMoved = false; ghost?.close(); ghost = nil; view.accepting = false }
+    func showDragImage(_ item: MenuDrawerItem, at point: CGPoint) {
+        guard !testNoPresentation, let icon = item.icon else { return }
+        let size = icon.size
+        if ghost == nil {
+            settlingGhost?.close(); settlingGhost = nil
+            let panel = NSPanel(contentRect: CGRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            panel.level = .popUpMenu; panel.isOpaque = false; panel.backgroundColor = .clear
+            panel.ignoresMouseEvents = true; panel.isReleasedWhenClosed = false; panel.hasShadow = false
+            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+            let image = NSImageView(frame: CGRect(origin: .zero, size: size)); image.image = icon; image.imageScaling = .scaleNone
+            panel.contentView = image; ghost = panel; panel.orderFrontRegardless()
+        }
+        ghost?.setFrameOrigin(CGPoint(x: point.x - size.width / 2, y: point.y - size.height / 2))
+    }
+    func settleDragImage() {
+        let target: CGPoint?
+        if isOpen, let panel, let selected = view.selected, let index = view.items.firstIndex(where: { $0.bundle == selected }) {
+            let rect = view.iconFrame(index)
+            target = panel.convertPoint(toScreen: view.convert(CGPoint(x: rect.midX, y: rect.midY), to: nil))
+        } else { target = nil }
+        finishDragImage(at: target, animated: true)
+    }
+    func finishDragImage(at target: CGPoint? = nil, animated: Bool = false) {
+        settlingGhost?.close(); settlingGhost = nil
+        guard let ghost else { return }; self.ghost = nil
+        guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { ghost.close(); return }
+        settlingGhost = ghost
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.12
+            if let target { ghost.animator().setFrameOrigin(CGPoint(x: target.x - ghost.frame.width / 2, y: target.y - ghost.frame.height / 2)) }
+            ghost.animator().alphaValue = 0
+        } completionHandler: { [weak self] in
+            ghost.close()
+            if self?.settlingGhost === ghost { self?.settlingGhost = nil }
+        }
+    }
+    private func cancelDrag() { dragSource = nil; dragMoved = false; finishDragImage(); view.accepting = false }
+    func requestIconAccess() {
+        guard active else { return }
+        // Only the explicit dashboard button may trigger the system prompt.
+        if !CGPreflightScreenCaptureAccess() { _ = CGRequestScreenCaptureAccess() }
+        readDate = 0; prepareDrag()
+    }
     private func inMenuBand(_ point: CGPoint) -> Bool {
         NSScreen.screens.contains { $0.frame.contains(point) && point.y >= $0.visibleFrame.maxY }
     }
-    private func persist() { defaults.set(order, forKey: selectionKey); input.entries = entries.filter { !order.contains($0.bundle) } }
+    private func persist() { defaults.set(order, forKey: selectionKey); input.entries = entries.filter { !order.contains($0.bundle) && originalIcons[$0.bundle] != nil } }
     private func changed() { if isOpen { show() } else { updateView() }; onChange?() }
     private func updateView() {
         view.items = drawerItems
@@ -390,8 +478,9 @@ import ApplicationServices
     private func environmentChanged() {
         movementGeneration += 1
         input.cancelPendingGesture()
-        generation += 1; readToken?.cancel(); readToken = nil; reading = false; pendingAfterRead = nil
+        generation += 1; readToken?.cancel(); readToken = nil; readWatchdog?.cancel(); readWatchdog = nil; reading = false; pendingAfterRead = nil
         actionToken?.cancel(); actionToken = nil; entries.removeAll(); input.entries.removeAll(); appIcons.removeAll(); readDate = 0
+        iconCapture.clear(); originalIcons.removeAll(); iconCosts.removeAll()
         cancelDrag(); close(); showAll(); reapplyOnHover = !order.isEmpty
     }
     var hasDismissWork: Bool { dismissWork != nil }

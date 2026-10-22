@@ -81,7 +81,7 @@ import AppKit
         refresh.isEnabled = active; preview.isEnabled = active && native
         automatic.isHidden = native; automatic.isEnabled = active; automatic.state = auto ? .on : .off
         status.stringValue = issue ?? (!active ? "开启模块后，从顶部苹果进入。" : state == .reading ? "正在更新收纳…" : native ? "图标按应用收纳 · 顺序自动保存" : "按住 ⌘ 将图标拖到收纳箭头左侧，再点击收纳。")
-        note.stringValue = native ? "图标使用应用本身的图标。点击会临时恢复真实菜单栏并打开对应菜单；读取不到的应用保留显示。\n离开抽屉后自动收起；系统图标和苹果入口始终保留。" : "当前系统使用原生菜单栏分隔方式；抽屉拖入功能需要 macOS 27。"
+        note.stringValue = native ? "保留菜单栏图标原貌与比例，点击打开原应用菜单；读取不到的图标保留在菜单栏。\n离开抽屉后自动收起；系统图标和苹果入口始终保留。" : "当前系统使用原生菜单栏分隔方式；抽屉拖入功能需要 macOS 27。"
         needsLayout = true
     }
     override func draw(_ dirtyRect: NSRect) { SketchPalette.paper.setFill(); dirtyRect.fill() }
@@ -94,14 +94,14 @@ import AppKit
         let top: CGFloat = narrow ? 116 : 86
         drawerLabel.frame = CGRect(x: 0, y: top, width: width - 110, height: 24)
         preview.frame = CGRect(x: width - 100, y: top - 2, width: 100, height: 28)
-        drawerScroll.frame = CGRect(x: 0, y: top + 32, width: width, height: 112)
-        visibleLabel.frame = CGRect(x: 0, y: top + 158, width: width - 110, height: 24)
-        refresh.frame = CGRect(x: width - 100, y: top + 154, width: 100, height: 28)
-        visibleScroll.frame = CGRect(x: 0, y: top + 190, width: width, height: 112)
+        drawerScroll.frame = CGRect(x: 0, y: top + 32, width: width, height: 88)
+        visibleLabel.frame = CGRect(x: 0, y: top + 134, width: width - 110, height: 24)
+        refresh.frame = CGRect(x: width - 100, y: top + 130, width: 100, height: 28)
+        visibleScroll.frame = CGRect(x: 0, y: top + 166, width: width, height: 88)
         for (scroll, document) in [(drawerScroll, drawer), (visibleScroll, visible)] {
-            document.frame = CGRect(x: 0, y: 0, width: max(scroll.contentSize.width, CGFloat(document.items.count) * 64 + 24), height: 108)
+            document.frame = CGRect(x: 0, y: 0, width: max(scroll.contentSize.width, MenuBarDrawerView.rowWidth(document.items)), height: 84)
         }
-        let bottom = top + 314
+        let bottom = top + 266
         expanded.frame = CGRect(x: 0, y: bottom, width: 96, height: 30)
         collapsed.frame = CGRect(x: 106, y: bottom, width: 72, height: 30)
         automatic.frame = CGRect(x: 188, y: bottom, width: max(32, width - 188), height: 30)

@@ -20,11 +20,19 @@ import AppKit
         let bridge = FixtureVisibility()
         let drawer = MenuBarDrawer(defaults: defaults, visibility: bridge)
         drawer.permissionOverride = true; drawer.testNoPresentation = true; drawer.testSkipInput = true
+        drawer.pressedButtons = { 0 }
         let screen = NSScreen.main!, anchor = CGRect(x: screen.visibleFrame.maxX - 220, y: screen.visibleFrame.maxY, width: 30, height: 24)
         drawer.anchorProvider = { anchor }
         let a = "com.apple.finder", b = "com.apple.Safari", c = "com.apple.TextEdit"
         func entry(_ bundle: String, _ x: CGFloat) -> MenuBarEntry { .init(bundle: bundle, frame: CGRect(x: x, y: 0, width: 20, height: 24)) }
         let entries = [entry(a, 400), entry(b, 440), entry(c, 480), entry("com.apple.controlcenter", 510)]
+        func nativeIconRead(_ entries: [MenuBarEntry], _ token: MenuBarReadToken, _ finish: ([String: MenuBarIconPixels]) -> Void) {
+            let context = CGContext(data: nil, width: 40, height: 48, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            context.setFillColor(CGColor(gray: 0.1, alpha: 1)); context.fillEllipse(in: CGRect(x: 8, y: 12, width: 24, height: 24))
+            let glyph = MenuBarIconPixels(image: context.makeImage()!, size: CGSize(width: 20, height: 24))
+            if !token.isCancelled { finish(Dictionary(entries.map { ($0.bundle, glyph) }, uniquingKeysWith: { first, _ in first })) }
+        }
+        drawer.iconReadOverride = nativeIconRead
         var reads = 0, pressed = [String]()
         drawer.readOverride = { token, receive in reads += 1; if !token.isCancelled { receive(entries) } }
         drawer.pressOverride = { entry, token, receive in if !token.isCancelled { pressed.append(entry.bundle); receive(true) } }
@@ -33,6 +41,8 @@ import AppKit
         drawer.hover(anchor, inside: true)
         try require(drawer.isOpen && reads == 1, "Apple hover opens the native drawer and bounded on-demand inventory")
         try require(!drawer.entries.contains { $0.bundle == "com.apple.controlcenter" }, "System controls never enter drawer inventory")
+        let original = drawer.item(a).icon!
+        try require(original.size == CGSize(width: 20, height: 24), "Menu items retain captured point size, not a 32pt application icon")
         drawer.add(a)
         try require(drawer.order.isEmpty && drawer.busy && defaults.stringArray(forKey: "menuBarShelf.drawerBundles.v1") == nil, "An in-flight hide cannot pretend membership was saved")
         let first = FixtureHandle(); bridge.pending.removeFirst()(first)
@@ -42,8 +52,10 @@ import AppKit
         try require(first.invalidations == 1 && drawer.order == [a] && !drawer.hidden && drawer.issue != nil, "Failure fails open and retains last committed membership")
         drawer.add(b); let second = FixtureHandle(); bridge.pending.removeFirst()(second)
         let calls = bridge.calls.count
+        let beforeSortIcon = drawer.item(a).icon
         drawer.move(b, to: 0)
         try require(drawer.order == [b, a] && bridge.calls.count == calls, "Sorting persists immediately without recapturing or another native activation")
+        try require(drawer.item(a).icon === beforeSortIcon, "Sorting reuses the exact captured native glyph")
         try require(defaults.stringArray(forKey: "menuBarShelf.drawerBundles.v1") == [b, a], "Membership order survives relaunch")
         drawer.restore(b); let third = FixtureHandle(); bridge.pending.removeFirst()(third)
         try require(drawer.order == [a] && second.invalidations == 1, "Drag-out restores a member while keeping the remaining selection")
@@ -63,6 +75,10 @@ import AppKit
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
         try require(drawer.isOpen, "Re-entry cancels the old delayed dismissal")
         drawer.pointer = { CGPoint(x: screen.visibleFrame.minX, y: screen.visibleFrame.minY) }
+        drawer.pressedButtons = { 1 }
+        drawer.presence(false); RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        try require(drawer.isOpen, "A held mouse gesture cannot be collapsed by an idle deadline")
+        drawer.pressedButtons = { 0 }
         drawer.presence(false); RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
         try require(!drawer.isOpen, "Leaving idle closes the drawer")
         drawer.show(); drawer.beginDrag(entry(c, 480), at: CGPoint(x: 480, y: screen.frame.maxY - 10))
@@ -81,6 +97,7 @@ import AppKit
         try require(stoppedHandle.invalidations == 1 && !drawer.active && !drawer.input.enabled && !drawer.isOpen && !drawer.hasDismissWork, "Stop restores icons and discards pending activation/input/popup")
         let restored = MenuBarDrawer(defaults: defaults, visibility: bridge)
         try require(restored.order == [a, c], "A new module reads the stored real membership")
+        restored.iconReadOverride = nativeIconRead
         restored.permissionOverride = false; restored.testNoPresentation = true; restored.testSkipInput = true
         restored.start(); restored.prepareDrag()
         try require(restored.issue != nil && !restored.hidden, "Missing permission must be explicit and fail open")
@@ -89,12 +106,14 @@ import AppKit
         let delayedDefaults = UserDefaults(suiteName: suite + ".delayed")!
         defer { delayedDefaults.removePersistentDomain(forName: suite + ".delayed") }
         let delayed = MenuBarDrawer(defaults: delayedDefaults, visibility: bridge)
+        delayed.iconReadOverride = nativeIconRead
         delayed.permissionOverride = true; delayed.testSkipInput = true; delayed.testNoPresentation = true
         var readBack: (([MenuBarEntry]) -> Void)?, readToken: MenuBarReadToken?
         delayed.readOverride = { token, callback in readToken = token; readBack = callback }
         delayed.start(); delayed.prepareDrag(); delayed.stop(); readBack?(entries)
         try require(readToken?.isCancelled == true && delayed.entries.isEmpty && !delayed.input.enabled, "Stopped inventory never restores stale entries or input capture")
         let latest = MenuBarDrawer(defaults: delayedDefaults, visibility: bridge)
+        latest.iconReadOverride = nativeIconRead
         latest.permissionOverride = true; latest.testSkipInput = true; latest.testNoPresentation = true
         latest.readOverride = { _, callback in readBack = callback }
         var latestPresses = [String]()
@@ -160,12 +179,44 @@ import AppKit
         defer { offlineDefaults.removePersistentDomain(forName: suite + ".offline") }
         offlineDefaults.set([a, b], forKey: "menuBarShelf.drawerBundles.v1")
         let offline = MenuBarDrawer(defaults: offlineDefaults, visibility: bridge)
+        offline.iconReadOverride = nativeIconRead
         offline.permissionOverride = true; offline.testSkipInput = true; offline.testNoPresentation = true
         offline.readOverride = { _, done in done([]) }
         let callsBeforeOffline = bridge.calls.count
         offline.start(); offline.restore(a)
         try require(offline.order == [b] && !offline.hidden && !offline.busy && bridge.calls.count == callsBeforeOffline, "An unreadable remaining app cannot prevent removing a saved drawer member")
         offline.stop()
+        let missing = MenuBarDrawer(defaults: delayedDefaults, visibility: bridge)
+        missing.permissionOverride = true; missing.testSkipInput = true; missing.testNoPresentation = true
+        missing.readOverride = { _, done in done(entries) }; missing.iconReadOverride = { _, _, done in done([:]) }
+        missing.start(); missing.prepareDrag()
+        let beforeMissing = bridge.calls.count
+        missing.add(a)
+        try require(missing.item(a).icon == nil && missing.input.entries.isEmpty && bridge.calls.count == beforeMissing && !missing.hidden,
+                    "Missing original pixels cannot hide the real entry, intercept its drag or substitute an application icon")
+        missing.stop()
+        let lateIcons = MenuBarDrawer(defaults: delayedDefaults, visibility: bridge)
+        lateIcons.permissionOverride = true; lateIcons.testSkipInput = true; lateIcons.testNoPresentation = true
+        lateIcons.readOverride = { _, done in done(entries) }
+        var latePixels: (([String: MenuBarIconPixels]) -> Void)?
+        lateIcons.iconReadOverride = { _, _, done in latePixels = done }
+        lateIcons.start(); lateIcons.prepareDrag(); lateIcons.stop()
+        nativeIconRead(entries, MenuBarReadToken()) { latePixels?($0) }
+        try require(lateIcons.item(a).icon == nil && lateIcons.input.entries.isEmpty, "Late screen pixels cannot repopulate a stopped drawer")
+        let pixels = CGContext(data: nil, width: 120, height: 48, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        pixels.setFillColor(CGColor(red: 1, green: 0.2, blue: 0.1, alpha: 1)); pixels.fill(CGRect(x: 0, y: 0, width: 120, height: 48))
+        let surface = pixels.makeImage()!, area = CGRect(x: 1512, y: -241, width: 60, height: 24)
+        let cropped = MenuBarIconCapture.crop(surface, surface: area, item: CGRect(x: 1532, y: -241, width: 20, height: 24))!
+        try require(cropped.size == CGSize(width: 20, height: 24) && cropped.image.width == 40 && cropped.image.height == 48,
+                    "Native glyph crops use global Quartz coordinates, negative display origins and real Retina scale")
+        try require(MenuBarIconCapture.crop(surface, surface: area, item: area.offsetBy(dx: -1, dy: 0)) == nil, "Out-of-surface entries must not capture unrelated pixels")
+        let timedIcons = MenuBarDrawer(defaults: delayedDefaults, visibility: bridge)
+        timedIcons.permissionOverride = true; timedIcons.testSkipInput = true; timedIcons.testNoPresentation = true; timedIcons.iconReadTimeout = 0.02
+        timedIcons.readOverride = { _, done in done(entries) }; timedIcons.iconReadOverride = { _, _, _ in }
+        timedIcons.start(); timedIcons.prepareDrag()
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        try require(!timedIcons.hidden && !timedIcons.busy && timedIcons.issue?.contains("超时") == true, "An unresponsive native pixel request fails open and reports a retry instead of stranding hidden icons")
+        timedIcons.stop()
         // Existing native UI is rendered using fixture app identities, not the
         // user's live inventory or preferences. Wide and narrow bounds are checked.
         let module = MenuBarShelfModule(defaults: defaults, visibility: bridge, native: true)
@@ -188,7 +239,9 @@ import AppKit
         let view = module.makeDashboard()
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 840, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = view
-        let examples = [MenuDrawerItem(bundle: a, name: "Finder", icon: NSWorkspace.shared.icon(forFile: "/System/Library/CoreServices/Finder.app")), MenuDrawerItem(bundle: b, name: "Safari", icon: NSWorkspace.shared.icon(forFile: "/Applications/Safari.app")), MenuDrawerItem(bundle: c, name: "TextEdit", icon: NSWorkspace.shared.icon(forFile: "/System/Applications/TextEdit.app"))]
+        var previewIcons: [String: MenuBarIconPixels] = [:]
+        nativeIconRead(entries, MenuBarReadToken()) { previewIcons = $0 }
+        let examples = [a, b, c].map { MenuDrawerItem(bundle: $0, name: $0.components(separatedBy: ".").last!, icon: NSImage(cgImage: previewIcons[$0]!.image, size: previewIcons[$0]!.size)) }
         view.setItems(drawer: examples, visible: examples.reversed())
         view.update(active: true, state: .collapsed, auto: false, issue: nil, count: 3, native: true)
         for width: CGFloat in [840, 460, 360, 220] {
@@ -202,11 +255,27 @@ import AppKit
         func localEvent(_ type: NSEvent.EventType, _ point: CGPoint, command: Bool = true) -> NSEvent {
             NSEvent.mouseEvent(with: type, location: view.drawer.convert(point, to: nil), modifierFlags: command ? .command : [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
         }
+        var dragFeedback = 0, dragRelease = 0
+        view.drawer.onDragImage = { _, _ in dragFeedback += 1 }; view.drawer.onDragFinished = { dragRelease += 1 }
+        try require(view.drawer.iconFrame(0).size == examples[0].icon!.size, "UI draws native pixels at their original size")
         let firstCell = view.drawer.cellFrame(0), lastCell = view.drawer.cellFrame(2)
         view.drawer.mouseDown(with: localEvent(.leftMouseDown, CGPoint(x: firstCell.midX, y: firstCell.midY)))
         view.drawer.mouseDragged(with: localEvent(.leftMouseDragged, CGPoint(x: lastCell.midX, y: lastCell.midY)))
         view.drawer.mouseUp(with: localEvent(.leftMouseUp, CGPoint(x: lastCell.midX, y: lastCell.midY)))
         try require(moved?.0 == a && moved?.1 == 2 && view.drawer.items[2].bundle == a, "Real Command-drag view handlers reorder live before release and commit matching index")
+        try require(dragFeedback == 1 && dragRelease == 1, "Drawer drag displays and releases the same native image on mouse-up")
+        let outCell = view.drawer.cellFrame(0)
+        var restoredBundle: String?
+        view.drawer.onRestore = { bundle, _ in restoredBundle = bundle }
+        view.drawer.mouseDown(with: localEvent(.leftMouseDown, CGPoint(x: outCell.midX, y: outCell.midY)))
+        view.drawer.mouseDragged(with: localEvent(.leftMouseDragged, CGPoint(x: -40, y: -40)))
+        view.drawer.mouseUp(with: localEvent(.leftMouseUp, CGPoint(x: -40, y: -40)))
+        try require(restoredBundle == b && dragFeedback == 2 && dragRelease == 2, "Dragging out has the same native-image feedback as dragging in/reordering")
+        let originalOrder = view.drawer.items.map(\.bundle)
+        view.drawer.mouseDown(with: localEvent(.leftMouseDown, CGPoint(x: outCell.midX, y: outCell.midY)))
+        view.drawer.mouseDragged(with: localEvent(.leftMouseDragged, CGPoint(x: lastCell.midX, y: lastCell.midY)))
+        view.drawer.cancelDrag()
+        try require(view.drawer.items.map(\.bundle) == originalOrder, "Cancelling a drag restores the last saved order and releases its ghost")
         if let directory = ProcessInfo.processInfo.environment["MENU_BAR_SHELF_PREVIEW_DIR"] {
             let path = URL(fileURLWithPath: directory); try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
             for width: CGFloat in [840, 360] {

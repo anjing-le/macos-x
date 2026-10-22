@@ -97,11 +97,15 @@ import MenuBarVisibilityBridge
         view.onExpand = { [weak self] in self?.expand() }
         view.onCollapse = { [weak self] in self?.collapse() }
         view.onAutoCollapse = { [weak self] in self?.autoCollapse = $0 }
-        view.onRefresh = { [weak self] in self?.drawer?.prepareDrag() }
+        view.onRefresh = { [weak self] in self?.drawer?.requestIconAccess() }
         view.onAdd = { [weak self] in self?.drawer?.add($0) }
         view.onMove = { [weak self] in self?.drawer?.move($0, to: $1) }
         view.onRestore = { [weak self] in self?.drawer?.restore($0, at: $1) }
         view.onOpen = { [weak self] in self?.drawer?.openMenu($0) }
+        for strip in [view.drawer, view.visible] {
+            strip.onDragImage = { [weak self] item, point in self?.drawer?.showDragImage(item, at: point) }
+            strip.onDragFinished = { [weak self] in self?.drawer?.settleDragImage() }
+        }
         view.onPreview = { [weak self] in self?.drawer?.toggle() }
         refresh(); return view
     }
