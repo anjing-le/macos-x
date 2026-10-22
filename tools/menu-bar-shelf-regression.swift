@@ -300,6 +300,17 @@ import AppKit
         try require(fullGlyph.size == CGSize(width: 44, height: 30) && fullBitmap.colorAt(x: 5, y: 30)!.redComponent > 0.9
                         && fullBitmap.colorAt(x: 81, y: 30)!.blueComponent > 0.9,
                     "Final native glyph retains both outer edges and full height after compositor reflow")
+        let stableA = MenuBarEntry(bundle: a, frame: CGRect(x: 100, y: 0, width: 38, height: 30), pid: 101)
+        let movingB = MenuBarEntry(bundle: b, frame: CGRect(x: 138, y: 0, width: 38, height: 30), pid: 102)
+        let movedB = MenuBarEntry(bundle: b, frame: movingB.frame.offsetBy(dx: 18, dy: 0), pid: 102)
+        try require(MenuBarIconCapture.stableEntries([stableA, movingB], after: [stableA, movedB]).map(\.bundle) == [a],
+                    "A menu reflow during capture discards the moved glyph rather than caching half of its neighbour")
+        let replacedA = MenuBarEntry(bundle: a, frame: stableA.frame, pid: 999)
+        try require(MenuBarIconCapture.stableEntries([stableA], after: [replacedA]).isEmpty,
+                    "An identical rectangle from a replacement process cannot validate an old capture")
+        let hiddenA = MenuBarEntry(bundle: a, frame: stableA.frame, pid: 101, visible: false)
+        try require(MenuBarIconCapture.stableEntries([stableA], after: [hiddenA]).isEmpty && fullGlyph.sourceFrame == physical.frame,
+                    "Hidden entries cannot validate pixels; a complete crop records its actual source bounds")
         let hiddenEntry = MenuBarContainerGeometry.reconcile([stale], containers: [])[0]
         try require(!hiddenEntry.visible && hiddenEntry.frame == stale.frame, "Hidden app coordinates cannot be treated as a visible pixel source")
         let otherDisplay = MenuBarContainer(pid: 101, frame: CGRect(x: 100, y: 0, width: 44, height: 33), surface: CGRect(x: 0, y: 0, width: 1512, height: 33))
@@ -336,6 +347,32 @@ import AppKit
         cacheOwner.showAll()
         try require(restoredLayoutToken?.isCancelled == true && cacheOwner.input.entries.isEmpty,
                     "Explicit native restoration also invalidates in-flight pixels and drag coordinates")
+        let geometryDefaults = UserDefaults(suiteName: suite + ".capture-geometry")!
+        defer { geometryDefaults.removePersistentDomain(forName: suite + ".capture-geometry") }
+        let geometryOwner = MenuBarDrawer(defaults: geometryDefaults, visibility: FixtureVisibility())
+        geometryOwner.permissionOverride = true; geometryOwner.testSkipInput = true; geometryOwner.testNoPresentation = true
+        geometryOwner.readOverride = { _, done in done(entries) }; geometryOwner.iconReadOverride = nativeIconRead
+        geometryOwner.start(); geometryOwner.prepareDrag()
+        let verifiedOriginal = geometryOwner.item(a).icon
+        try require(verifiedOriginal != nil && !geometryOwner.input.entries.isEmpty, "Geometry fixture starts with real cached images and active native drag targets")
+        geometryOwner.iconReadOverride = { _, _, done in done([:]) }
+        geometryOwner.readEntries(force: true)
+        try require(geometryOwner.item(a).icon === verifiedOriginal && geometryOwner.input.entries.isEmpty,
+                    "A reflow rejected by pixel capture keeps the good image but never arms stale native drag coordinates")
+        let currentFrame = CGRect(x: 600, y: 0, width: 20, height: 24)
+        geometryOwner.iconReadOverride = { requested, token, done in
+            nativeIconRead(requested, token) { values in
+                var refreshed = values
+                for key in Array(refreshed.keys) { refreshed[key]?.sourceFrame = currentFrame }
+                done(refreshed)
+            }
+        }
+        geometryOwner.readEntries(force: true)
+        try require(Set(geometryOwner.entries.filter(\.visible).map(\.bundle)) == Set([a, b, c])
+                    && geometryOwner.entries.filter(\.visible).allSatisfy { $0.frame == currentFrame }
+                    && !geometryOwner.input.entries.isEmpty && geometryOwner.input.entries.allSatisfy { $0.frame == currentFrame },
+                    "Accepted fresh pixels and native drag hit targets use the same capture-time coordinates")
+        geometryOwner.stop()
         cacheOwner.stop()
         let pixels = CGContext(data: nil, width: 120, height: 48, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         pixels.setFillColor(CGColor(red: 1, green: 0.2, blue: 0.1, alpha: 1)); pixels.fill(CGRect(x: 0, y: 0, width: 120, height: 48))

@@ -253,7 +253,15 @@ import ApplicationServices
             let finish: ([String: MenuBarIconPixels]) -> Void = { [weak self] pixels in
                 guard let self, self.active, self.generation == expected, !token.isCancelled else { return }
                 self.reading = false; self.readToken = nil; self.readWatchdog?.cancel(); self.readWatchdog = nil; self.readDate = ProcessInfo.processInfo.systemUptime
-                self.entries = filtered
+                // Missing/moved captures may keep a previously verified image,
+                // but must not arm a drag at the pre-capture AX coordinates.
+                let requested = Set(wanted.map(\.bundle))
+                let currentEntries = filtered.map { entry -> MenuBarEntry in
+                    guard requested.contains(entry.bundle), entry.visible else { return entry }
+                    return MenuBarEntry(bundle: entry.bundle, frame: pixels[entry.bundle]?.sourceFrame ?? entry.frame,
+                                        element: entry.element, pid: entry.pid, visible: pixels[entry.bundle] != nil)
+                }
+                self.entries = currentEntries
                 for (bundle, pixel) in pixels {
                     self.originalIcons[bundle] = NSImage(cgImage: pixel.image, size: pixel.size)
                     self.iconCosts[bundle] = pixel.image.bytesPerRow * pixel.image.height
@@ -267,7 +275,7 @@ import ApplicationServices
                 self.originalIcons = self.originalIcons.filter { keep.contains($0.key) }
                 self.iconCosts = self.iconCosts.filter { keep.contains($0.key) }
                 // Only cached native pixels may be dragged. Unknown items stay native.
-                self.input.entries = filtered.filter { $0.visible && !self.order.contains($0.bundle) && self.originalIcons[$0.bundle] != nil }
+                self.input.entries = currentEntries.filter { $0.visible && !self.order.contains($0.bundle) && self.originalIcons[$0.bundle] != nil }
                 self.appIcons.removeAll(); self.changed()
                 after?(); let pending = self.pendingAfterRead; self.pendingAfterRead = nil; pending?()
                 self.presence(self.contains(self.pointer()))

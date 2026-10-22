@@ -128,7 +128,7 @@ final class MenuBarInventory {
             DispatchQueue.main.async { if !token.isCancelled { completion(result) } }
         }
     }
-    private static func containers(token: MenuBarReadToken, deadline: TimeInterval) -> [MenuBarContainer] {
+    static func containers(token: MenuBarReadToken, deadline: TimeInterval) -> [MenuBarContainer] {
         var result: [MenuBarContainer] = []
         func children(_ element: AXUIElement, _ key: String) -> [AXUIElement] {
             guard !token.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { return [] }
@@ -138,6 +138,8 @@ final class MenuBarInventory {
             return Array((value as? [AXUIElement] ?? []).prefix(128))
         }
         func frame(_ element: AXUIElement) -> CGRect? {
+            guard !token.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { return nil }
+            AXUIElementSetMessagingTimeout(element, 0.035)
             var p: CFTypeRef?, s: CFTypeRef?, point = CGPoint.zero, size = CGSize.zero
             guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &p) == .success,
                   AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &s) == .success,
