@@ -143,7 +143,7 @@ import AppKit
         let beforeRecoveryBurst = recoveryBridge.calls.count
         for _ in 0..<3 { recovery.environmentChanged(rebuild: false, application: "fixture.unrelated") }
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.19))
-        try require(recoveryBridge.calls.count == beforeRecoveryBurst + 1, "A launch burst coalesces into one native replacement")
+        try require(recoveryBridge.calls.count == beforeRecoveryBurst + 1, "A launch burst coalesces into one native replacement (before=\(beforeRecoveryBurst), after=\(recoveryBridge.calls.count), pending=\(recoveryBridge.pending.count), busy=\(recovery.busy), hidden=\(recovery.hidden))")
         let staleReplacement = recoveryBridge.pending.removeFirst()
         recovery.environmentChanged(rebuild: false, application: "fixture.newer")
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.19))
