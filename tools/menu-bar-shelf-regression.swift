@@ -180,6 +180,43 @@ import AppKit
         menuRecoveryRead?(entries)
         try require(menuRecoveryBridge.calls.count == beforeMenuRecovery + 1, "Fresh geometry completes fallback menu collection")
         menuRecoveryBridge.pending.removeFirst()(FixtureHandle()); menuRecovery.stop()
+        let targetedDefaults = UserDefaults(suiteName: suite + ".targeted")!
+        defer { targetedDefaults.removePersistentDomain(forName: suite + ".targeted") }
+        targetedDefaults.set([a, b], forKey: "menuBarShelf.drawerBundles.v1")
+        let targetedBridge = FixtureVisibility(), targeted = MenuBarDrawer(defaults: targetedDefaults, visibility: targetedBridge)
+        targeted.permissionOverride = true; targeted.testSkipInput = true; targeted.testNoPresentation = true
+        targeted.readOverride = { _, done in done(entries) }; targeted.iconReadOverride = nativeIconRead
+        var targetedPresses = [String]()
+        targeted.pressOverride = { entry, _, done in targetedPresses.append(entry.bundle); done(true) }
+        targeted.start(); let collectedHandle = FixtureHandle(); targetedBridge.pending.removeFirst()(collectedHandle)
+        targeted.openMenu(a); targeted.openMenu(a)
+        try require(targetedBridge.pending.count == 1 && collectedHandle.invalidations == 0 && targetedPresses.isEmpty,
+                    "Double click waits for one target exception without releasing the collected restriction")
+        try require(targetedBridge.calls.last!.contains(a) && !targetedBridge.calls.last!.contains(b),
+                    "Opening one menu permits only its owner and leaves other drawer apps hidden")
+        let targetHandle = FixtureHandle(); targetedBridge.pending.removeFirst()(targetHandle)
+        targeted.openMenu(a)
+        try require(targetedPresses == [a] && collectedHandle.invalidations == 1 && targetHandle.invalidations == 0 && targeted.hidden && targeted.order == [a,b],
+                    "The target receives exactly one native action; collection membership and other hidden icons remain unchanged")
+        targeted.openMenu(b); targetedBridge.pending.removeFirst()(nil)
+        try require(targetHandle.invalidations == 0 && targeted.hidden && targeted.issue != nil,
+                    "Failed menu exception retains the working restriction rather than exposing the whole bar")
+        targeted.activationTimeout = 0.02; targeted.openMenu(b)
+        let lateException = targetedBridge.pending.removeFirst()
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        let lateExceptionHandle = FixtureHandle(); lateException(lateExceptionHandle)
+        try require(lateExceptionHandle.invalidations == 1 && targetHandle.invalidations == 0 && !targeted.busy,
+                    "Timed-out target exceptions discard late handles without exposing other icons")
+        targeted.openMenu(b); let cancelledException = targetedBridge.pending.removeFirst(); targeted.showAll()
+        let cancelledHandle = FixtureHandle(); cancelledException(cancelledHandle)
+        try require(cancelledHandle.invalidations == 1 && targetHandle.invalidations == 1 && !targeted.hidden,
+                    "Explicit show-all cancels a menu exception and prevents a stale callback from rehiding icons")
+        targeted.readOverride = { _, done in done(entries) }; targeted.apply(); let retainedAfterRead = FixtureHandle(); targetedBridge.pending.removeFirst()(retainedAfterRead)
+        targeted.iconReadTimeout = 0.02; targeted.readOverride = { _, _ in }; targeted.readEntries(force: true)
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        try require(retainedAfterRead.invalidations == 0 && targeted.hidden,
+                    "An icon read timeout keeps the last successful native hiding rule")
+        targeted.stop()
         var nativeSelection = MenuBarMenuSelection()
         try require(!nativeSelection.receive(false) && !nativeSelection.receive(nil), "A closed/unreadable custom popover does not start an automatic hide timeout")
         try require(!nativeSelection.receive(true) && !nativeSelection.receive(true, closedNotification: true),

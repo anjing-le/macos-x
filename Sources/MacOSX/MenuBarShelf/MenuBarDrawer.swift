@@ -258,8 +258,11 @@ import ApplicationServices
         let timeout = DispatchWorkItem { [weak self] in
             guard let self, self.active, self.generation == expected, self.reading else { return }
             token.cancel(); self.generation += 1; self.readToken = nil; self.readWatchdog = nil
-            self.reading = false; self.pendingAfterRead = nil; self.restoreNativeIcons(); self.reapplyOnHover = self.wantsCollapsed
-            self.issue = "原图标读取超时，已保留真实菜单栏；可点击读取图标重试。"; self.changed()
+            self.reading = false; self.pendingAfterRead = nil
+            // A failed refresh must not discard an already working restriction,
+            // including the exception for the one menu being opened.
+            self.menuBundle = nil; self.reapplyOnHover = self.wantsCollapsed
+            self.issue = "原图标读取超时，已保留当前收纳状态；可点击读取图标重试。"; self.changed()
         }
         readWatchdog = timeout; DispatchQueue.main.asyncAfter(deadline: .now() + iconReadTimeout, execute: timeout)
         let receive: ([MenuBarEntry]) -> Void = { [weak self] entries in
@@ -422,39 +425,75 @@ import ApplicationServices
         menuWatch?.cancel(); menuWatch = nil; reapplyOnHover = false; issue = nil; changed()
     }
     func openMenu(_ bundle: String) {
-        guard active, !busy else { return }
+        guard active, !busy, menuBundle != bundle else { return }
         guard permitted else { issue = "请先授予辅助功能权限。"; changed(); return }
-        cancelRecovery(); restoreNativeIcons(); close(); menuBundle = bundle
+        cancelRecovery()
+        // Opening one native menu must not expose every other drawer member.
+        // Keep the old assertion until a target-only exception is active.
+        generation += 1; readToken?.cancel(); readToken = nil
+        readWatchdog?.cancel(); readWatchdog = nil; reading = false; pendingAfterRead = nil; readDate = 0
+        input.entries.removeAll(); menuWatch?.cancel(); menuWatch = nil
+        menuGeneration += 1; actionToken?.cancel(); actionToken = nil
+        restrictionGeneration += 1; watchdog?.cancel(); watchdog = nil
+        reapplyOnHover = false; close(); menuBundle = bundle
         let expectedMenu = menuGeneration
-        readEntries(force: true) { [weak self] in
+        let open = { [weak self] in
             guard let self, self.active, self.menuGeneration == expectedMenu else { return }
-            guard let entry = self.entries.first(where: { $0.bundle == bundle }) else {
-                self.menuBundle = nil
-                self.issue = "这个应用的菜单栏入口暂不可读；已展开全部图标。"; self.changed(); return
-            }
-            let token = MenuBarReadToken(); self.actionToken?.cancel(); self.actionToken = token
-            let receive: (Bool) -> Void = { [weak self] success in
-                guard let self, self.active, !token.isCancelled else { return }
-                self.actionToken = nil
-                if !success { self.menuBundle = nil; self.issue = "应用未响应菜单操作；已展开真实菜单栏，可直接点击。"; self.changed(); return }
-                self.reapplyOnHover = self.wantsCollapsed
-            }
-            if let pressOverride = self.pressOverride { pressOverride(entry, token, receive) }
-            else {
-                let expected = self.restrictionGeneration
-                self.inventory.press(entry, token: token, onClosed: { [weak self] in
-                    DispatchQueue.main.async {
-                        guard let self, self.active, self.restrictionGeneration == expected else { return }
-                        self.menuWatch?.cancel(); self.menuWatch = nil; self.menuBundle = nil
-                        self.reapplyOnHover = false
-                        // One deferred recovery lets the native menu command finish.
-                        if self.wantsCollapsed { self.scheduleRecovery(readFresh: false) }
+            self.readEntries(force: true) { [weak self] in
+                guard let self, self.active, self.menuGeneration == expectedMenu else { return }
+                guard let entry = self.entries.first(where: { $0.bundle == bundle }) else {
+                    self.menuBundle = nil
+                    self.reapplyOnHover = self.wantsCollapsed
+                    self.issue = "这个应用的菜单栏入口暂不可读，其他图标仍保持收纳。"; self.changed(); return
+                }
+                let token = MenuBarReadToken(); self.actionToken?.cancel(); self.actionToken = token
+                let receive: (Bool) -> Void = { [weak self] success in
+                    guard let self, self.active, !token.isCancelled else { return }
+                    self.actionToken = nil
+                    if !success { self.menuBundle = nil; self.reapplyOnHover = self.wantsCollapsed; self.issue = "应用未响应菜单操作；可直接点击它的真实菜单栏图标。"; self.changed(); return }
+                    self.reapplyOnHover = self.wantsCollapsed
+                }
+                if let pressOverride = self.pressOverride { pressOverride(entry, token, receive) }
+                else {
+                    let expected = self.restrictionGeneration
+                    self.inventory.press(entry, token: token, onClosed: { [weak self] in
+                        DispatchQueue.main.async {
+                            guard let self, self.active, self.restrictionGeneration == expected else { return }
+                            self.menuWatch?.cancel(); self.menuWatch = nil; self.menuBundle = nil
+                            self.reapplyOnHover = false
+                            // One deferred recovery lets the native menu command finish.
+                            if self.wantsCollapsed { self.scheduleRecovery(readFresh: false) }
+                        }
+                    }) { [weak self] ok, watch in
+                        guard let self, self.active, !token.isCancelled else { watch?.cancel(); return }
+                        self.menuWatch = watch; receive(ok)
                     }
-                }) { [weak self] ok, watch in
-                    guard let self, self.active, !token.isCancelled else { watch?.cancel(); return }
-                    self.menuWatch = watch; receive(ok)
                 }
             }
+        }
+        let remaining = wantsCollapsed ? Set(order).subtracting([bundle]) : []
+        guard !remaining.isEmpty else {
+            restriction?.invalidate(); restriction = nil; hidden = false
+            open(); return
+        }
+        busy = true; changed()
+        let expected = restrictionGeneration
+        let timeout = DispatchWorkItem { [weak self] in
+            guard let self, self.active, self.restrictionGeneration == expected else { return }
+            self.restrictionGeneration += 1; self.watchdog = nil; self.busy = false; self.menuBundle = nil
+            self.issue = "打开菜单超时，已保留原收纳状态，请重试。"; self.changed()
+        }
+        watchdog = timeout; DispatchQueue.main.asyncAfter(deadline: .now() + activationTimeout, execute: timeout)
+        let all = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+            .union(MenuBarSections.systemOwners).union([Bundle.main.bundleIdentifier ?? "cc.anjing.macos-x", bundle])
+        visibility.activate(allowing: Array(all.subtracting(remaining)).sorted()) { [weak self] handle in
+            guard let self, self.active, self.restrictionGeneration == expected else { handle?.invalidate(); return }
+            self.watchdog?.cancel(); self.watchdog = nil; self.busy = false
+            guard let handle else {
+                self.menuBundle = nil; self.issue = "暂时无法打开菜单，已保留原收纳状态，请重试。"; self.changed(); return
+            }
+            let previous = self.restriction; self.restriction = handle; self.hidden = true
+            previous?.invalidate(); self.issue = nil; self.changed(); open()
         }
     }
     func beginDrag(_ entry: MenuBarEntry, at point: CGPoint) {
