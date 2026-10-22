@@ -14,7 +14,7 @@ installer_image="$installer_output/macos-x-$installer_version.dmg"
 installer_work="$(mktemp -d "${TMPDIR:-/tmp/}macos-x-installer.XXXXXX")"
 trap 'rm -rf "$installer_work"' EXIT
 installer_python="$("$installer_root/scripts/installer/prepare-tools.sh")"
-xcrun swiftc -parse-as-library "$installer_root/Sources/MacOSX/UI/SketchTheme.swift" "$installer_root/scripts/installer/render.swift" -o "$installer_work/render"
+xcrun swiftc -parse-as-library "$installer_root/scripts/installer/render.swift" -o "$installer_work/render"
 "$installer_work/render" "$installer_root/Resources" "$installer_root/scripts/installer/layout.json" "$installer_work/artwork"
 "$installer_python" -m dmgbuild -s "$installer_root/scripts/installer/settings.py" -D "app=$installer_app" -D "artwork=$installer_work/artwork" -D "layout=$installer_root/scripts/installer/layout.json" "macos-x 安装" "$installer_work/package.dmg"
 /usr/bin/hdiutil verify "$installer_work/package.dmg" >/dev/null
