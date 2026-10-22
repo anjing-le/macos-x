@@ -24,6 +24,7 @@ struct MenuDrawerItem {
     var message = "⌘ 拖入图标，收纳在这里" { didSet { updateHint() } }
     private var down: (String, CGPoint, Bool)?
     private var dragging = false
+    var isDragging: Bool { dragging }
     private var dragOriginal: [MenuDrawerItem]?
     private var tracking: NSTrackingArea?
     override var isFlipped: Bool { true }
@@ -57,7 +58,7 @@ struct MenuDrawerItem {
     }
     override func updateTrackingAreas() {
         super.updateTrackingAreas(); if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect, .enabledDuringMouseDrag], owner: self)
         addTrackingArea(area); tracking = area
     }
     override func mouseEntered(with event: NSEvent) { updateHint(); onPresence?(true) }

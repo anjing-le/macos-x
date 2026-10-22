@@ -37,6 +37,7 @@ import ApplicationServices
     private var menuGeneration = 0
     private var movementGeneration = 0
     private var dismissWork: DispatchWorkItem?
+    private var dismissGeneration: UInt64 = 0
     private var watchdog: DispatchWorkItem?
     private var menuWatch: MenuBarMenuWatch?
     private var reapplyOnHover = false
@@ -75,12 +76,12 @@ import ApplicationServices
         order = Array(order.prefix(40)); order.removeAll { $0 == Bundle.main.bundleIdentifier }
         view.onClose = { [weak self] in self?.close() }
         view.onPresence = { [weak self] inside in self?.presence(inside) }
-        view.onInteraction = { [weak self] in self?.dismissWork?.cancel(); self?.dismissWork = nil }
+        view.onInteraction = { [weak self] in self?.cancelDismissal(); self?.presence(false) }
         view.onMove = { [weak self] bundle, index in self?.move(bundle, to: index) }
         view.onRestore = { [weak self] bundle, point in self?.restore(bundle, at: point) }
         view.onOpen = { [weak self] bundle in self?.openMenu(bundle) }
         view.onDragImage = { [weak self] item, point in self?.showDragImage(item, at: point) }
-        view.onDragFinished = { [weak self] in self?.settleDragImage() }
+        view.onDragFinished = { [weak self] in self?.settleDragImage(); self?.presence(false) }
         input.canBegin = { [weak self] in self?.active == true && self?.busy == false }
         input.onCancel = { [weak self] in self?.cancelDrag(); self?.presence(false) }
         input.onPrepare = { [weak self] in self?.prepareDrag() }
@@ -110,7 +111,7 @@ import ApplicationServices
         readToken?.cancel(); readToken = nil; readWatchdog?.cancel(); readWatchdog = nil; actionToken?.cancel(); actionToken = nil
         reading = false; busy = false; pendingAfterRead = nil
         iconCapture.clear(); originalIcons.removeAll(); iconCosts.removeAll()
-        dismissWork?.cancel(); dismissWork = nil; watchdog?.cancel(); watchdog = nil
+        cancelDismissal(); watchdog?.cancel(); watchdog = nil
         menuWatch?.cancel(); menuWatch = nil; reapplyOnHover = false
         restriction?.invalidate(); restriction = nil; hidden = false
         input.stop(); removeMonitors(); close(); cancelDrag()
@@ -131,7 +132,10 @@ import ApplicationServices
         anchor = frame
         guard active else { return }
         if inside {
-            show(); prepareDrag()
+            // Tracking events can arrive after the pointer has already crossed
+            // into another window; never reopen from an obsolete enter event.
+            guard frame.insetBy(dx: -5, dy: -7).contains(pointer()) else { presence(false); return }
+            cancelDismissal(); show(); prepareDrag()
             if reapplyOnHover { reapplyOnHover = false; apply() }
         } else { presence(false) }
     }
@@ -141,13 +145,22 @@ import ApplicationServices
     }
     func show() {
         guard active, let anchor = anchorProvider?() ?? anchor else { return }
-        self.anchor = anchor; dismissWork?.cancel(); dismissWork = nil
+        self.anchor = anchor
+        let wasOpen = isOpen
+        if !wasOpen { cancelDismissal() }
         let screen = NSScreen.screens.first { $0.frame.contains(CGPoint(x: anchor.midX, y: anchor.midY)) } ?? NSScreen.main
         guard let screen else { return }
         let icons = drawerItems
-        let width = min(max(icons.isEmpty ? 144 : 48, min(620, MenuBarDrawerView.rowWidth(icons))), max(220, screen.visibleFrame.width - 24))
-        let height = min(MenuBarDrawerView.height(items: icons, width: width), screen.visibleFrame.height - 24)
-        let origin = CGPoint(x: max(screen.visibleFrame.minX + 8, min(anchor.midX - width / 2, screen.visibleFrame.maxX - width - 8)), y: min(anchor.minY, screen.visibleFrame.maxY) - height - 4)
+        var width = min(max(icons.isEmpty ? 144 : 48, min(620, MenuBarDrawerView.rowWidth(icons))), max(220, screen.visibleFrame.width - 24))
+        var height = min(MenuBarDrawerView.height(items: icons, width: width), screen.visibleFrame.height - 24)
+        var origin = CGPoint(x: max(screen.visibleFrame.minX + 8, min(anchor.midX - width / 2, screen.visibleFrame.maxX - width - 8)), y: min(anchor.minY, screen.visibleFrame.maxY) - height - 4)
+        if wasOpen, let previous = panel?.frame, screen.frame.contains(CGPoint(x: previous.midX, y: previous.midY)) {
+            // Membership and native menu-bar reflow must not move the drawer
+            // out from under the pointer. Shrink only on the next opening.
+            width = max(width, previous.width); height = max(height, previous.height)
+            origin.x = max(screen.visibleFrame.minX + 8, min(previous.minX, screen.visibleFrame.maxX - width - 8))
+            origin.y = previous.maxY - height
+        }
         if panel == nil {
             let panel = MenuDrawerPanel(contentRect: CGRect(origin: origin, size: CGSize(width: width, height: height)), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             panel.level = .popUpMenu; panel.isOpaque = false; panel.backgroundColor = .clear
@@ -163,27 +176,36 @@ import ApplicationServices
         installMonitors()
     }
     func close() {
-        dismissWork?.cancel(); dismissWork = nil; panel?.orderOut(nil); openForTest = false
+        cancelDismissal(); panel?.orderOut(nil); openForTest = false
         removeMonitors(); view.cancelDrag(); view.accepting = false
     }
     func contains(_ point: CGPoint) -> Bool {
-        if let anchor = anchorProvider?() ?? anchor, anchor.insetBy(dx: -5, dy: -7).contains(point) { return true }
+        let anchor = anchorProvider?() ?? anchor
+        if let anchor, anchor.insetBy(dx: -5, dy: -7).contains(point) { return true }
         if isOpen, let frame = panel?.frame {
-            // The connector corridor prevents a 4-point menu/panel gap from
-            // generating an exit while crossing into the drawer.
-            let bridge = CGRect(x: frame.minX, y: frame.maxY, width: frame.width, height: 12)
-            return frame.insetBy(dx: -5, dy: -5).contains(point) || bridge.contains(point)
+            if frame.insetBy(dx: -5, dy: -5).contains(point) { return true }
+            // Join the actual apple and the stable drawer even when native
+            // icon hiding moves the apple horizontally in the menu bar.
+            guard anchor.map({ abs($0.minY - frame.maxY) <= 40 }) ?? true else { return false }
+            let left = min(frame.minX, anchor?.minX ?? frame.minX) - 5
+            let right = max(frame.maxX, anchor?.maxX ?? frame.maxX) + 5
+            let top = max(frame.maxY + 12, anchor?.minY ?? frame.maxY) + 7
+            return CGRect(x: left, y: frame.maxY - 5, width: right - left, height: top - frame.maxY + 5).contains(point)
         }
         return false
     }
+    private var gestureActive: Bool { dragSource != nil || input.dragging || view.isDragging }
+    private func cancelDismissal() {
+        dismissGeneration &+= 1; dismissWork?.cancel(); dismissWork = nil
+    }
     func presence(_ inside: Bool) {
-        if inside || contains(pointer()) {
-            dismissWork?.cancel(); dismissWork = nil; return
-        }
-        guard active, isOpen, dismissWork == nil, dragSource == nil else { return }
+        if inside || contains(pointer()) { cancelDismissal(); return }
+        guard active, isOpen, dismissWork == nil, !gestureActive, !busy, !reading else { return }
+        let expected = dismissGeneration
         let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }; self.dismissWork = nil
-            guard self.active, !self.contains(self.pointer()), self.dragSource == nil, !self.busy, !self.reading,
+            guard let self, self.dismissGeneration == expected else { return }
+            self.dismissWork = nil
+            guard self.active, !self.contains(self.pointer()), !self.gestureActive, !self.busy, !self.reading,
                   self.pressedButtons() == 0 else { return }
             self.close()
         }
@@ -395,7 +417,7 @@ import ApplicationServices
     }
     func beginDrag(_ entry: MenuBarEntry, at point: CGPoint) {
         guard active, !busy else { return }
-        dragSource = entry; dragOrigin = point; dragMoved = false; dismissWork?.cancel(); dismissWork = nil
+        dragSource = entry; dragOrigin = point; dragMoved = false; cancelDismissal()
         show(); view.accepting = contains(point)
     }
     func drag(to point: CGPoint) {
@@ -480,9 +502,12 @@ import ApplicationServices
         NSScreen.screens.contains { $0.frame.contains(point) && point.y >= $0.visibleFrame.maxY }
     }
     private func persist() { defaults.set(order, forKey: selectionKey); input.entries = entries.filter { !order.contains($0.bundle) && originalIcons[$0.bundle] != nil } }
-    private func changed() { if isOpen { show() } else { updateView() }; onChange?() }
+    private func changed() { if isOpen { show(); presence(false) } else { updateView() }; onChange?() }
     private func updateView() {
-        view.items = drawerItems
+        let items = drawerItems
+        if !view.items.elementsEqual(items, by: { $0.bundle == $1.bundle && $0.name == $1.name && $0.icon === $1.icon && $0.available == $1.available }) {
+            view.items = items
+        }
         view.message = issue ?? (order.isEmpty ? "⌘ 拖入图标，收纳在这里" : "点击打开 · ⌘ 拖动排序，拖出恢复")
     }
     private func environmentChanged() {

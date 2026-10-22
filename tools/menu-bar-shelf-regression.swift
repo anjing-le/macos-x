@@ -38,6 +38,7 @@ import AppKit
         drawer.pressOverride = { entry, token, receive in if !token.isCancelled { pressed.append(entry.bundle); receive(true) } }
         drawer.start(); drawer.start()
         try require(reads == 0 && bridge.calls.isEmpty, "Empty module must not scan or hide on launch")
+        drawer.pointer = { CGPoint(x: anchor.midX, y: anchor.midY) }
         drawer.hover(anchor, inside: true)
         try require(drawer.isOpen && reads == 1, "Apple hover opens the native drawer and bounded on-demand inventory")
         try require(!drawer.entries.contains { $0.bundle == "com.apple.controlcenter" }, "System controls never enter drawer inventory")
@@ -125,6 +126,79 @@ import AppKit
         latest.start(); latest.openMenu(a); latest.openMenu(b); readBack?(entries)
         try require(latestPresses == [b], "Only the latest requested menu may open after queued inventory; earlier clicks cannot open two apps")
         latest.stop()
+        // Exercise transitions with the real native view/window and fake OS
+        // handles, without moving the user's pointer or hiding live icons.
+        let continuityDefaults = UserDefaults(suiteName: suite + ".continuity")!
+        defer { continuityDefaults.removePersistentDomain(forName: suite + ".continuity") }
+        let continuityBridge = FixtureVisibility(), continuity = MenuBarDrawer(defaults: continuityDefaults, visibility: continuityBridge)
+        continuity.permissionOverride = true; continuity.testSkipInput = true; continuity.testNoPresentation = true
+        continuity.iconReadOverride = nativeIconRead; continuity.readOverride = { _, done in done(entries) }
+        continuity.pressedButtons = { 0 }; continuity.dismissDelay = 0.025
+        var currentAnchor = anchor, pointer = CGPoint(x: anchor.midX, y: anchor.midY)
+        continuity.anchorProvider = { currentAnchor }; continuity.pointer = { pointer }
+        continuity.start(); continuity.hover(currentAnchor, inside: true)
+        continuity.add(a); continuityBridge.pending.removeFirst()(FixtureHandle())
+        let popup = continuity.view.window!, initialFrame = continuity.view.window!.frame
+        let child = continuity.view.accessibilityChildren()!.first as AnyObject
+        continuity.show(); continuity.show()
+        try require(continuity.view.window === popup && popup.frame == initialFrame && continuity.view.accessibilityChildren()!.first as AnyObject === child,
+                    "Repeated hover preserves the native window, geometry and accessibility children")
+        continuity.view.updateTrackingAreas()
+        try require(continuity.view.trackingAreas.contains { $0.options.contains(.enabledDuringMouseDrag) }, "Drawer hover remains active during a held drag")
+        for position in [CGPoint(x: anchor.midX, y: anchor.midY), CGPoint(x: initialFrame.midX, y: initialFrame.maxY + 2), CGPoint(x: initialFrame.midX, y: initialFrame.midY)] {
+            pointer = position
+            continuity.hover(currentAnchor, inside: false); continuity.view.onPresence?(false)
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.04))
+            try require(continuity.isOpen && !continuity.hasDismissWork, "Obsolete apple/drawer exits cannot collapse the shared hover region")
+        }
+        currentAnchor = currentAnchor.offsetBy(dx: -100, dy: 0)
+        continuity.show()
+        try require(popup.frame == initialFrame, "Native apple reflow does not recenter the open drawer")
+        pointer = CGPoint(x: currentAnchor.maxX + 10, y: initialFrame.maxY + 1)
+        continuity.presence(false)
+        try require(continuity.contains(pointer) && !continuity.hasDismissWork, "A continuous connector spans a moved apple and the stable drawer")
+        currentAnchor = currentAnchor.offsetBy(dx: 0, dy: -300)
+        try require(!continuity.contains(CGPoint(x: initialFrame.midX, y: initialFrame.maxY - 150)), "A different display height cannot create a tall invisible hover region")
+        currentAnchor = currentAnchor.offsetBy(dx: 0, dy: 300)
+        pointer = CGPoint(x: initialFrame.midX, y: initialFrame.midY)
+        continuity.add(b)
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.04))
+        try require(continuity.isOpen && !continuity.hasDismissWork, "Pending drag-in activation cannot dismiss the drawer")
+        continuityBridge.pending.removeFirst()(FixtureHandle())
+        let twoItemFrame = popup.frame
+        continuity.restore(b); continuityBridge.pending.removeFirst()(FixtureHandle())
+        try require(popup.frame == twoItemFrame, "Drag-out does not shrink the hit region out from under the pointer")
+        continuity.close()
+        pointer = CGPoint(x: screen.visibleFrame.minX, y: screen.visibleFrame.minY)
+        continuity.hover(currentAnchor, inside: true)
+        try require(!continuity.isOpen, "An obsolete apple enter cannot reopen a closed drawer")
+        pointer = CGPoint(x: currentAnchor.midX, y: currentAnchor.midY)
+        continuity.hover(currentAnchor, inside: true)
+        try require(popup.frame.width < twoItemFrame.width, "The next genuine opening restores compact content width")
+        let activeCell = continuity.view.cellFrame(0)
+        func continuityEvent(_ type: NSEvent.EventType, _ point: CGPoint) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: continuity.view.convert(point, to: nil), modifierFlags: [.command], timestamp: 0,
+                               windowNumber: popup.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        }
+        continuity.view.mouseDown(with: continuityEvent(.leftMouseDown, CGPoint(x: activeCell.midX, y: activeCell.midY)))
+        pointer = CGPoint(x: screen.visibleFrame.minX, y: screen.visibleFrame.minY)
+        continuity.view.mouseDragged(with: continuityEvent(.leftMouseDragged, CGPoint(x: -30, y: -30)))
+        continuity.presence(false)
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        try require(continuity.view.isDragging && continuity.isOpen && !continuity.hasDismissWork, "Local drag holds the drawer open even when a tracking exit arrives outside")
+        continuity.view.mouseUp(with: continuityEvent(.leftMouseUp, CGPoint(x: -30, y: -30)))
+        try require(!continuity.view.isDragging && continuity.isOpen && continuity.hasDismissWork, "After drag-out releases, idle dismissal is rearmed without immediate collapse")
+        pointer = CGPoint(x: popup.frame.midX, y: popup.frame.midY)
+        continuity.view.onPresence?(true)
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        try require(continuity.isOpen && !continuity.hasDismissWork, "Re-entering after release cancels the old deadline")
+        pointer = CGPoint(x: screen.visibleFrame.minX, y: screen.visibleFrame.minY)
+        continuity.presence(false)
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        let dismissalDeadline = Date(timeIntervalSinceNow: 1)
+        while continuity.isOpen, Date() < dismissalDeadline { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.005)) }
+        try require(!continuity.isOpen, "Only a full idle delay outside all regions closes the drawer")
+        continuity.stop()
         // Tap tests run in-memory: they do not install a tap or post real events.
         let input = MenuBarDrawerInput(); input.enabled = true; input.entries = [entry(a, 400)]
         var begin = 0, drag = 0, end = 0
