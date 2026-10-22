@@ -26,7 +26,7 @@ enum MenuBarSections {
     }
 }
 
-final class MenuBarReadToken {
+final class MenuBarReadToken: @unchecked Sendable {
     private let lock = NSLock()
     private var cancelled = false
     func cancel() { lock.lock(); cancelled = true; lock.unlock() }

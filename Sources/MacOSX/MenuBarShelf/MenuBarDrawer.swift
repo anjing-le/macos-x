@@ -23,6 +23,10 @@ import ApplicationServices
     private let visibility: MenuVisibilityProviding
     private let inventory = MenuBarInventory()
     private let iconCapture = MenuBarIconCapture()
+    let menuInteraction = MenuBarNativeInteraction()
+    private var interactionRestriction: MenuVisibilityHandle?
+    private var restoringInteraction = false
+    private var interactionRequested = false
     private var originalIcons: [String: NSImage] = [:]
     private var iconCosts: [String: Int] = [:]
     private var restriction: MenuVisibilityHandle?
@@ -65,6 +69,7 @@ import ApplicationServices
     var testSkipInput = false
     var testSkipEnvironment = false
     var activationTimeout: TimeInterval = 4
+    var menuInteractionTimeout: TimeInterval = 11
     var dismissDelay: TimeInterval = 1.2
     var pointer: () -> CGPoint = { NSEvent.mouseLocation }
     var pressedButtons: () -> Int = { Int(NSEvent.pressedMouseButtons) }
@@ -85,6 +90,7 @@ import ApplicationServices
         view.onMove = { [weak self] bundle, index in self?.move(bundle, to: index) }
         view.onRestore = { [weak self] bundle, point in self?.restore(bundle, at: point) }
         view.onOpen = { [weak self] bundle in self?.openMenu(bundle) }
+        view.onActivate = { [weak self] bundle, samples in self?.openMenu(bundle, samples: samples) }
         view.onDragImage = { [weak self] item, point in self?.showDragImage(item, at: point) }
         view.onDragFinished = { [weak self] in self?.settleDragImage(); self?.presence(false) }
         input.canBegin = { [weak self] in self?.active == true && self?.busy == false }
@@ -122,6 +128,7 @@ import ApplicationServices
     }
     func stop() {
         guard active else { return }; active = false; wantsCollapsed = false; cancelRecovery(); generation += 1; restrictionGeneration += 1; movementGeneration += 1
+        cancelMenuInteraction()
         readToken?.cancel(); readToken = nil; readWatchdog?.cancel(); readWatchdog = nil; actionToken?.cancel(); actionToken = nil
         reading = false; busy = false; pendingAfterRead = nil
         iconCapture.clear(); originalIcons.removeAll(); iconCosts.removeAll()
@@ -418,6 +425,7 @@ import ApplicationServices
         restoreNativeIcons()
     }
     private func restoreNativeIcons() {
+        cancelMenuInteraction()
         menuBundle = nil
         generation += 1; readToken?.cancel(); readToken = nil
         readWatchdog?.cancel(); readWatchdog = nil; reading = false; pendingAfterRead = nil; readDate = 0
@@ -427,76 +435,109 @@ import ApplicationServices
         restriction?.invalidate(); restriction = nil; hidden = false; busy = false
         menuWatch?.cancel(); menuWatch = nil; reapplyOnHover = false; issue = nil; changed()
     }
-    func openMenu(_ bundle: String) {
-        guard active, !busy, menuBundle != bundle else { return }
+    private func cancelMenuInteraction() {
+        menuInteraction.cancel(); interactionRestriction?.invalidate(); interactionRestriction = nil
+        restoringInteraction = false
+        interactionRequested = false
+    }
+    func openMenu(_ bundle: String, samples: [MenuBarPointerSample] = MenuBarPointerSample.singleClick) {
+        guard active, !busy, menuBundle != bundle, MenuBarPointerSample.valid(samples) else { return }
         guard permitted else { issue = "请先授予辅助功能权限。"; changed(); return }
-        cancelRecovery()
-        // Opening one native menu must not expose every other drawer member.
-        // Keep the old assertion until a target-only exception is active.
+        cancelRecovery(); cancelMenuInteraction()
         generation += 1; readToken?.cancel(); readToken = nil
         readWatchdog?.cancel(); readWatchdog = nil; reading = false; pendingAfterRead = nil; readDate = 0
-        input.entries.removeAll(); menuWatch?.cancel(); menuWatch = nil
+        menuWatch?.cancel(); menuWatch = nil; input.entries.removeAll()
         menuGeneration += 1; actionToken?.cancel(); actionToken = nil
         restrictionGeneration += 1; watchdog?.cancel(); watchdog = nil
         reapplyOnHover = false; close(); menuBundle = bundle
-        let expectedMenu = menuGeneration
-        let open = { [weak self] in
-            guard let self, self.active, self.menuGeneration == expectedMenu else { return }
-            self.readEntries(force: true) { [weak self] in
-                guard let self, self.active, self.menuGeneration == expectedMenu else { return }
-                guard let entry = self.entries.first(where: { $0.bundle == bundle }) else {
-                    self.menuBundle = nil
-                    self.reapplyOnHover = self.wantsCollapsed
-                    self.issue = "这个应用的菜单栏入口暂不可读，其他图标仍保持收纳。"; self.changed(); return
+        let expected = menuGeneration
+        let point = anchorProvider?().map { CGPoint(x: $0.midX, y: $0.midY) } ?? pointer()
+        let screen = NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main
+        let displayID = (screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? CGMainDisplayID()
+        let display = CGDisplayBounds(displayID)
+        let perform = { [weak self] in
+            guard let self, self.active, self.menuGeneration == expected else { return }
+            guard let entry = self.entries.first(where: { $0.bundle == bundle }) else {
+                self.menuBundle = nil; self.issue = "这个应用的菜单栏入口暂不可读，已保留收纳状态。"; self.changed(); return
+            }
+            let token = MenuBarReadToken(); self.actionToken = token
+            self.busy = true; self.changed()
+            let timeout = DispatchWorkItem { [weak self] in
+                guard let self, self.active, self.menuGeneration == expected else { return }
+                self.restoreAfterGesture(success: false, expected: expected)
+            }
+            self.watchdog = timeout
+            DispatchQueue.main.asyncAfter(deadline: .now() + self.menuInteractionTimeout, execute: timeout)
+            self.menuInteraction.prepare(token: token) { [weak self] covered in
+                guard let self, self.active, self.menuGeneration == expected, !token.isCancelled else { return }
+                guard covered else {
+                    self.watchdog?.cancel(); self.watchdog = nil; self.cancelMenuInteraction()
+                    self.busy = false; self.actionToken = nil; self.menuBundle = nil
+                    self.issue = "暂时无法保持菜单栏画面，已保留收纳状态；请检查屏幕录制权限后重试。"; self.changed(); return
                 }
-                let token = MenuBarReadToken(); self.actionToken?.cancel(); self.actionToken = token
-                let receive: (Bool) -> Void = { [weak self] success in
-                    guard let self, self.active, !token.isCancelled else { return }
-                    self.actionToken = nil
-                    if !success { self.menuBundle = nil; self.reapplyOnHover = self.wantsCollapsed; self.issue = "应用未响应菜单操作；可直接点击它的真实菜单栏图标。"; self.changed(); return }
-                    self.reapplyOnHover = self.wantsCollapsed
-                }
-                if let pressOverride = self.pressOverride { pressOverride(entry, token, receive) }
-                else {
-                    let expected = self.restrictionGeneration
-                    self.inventory.press(entry, token: token, onClosed: { [weak self] in
-                        DispatchQueue.main.async {
-                            guard let self, self.active, self.restrictionGeneration == expected else { return }
-                            self.menuWatch?.cancel(); self.menuWatch = nil; self.menuBundle = nil
-                            self.reapplyOnHover = false
-                            // One deferred recovery lets the native menu command finish.
-                            if self.wantsCollapsed { self.scheduleRecovery(readFresh: false) }
+                let relay = { [weak self] in
+                    guard let self, self.active, self.menuGeneration == expected, !token.isCancelled else { return }
+                    let finish: (Bool) -> Void = { [weak self] ok in
+                        guard let self, self.active, self.menuGeneration == expected, !token.isCancelled else { return }
+                        // The owning app gets the mouse-up before its native
+                        // anchor is hidden. Its real popup continues tracking.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                            guard let self, self.active, self.menuGeneration == expected, !token.isCancelled else { return }
+                            self.restoreAfterGesture(success: ok, expected: expected)
                         }
-                    }) { [weak self] ok, watch in
-                        guard let self, self.active, !token.isCancelled else { watch?.cancel(); return }
-                        self.menuWatch = watch; receive(ok)
                     }
+                    if let press = self.pressOverride { press(entry, token, finish) }
+                    else { self.menuInteraction.replay(samples, entry: entry, display: display, token: token, completion: finish) }
+                }
+                guard self.wantsCollapsed, self.order.contains(bundle) else { relay(); return }
+                let remaining = Set(self.order).subtracting([bundle])
+                let all = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+                    .union(MenuBarSections.systemOwners).union([Bundle.main.bundleIdentifier ?? "cc.anjing.macos-x", bundle])
+                // Keep the original restriction as a recovery handle. The
+                // temporary input surface remains behind opaque bar stills.
+                self.interactionRequested = true
+                self.visibility.activate(allowing: Array(all.subtracting(remaining)).sorted()) { [weak self] handle in
+                    guard let self, self.active, self.menuGeneration == expected, !token.isCancelled else { handle?.invalidate(); return }
+                    guard let handle else { self.restoreAfterGesture(success: false, expected: expected); return }
+                    self.interactionRestriction = handle; relay()
                 }
             }
         }
-        let remaining = wantsCollapsed ? Set(order).subtracting([bundle]) : []
-        guard !remaining.isEmpty else {
-            restriction?.invalidate(); restriction = nil; hidden = false
-            open(); return
+        // Hover already retained the native owner. Resolve only its live
+        // container during replay; do not rescan every app on each click.
+        if entries.contains(where: { $0.bundle == bundle }) { perform() }
+        else { readEntries(force: true, after: perform) }
+    }
+    private func restoreAfterGesture(success: Bool, expected: Int) {
+        guard active, menuGeneration == expected, !restoringInteraction else { return }
+        restoringInteraction = true; watchdog?.cancel(); watchdog = nil
+        menuInteraction.cancelInput(); actionToken?.cancel()
+        let finish = { [weak self] in
+            guard let self, self.active, self.menuGeneration == expected else { return }
+            self.watchdog?.cancel(); self.watchdog = nil
+            self.cancelMenuInteraction(); self.actionToken?.cancel(); self.actionToken = nil
+            self.busy = false; self.menuBundle = nil; self.reapplyOnHover = false
+            self.issue = success ? nil : "应用未响应本次操作，已保留收纳状态；可重试。"
+            self.readDate = 0; self.changed()
         }
-        busy = true; changed()
-        let expected = restrictionGeneration
+        guard wantsCollapsed, !order.isEmpty, interactionRequested else { finish(); return }
         let timeout = DispatchWorkItem { [weak self] in
-            guard let self, self.active, self.restrictionGeneration == expected else { return }
-            self.restrictionGeneration += 1; self.watchdog = nil; self.busy = false; self.menuBundle = nil
-            self.issue = "打开菜单超时，已保留原收纳状态，请重试。"; self.changed()
+            guard let self, self.active, self.menuGeneration == expected else { return }
+            self.menuGeneration += 1; self.watchdog = nil; self.cancelMenuInteraction()
+            self.restriction?.invalidate(); self.restriction = nil; self.hidden = false; self.busy = false
+            self.actionToken?.cancel(); self.actionToken = nil; self.menuBundle = nil
+            self.issue = "系统恢复收纳超时，已恢复原生入口；请重新收纳。"; self.changed()
         }
         watchdog = timeout; DispatchQueue.main.asyncAfter(deadline: .now() + activationTimeout, execute: timeout)
         let all = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
-            .union(MenuBarSections.systemOwners).union([Bundle.main.bundleIdentifier ?? "cc.anjing.macos-x", bundle])
-        visibility.activate(allowing: Array(all.subtracting(remaining)).sorted()) { [weak self] handle in
-            guard let self, self.active, self.restrictionGeneration == expected else { handle?.invalidate(); return }
-            self.watchdog?.cancel(); self.watchdog = nil; self.busy = false
-            guard let handle else {
-                self.menuBundle = nil; self.issue = "暂时无法打开菜单，已保留原收纳状态，请重试。"; self.changed(); return
-            }
+            .union(MenuBarSections.systemOwners).union([Bundle.main.bundleIdentifier ?? "cc.anjing.macos-x"])
+        visibility.activate(allowing: Array(all.subtracting(Set(order))).sorted()) { [weak self] handle in
+            guard let self, self.active, self.menuGeneration == expected else { handle?.invalidate(); return }
+            guard let handle else { timeout.perform(); return }
             let previous = self.restriction; self.restriction = handle; self.hidden = true
-            previous?.invalidate(); self.issue = nil; self.changed(); open()
+            previous?.invalidate(); self.interactionRestriction?.invalidate(); self.interactionRestriction = nil
+            // Keep the still until native reflow has reached the compositor.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { finish() }
         }
     }
     func beginDrag(_ entry: MenuBarEntry, at point: CGPoint) {
@@ -620,7 +661,7 @@ import ApplicationServices
         if !rebuild, let menuBundle, application != menuBundle { return }
         let preserveRestriction = wantsCollapsed && hidden && !rebuild
             && application.map { !order.contains($0) } == true
-        movementGeneration += 1; input.cancelPendingGesture(); cancelRecovery()
+        movementGeneration += 1; input.cancelPendingGesture(); cancelRecovery(); cancelMenuInteraction()
         generation += 1; readToken?.cancel(); readToken = nil; readWatchdog?.cancel(); readWatchdog = nil; reading = false; pendingAfterRead = nil
         actionToken?.cancel(); actionToken = nil; input.entries.removeAll(); appIcons.removeAll(); readDate = 0
         iconCapture.clear(); cancelDrag(); close()

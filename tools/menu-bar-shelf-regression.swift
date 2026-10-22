@@ -29,7 +29,7 @@ import AppKit
         // must not race deterministic recovery assertions.
         let bridge = FixtureVisibility()
         let drawer = MenuBarDrawer(defaults: defaults, visibility: bridge)
-        drawer.permissionOverride = true; drawer.testNoPresentation = true; drawer.testSkipInput = true; drawer.testSkipEnvironment = true
+        drawer.menuInteraction.captureOverride = { _, done in done(true) }; drawer.permissionOverride = true; drawer.testNoPresentation = true; drawer.testSkipInput = true; drawer.testSkipEnvironment = true
         drawer.pressedButtons = { 0 }
         let screen = NSScreen.main!, anchor = CGRect(x: screen.visibleFrame.maxX - 220, y: screen.visibleFrame.maxY, width: 30, height: 24)
         drawer.anchorProvider = { anchor }
@@ -75,7 +75,13 @@ import AppKit
         let third = FixtureHandle(); bridge.pending.removeFirst()(third)
         try require(drawer.order == [a] && second.invalidations == 1, "Drag-out restores a member while keeping the remaining selection")
         drawer.openMenu(a)
-        try require(pressed == [a] && third.invalidations == 1 && !drawer.isOpen, "Click restores real items and forwards one AX press, never a simulated menu")
+        try require(third.invalidations == 0 && bridge.pending.count == 1 && pressed.isEmpty, "Native activation keeps the collected restriction until the covered input surface is ready")
+        let menuAccess = FixtureHandle(); bridge.pending.removeFirst()(menuAccess)
+        try require(pressed == [a] && !drawer.isOpen, "The native owner receives the operation once")
+        awaitTransition { !bridge.pending.isEmpty }
+        let menuRestored = FixtureHandle(); bridge.pending.removeFirst()(menuRestored)
+        awaitTransition { !drawer.busy }
+        try require(third.invalidations == 1 && menuAccess.invalidations == 1 && drawer.hidden && menuRestored.invalidations == 0, "The complete collection is restored before activation finishes")
         drawer.show(); drawer.dismissDelay = 0.02
         drawer.pointer = { CGPoint(x: anchor.midX, y: anchor.minY - 2) }
         drawer.presence(false)
@@ -85,8 +91,7 @@ import AppKit
         try require(drawer.hasDismissWork, "Leaving creates one delayed dismissal")
         drawer.pointer = { CGPoint(x: anchor.midX, y: anchor.midY) }
         drawer.hover(anchor, inside: true)
-        try require(!bridge.pending.isEmpty, "Returning to apple reapplies saved collection after a menu action")
-        bridge.pending.removeFirst()(FixtureHandle())
+        try require(bridge.pending.isEmpty && drawer.hidden, "Returning to apple needs no extra collection after a completed native gesture")
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
         try require(drawer.isOpen, "Re-entry cancels the old delayed dismissal")
         drawer.pointer = { CGPoint(x: screen.visibleFrame.minX, y: screen.visibleFrame.minY) }
@@ -113,14 +118,14 @@ import AppKit
         let restored = MenuBarDrawer(defaults: defaults, visibility: bridge)
         try require(restored.order == [a, c], "A new module reads the stored real membership")
         restored.iconReadOverride = nativeIconRead
-        restored.permissionOverride = false; restored.testNoPresentation = true; restored.testSkipInput = true; restored.testSkipEnvironment = true
+        restored.menuInteraction.captureOverride = { _, done in done(true) }; restored.permissionOverride = false; restored.testNoPresentation = true; restored.testSkipInput = true; restored.testSkipEnvironment = true
         restored.start(); restored.prepareDrag()
         try require(restored.issue != nil && !restored.hidden, "Missing permission must be explicit and fail open")
         restored.stop()
         let recoveryDefaults = UserDefaults(suiteName: suite + ".recovery")!
         defer { recoveryDefaults.removePersistentDomain(forName: suite + ".recovery") }
         let recoveryBridge = FixtureVisibility(), recovery = MenuBarDrawer(defaults: recoveryDefaults, visibility: recoveryBridge)
-        recovery.permissionOverride = true; recovery.testSkipInput = true; recovery.testSkipEnvironment = true; recovery.testNoPresentation = true
+        recovery.menuInteraction.captureOverride = { _, done in done(true) }; recovery.permissionOverride = true; recovery.testSkipInput = true; recovery.testSkipEnvironment = true; recovery.testNoPresentation = true
         recovery.readOverride = { _, done in done(entries) }; recovery.iconReadOverride = nativeIconRead
         recovery.start(); recovery.prepareDrag(); recovery.add(a)
         let held = FixtureHandle(); recoveryBridge.pending.removeFirst()(held)
@@ -172,61 +177,103 @@ import AppKit
         recovery.environmentChanged(rebuild: true); let beforeRecoveryStop = recoveryBridge.calls.count; recovery.stop()
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.19))
         try require(recoveryBridge.calls.count == beforeRecoveryStop && !recovery.hidden, "Stop cancels automatic recovery and leaves native icons accessible")
-        let menuRecoveryDefaults = UserDefaults(suiteName: suite + ".menu-recovery")!
-        defer { menuRecoveryDefaults.removePersistentDomain(forName: suite + ".menu-recovery") }
-        let menuRecoveryBridge = FixtureVisibility(), menuRecovery = MenuBarDrawer(defaults: menuRecoveryDefaults, visibility: menuRecoveryBridge)
-        menuRecovery.permissionOverride = true; menuRecovery.testSkipInput = true; menuRecovery.testSkipEnvironment = true; menuRecovery.testNoPresentation = true
-        menuRecovery.anchorProvider = { anchor }; menuRecovery.pointer = { CGPoint(x: anchor.midX, y: anchor.midY) }
-        menuRecovery.readOverride = { _, done in done(entries) }; menuRecovery.iconReadOverride = nativeIconRead
-        menuRecovery.pressOverride = { _, _, done in done(true) }
-        menuRecovery.start(); menuRecovery.prepareDrag(); menuRecovery.add(a); menuRecoveryBridge.pending.removeFirst()(FixtureHandle())
-        menuRecovery.openMenu(a)
-        var menuRecoveryRead: (([MenuBarEntry]) -> Void)?, menuRecoveryToken: MenuBarReadToken?
-        menuRecovery.readOverride = { token, done in menuRecoveryToken = token; menuRecoveryRead = done }
-        let beforeMenuRecovery = menuRecoveryBridge.calls.count
-        menuRecovery.hover(anchor, inside: true)
-        try require(menuRecoveryToken?.isCancelled == false && menuRecoveryBridge.calls.count == beforeMenuRecovery,
-                    "Fallback hover waits for fresh icon geometry instead of cancelling its own read")
-        menuRecoveryRead?(entries)
-        try require(menuRecoveryBridge.calls.count == beforeMenuRecovery + 1, "Fresh geometry completes fallback menu collection")
-        menuRecoveryBridge.pending.removeFirst()(FixtureHandle()); menuRecovery.stop()
         let targetedDefaults = UserDefaults(suiteName: suite + ".targeted")!
         defer { targetedDefaults.removePersistentDomain(forName: suite + ".targeted") }
         targetedDefaults.set([a, b], forKey: "menuBarShelf.drawerBundles.v1")
         let targetedBridge = FixtureVisibility(), targeted = MenuBarDrawer(defaults: targetedDefaults, visibility: targetedBridge)
-        targeted.permissionOverride = true; targeted.testSkipInput = true; targeted.testSkipEnvironment = true; targeted.testNoPresentation = true
+        targeted.menuInteraction.captureOverride = { _, done in done(true) }; targeted.permissionOverride = true; targeted.testSkipInput = true; targeted.testSkipEnvironment = true; targeted.testNoPresentation = true
         targeted.readOverride = { _, done in done(entries) }; targeted.iconReadOverride = nativeIconRead
         var targetedPresses = [String]()
         targeted.pressOverride = { entry, _, done in targetedPresses.append(entry.bundle); done(true) }
         targeted.start(); let collectedHandle = FixtureHandle(); targetedBridge.pending.removeFirst()(collectedHandle)
         targeted.openMenu(a); targeted.openMenu(a)
         try require(targetedBridge.pending.count == 1 && collectedHandle.invalidations == 0 && targetedPresses.isEmpty,
-                    "Double click waits for one target exception without releasing the collected restriction")
-        try require(targetedBridge.calls.last!.contains(a) && !targetedBridge.calls.last!.contains(b),
-                    "Opening one menu permits only its owner and leaves other drawer apps hidden")
+                    "Repeated activation waits for one covered native input surface")
+        try require(targetedBridge.calls.last!.contains(a) && !targetedBridge.calls.last!.contains(b), "The temporary input surface is limited to its native owner")
         let targetHandle = FixtureHandle(); targetedBridge.pending.removeFirst()(targetHandle)
-        targeted.openMenu(a)
-        try require(targetedPresses == [a] && collectedHandle.invalidations == 1 && targetHandle.invalidations == 0 && targeted.hidden && targeted.order == [a,b],
-                    "The target receives exactly one native action; collection membership and other hidden icons remain unchanged")
-        targeted.openMenu(b); targetedBridge.pending.removeFirst()(nil)
-        try require(targetHandle.invalidations == 0 && targeted.hidden && targeted.issue != nil,
-                    "Failed menu exception retains the working restriction rather than exposing the whole bar")
-        targeted.activationTimeout = 0.02; targeted.openMenu(b)
-        let lateException = targetedBridge.pending.removeFirst()
+        try require(targetedPresses == [a] && collectedHandle.invalidations == 0 && targetHandle.invalidations == 0,
+                    "The original restriction remains retained throughout native delivery")
+        awaitTransition { !targetedBridge.pending.isEmpty }
+        try require(!targetedBridge.calls.last!.contains(a) && !targetedBridge.calls.last!.contains(b), "Every collected app is hidden again after mouse-up, without waiting for menu-close detection")
+        let restoredMenuHandle = FixtureHandle(); targetedBridge.pending.removeFirst()(restoredMenuHandle)
         awaitTransition { !targeted.busy }
+        try require(targeted.hidden && targeted.order == [a,b] && collectedHandle.invalidations == 1 && targetHandle.invalidations == 1,
+                    "Menu activation preserves membership and releases both obsolete assertions")
+        targeted.openMenu(b); targetedBridge.pending.removeFirst()(nil)
+        try require(restoredMenuHandle.invalidations == 0 && targeted.hidden, "A failed input assertion keeps the original hidden handle")
+        targetedBridge.pending.removeFirst()(FixtureHandle()); awaitTransition { !targeted.busy }
+        try require(targeted.issue != nil && targeted.hidden, "A rejected activation reports failure while retaining collection")
+        targeted.menuInteractionTimeout = 0.02; targeted.openMenu(b)
+        let lateException = targetedBridge.pending.removeFirst()
+        awaitTransition { !targetedBridge.pending.isEmpty }
         let lateExceptionHandle = FixtureHandle(); lateException(lateExceptionHandle)
-        try require(lateExceptionHandle.invalidations == 1 && targetHandle.invalidations == 0 && !targeted.busy,
-                    "Timed-out target exceptions discard late handles without exposing other icons")
+        try require(lateExceptionHandle.invalidations == 1 && targeted.hidden, "A timed-out native activation cannot revive its input surface")
+        targetedBridge.pending.removeFirst()(FixtureHandle()); awaitTransition { !targeted.busy }
         targeted.openMenu(b); let cancelledException = targetedBridge.pending.removeFirst(); targeted.showAll()
         let cancelledHandle = FixtureHandle(); cancelledException(cancelledHandle)
-        try require(cancelledHandle.invalidations == 1 && targetHandle.invalidations == 1 && !targeted.hidden,
-                    "Explicit show-all cancels a menu exception and prevents a stale callback from rehiding icons")
+        try require(cancelledHandle.invalidations == 1 && !targeted.hidden && !targeted.busy,
+                    "Explicit show-all cancels native delivery and discards its late assertion")
         targeted.readOverride = { _, done in done(entries) }; targeted.apply(); let retainedAfterRead = FixtureHandle(); targetedBridge.pending.removeFirst()(retainedAfterRead)
         targeted.iconReadTimeout = 0.02; targeted.readOverride = { _, _ in }; targeted.readEntries(force: true)
         awaitTransition { targeted.issue?.contains("读取超时") == true }
         try require(retainedAfterRead.invalidations == 0 && targeted.hidden && targeted.issue?.contains("读取超时") == true,
                     "An icon read timeout keeps the last successful native hiding rule")
         targeted.stop()
+        // Real view mouse routing preserves both pairs of a double click.
+        // Only the event sink is substituted; no global events are posted.
+        let clickView = MenuBarDrawerView(frame: CGRect(x: 0, y: 0, width: 100, height: 44))
+        clickView.items = [.init(bundle: a, name: "Native fixture", icon: nil)]
+        var gestures: [[MenuBarPointerSample]] = []
+        clickView.onActivate = { _, samples in gestures.append(samples) }
+        let clickCell = clickView.cellFrame(0)
+        func pointerEvent(_ type: NSEvent.EventType, count: Int, time: TimeInterval, modifiers: NSEvent.ModifierFlags = []) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: CGPoint(x: clickCell.midX, y: clickCell.midY), modifierFlags: modifiers,
+                               timestamp: time, windowNumber: 0, context: nil, eventNumber: 0, clickCount: count, pressure: 1)!
+        }
+        clickView.mouseDown(with: pointerEvent(.leftMouseDown, count: 1, time: 1))
+        clickView.mouseUp(with: pointerEvent(.leftMouseUp, count: 1, time: 1.02))
+        try require(gestures.isEmpty, "The first click remains available for the system double-click interval")
+        clickView.mouseDown(with: pointerEvent(.leftMouseDown, count: 2, time: 1.1, modifiers: [.option]))
+        clickView.mouseUp(with: pointerEvent(.leftMouseUp, count: 2, time: 1.12, modifiers: [.option]))
+        try require(gestures.count == 1 && gestures[0].map(\.count) == [1,1,2,2] && gestures[0][2].flags.contains(.maskAlternate),
+                    "A double click keeps both original down/up pairs, counts, timing and modifier keys")
+        let nativeDelivery = MenuBarNativeInteraction(), nativeToken = MenuBarReadToken()
+        nativeDelivery.captureOverride = { _, done in done(true) }
+        nativeDelivery.prepare(token: nativeToken) { _ in }
+        var delivered: [MenuBarPointerSample] = [], nativeFinished = false
+        nativeDelivery.sendOverride = { _, _, sample in if let sample { delivered.append(sample) } }
+        nativeDelivery.deliver(gestures[0], point: .zero, token: nativeToken) { nativeFinished = $0 }
+        awaitTransition { nativeFinished }
+        try require(delivered.map(\.type) == [.leftMouseDown,.leftMouseUp,.leftMouseDown,.leftMouseUp]
+                    && delivered.map(\.count) == [1,1,2,2] && delivered[2].flags.contains(.maskAlternate),
+                    "The native relay does not replace a double click with AXPress or app activation")
+        nativeDelivery.cancel()
+        clickView.mouseDown(with: pointerEvent(.leftMouseDown, count: 1, time: 2))
+        clickView.mouseUp(with: pointerEvent(.leftMouseUp, count: 1, time: 2.02))
+        awaitTransition { gestures.count == 2 }
+        try require(gestures.count == 2 && gestures.last!.map(\.count) == [1,1], "A standalone single click is forwarded exactly once")
+        clickView.rightMouseDown(with: pointerEvent(.rightMouseDown, count: 1, time: 3, modifiers: [.shift]))
+        clickView.rightMouseUp(with: pointerEvent(.rightMouseUp, count: 1, time: 3.02, modifiers: [.shift]))
+        try require(gestures.count == 3 && gestures.last!.map(\.type) == [.rightMouseDown,.rightMouseUp], "Native context-menu clicks retain their mouse button")
+        clickView.mouseDown(with: pointerEvent(.leftMouseDown, count: 1, time: 4))
+        clickView.mouseUp(with: pointerEvent(.leftMouseUp, count: 1, time: 4.02))
+        clickView.cancelActivation()
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: NSEvent.doubleClickInterval + 0.02))
+        try require(gestures.count == 3, "Closing or cancelling the drawer discards pending activation")
+        let cancelDelivery = MenuBarNativeInteraction(), cancelToken = MenuBarReadToken()
+        cancelDelivery.captureOverride = { _, done in done(true) }; cancelDelivery.prepare(token: cancelToken) { _ in }
+        var cancelledEvents: [CGEventType] = []
+        cancelDelivery.sendOverride = { type, _, _ in
+            cancelledEvents.append(type)
+            if type == .leftMouseDown { cancelDelivery.cancelInput() }
+        }
+        cancelDelivery.deliver(MenuBarPointerSample.singleClick, point: .zero, token: cancelToken) { _ in }
+        awaitTransition { cancelToken.isCancelled }
+        try require(cancelledEvents == [.mouseMoved,.leftMouseDown,.leftMouseUp], "Cancelling native input releases its own pressed button and drops later events")
+        cancelDelivery.cancel()
+        try require(!MenuBarPointerSample.valid([.init(type: .leftMouseDown, timestamp: 0)])
+                    && !MenuBarPointerSample.valid([.init(type: .leftMouseDown, timestamp: 0),.init(type: .leftMouseUp, timestamp: 4)]),
+                    "Unpaired or unbounded gestures are rejected before changing native visibility")
         var nativeSelection = MenuBarMenuSelection()
         try require(!nativeSelection.receive(false) && !nativeSelection.receive(nil), "A closed/unreadable custom popover does not start an automatic hide timeout")
         try require(!nativeSelection.receive(true) && !nativeSelection.receive(true, closedNotification: true),
@@ -239,14 +286,14 @@ import AppKit
         defer { delayedDefaults.removePersistentDomain(forName: suite + ".delayed") }
         let delayed = MenuBarDrawer(defaults: delayedDefaults, visibility: bridge)
         delayed.iconReadOverride = nativeIconRead
-        delayed.permissionOverride = true; delayed.testSkipInput = true; delayed.testSkipEnvironment = true; delayed.testNoPresentation = true
+        delayed.menuInteraction.captureOverride = { _, done in done(true) }; delayed.permissionOverride = true; delayed.testSkipInput = true; delayed.testSkipEnvironment = true; delayed.testNoPresentation = true
         var readBack: (([MenuBarEntry]) -> Void)?, readToken: MenuBarReadToken?
         delayed.readOverride = { token, callback in readToken = token; readBack = callback }
         delayed.start(); delayed.prepareDrag(); delayed.stop(); readBack?(entries)
         try require(readToken?.isCancelled == true && delayed.entries.isEmpty && !delayed.input.enabled, "Stopped inventory never restores stale entries or input capture")
         let latest = MenuBarDrawer(defaults: delayedDefaults, visibility: bridge)
         latest.iconReadOverride = nativeIconRead
-        latest.permissionOverride = true; latest.testSkipInput = true; latest.testSkipEnvironment = true; latest.testNoPresentation = true
+        latest.menuInteraction.captureOverride = { _, done in done(true) }; latest.permissionOverride = true; latest.testSkipInput = true; latest.testSkipEnvironment = true; latest.testNoPresentation = true
         latest.readOverride = { _, callback in readBack = callback }
         var latestPresses = [String]()
         latest.pressOverride = { entry, _, callback in latestPresses.append(entry.bundle); callback(true) }
@@ -258,7 +305,7 @@ import AppKit
         let continuityDefaults = UserDefaults(suiteName: suite + ".continuity")!
         defer { continuityDefaults.removePersistentDomain(forName: suite + ".continuity") }
         let continuityBridge = FixtureVisibility(), continuity = MenuBarDrawer(defaults: continuityDefaults, visibility: continuityBridge)
-        continuity.permissionOverride = true; continuity.testSkipInput = true; continuity.testSkipEnvironment = true; continuity.testNoPresentation = true
+        continuity.menuInteraction.captureOverride = { _, done in done(true) }; continuity.permissionOverride = true; continuity.testSkipInput = true; continuity.testSkipEnvironment = true; continuity.testNoPresentation = true
         continuity.iconReadOverride = nativeIconRead; continuity.readOverride = { _, done in done(entries) }
         continuity.pressedButtons = { 0 }; continuity.dismissDelay = 0.025
         var currentAnchor = anchor, pointer = CGPoint(x: anchor.midX, y: anchor.midY)
@@ -386,14 +433,14 @@ import AppKit
         offlineDefaults.set([a, b], forKey: "menuBarShelf.drawerBundles.v1")
         let offline = MenuBarDrawer(defaults: offlineDefaults, visibility: bridge)
         offline.iconReadOverride = nativeIconRead
-        offline.permissionOverride = true; offline.testSkipInput = true; offline.testSkipEnvironment = true; offline.testNoPresentation = true
+        offline.menuInteraction.captureOverride = { _, done in done(true) }; offline.permissionOverride = true; offline.testSkipInput = true; offline.testSkipEnvironment = true; offline.testNoPresentation = true
         offline.readOverride = { _, done in done([]) }
         let callsBeforeOffline = bridge.calls.count
         offline.start(); offline.restore(a)
         try require(offline.order == [b] && !offline.hidden && !offline.busy && bridge.calls.count == callsBeforeOffline, "An unreadable remaining app cannot prevent removing a saved drawer member")
         offline.stop()
         let missing = MenuBarDrawer(defaults: delayedDefaults, visibility: bridge)
-        missing.permissionOverride = true; missing.testSkipInput = true; missing.testSkipEnvironment = true; missing.testNoPresentation = true
+        missing.menuInteraction.captureOverride = { _, done in done(true) }; missing.permissionOverride = true; missing.testSkipInput = true; missing.testSkipEnvironment = true; missing.testNoPresentation = true
         missing.readOverride = { _, done in done(entries) }; missing.iconReadOverride = { _, _, done in done([:]) }
         missing.start(); missing.prepareDrag()
         let beforeMissing = bridge.calls.count
@@ -402,7 +449,7 @@ import AppKit
                     "Missing original pixels cannot hide the real entry, intercept its drag or substitute an application icon")
         missing.stop()
         let lateIcons = MenuBarDrawer(defaults: delayedDefaults, visibility: bridge)
-        lateIcons.permissionOverride = true; lateIcons.testSkipInput = true; lateIcons.testSkipEnvironment = true; lateIcons.testNoPresentation = true
+        lateIcons.menuInteraction.captureOverride = { _, done in done(true) }; lateIcons.permissionOverride = true; lateIcons.testSkipInput = true; lateIcons.testSkipEnvironment = true; lateIcons.testNoPresentation = true
         lateIcons.readOverride = { _, done in done(entries) }
         var latePixels: (([String: MenuBarIconPixels]) -> Void)?
         lateIcons.iconReadOverride = { _, _, done in latePixels = done }
@@ -448,7 +495,7 @@ import AppKit
         let cacheDefaults = UserDefaults(suiteName: suite + ".pixel-layout")!
         defer { cacheDefaults.removePersistentDomain(forName: suite + ".pixel-layout") }
         let cacheBridge = FixtureVisibility(), cacheOwner = MenuBarDrawer(defaults: cacheDefaults, visibility: cacheBridge)
-        cacheOwner.permissionOverride = true; cacheOwner.testSkipInput = true; cacheOwner.testSkipEnvironment = true; cacheOwner.testNoPresentation = true; cacheOwner.pressedButtons = { 0 }
+        cacheOwner.menuInteraction.captureOverride = { _, done in done(true) }; cacheOwner.permissionOverride = true; cacheOwner.testSkipInput = true; cacheOwner.testSkipEnvironment = true; cacheOwner.testNoPresentation = true; cacheOwner.pressedButtons = { 0 }
         var snapshot = entries
         cacheOwner.readOverride = { _, done in done(snapshot) }; cacheOwner.iconReadOverride = nativeIconRead
         cacheOwner.start(); cacheOwner.prepareDrag()
@@ -477,7 +524,7 @@ import AppKit
         let geometryDefaults = UserDefaults(suiteName: suite + ".capture-geometry")!
         defer { geometryDefaults.removePersistentDomain(forName: suite + ".capture-geometry") }
         let geometryOwner = MenuBarDrawer(defaults: geometryDefaults, visibility: FixtureVisibility())
-        geometryOwner.permissionOverride = true; geometryOwner.testSkipInput = true; geometryOwner.testSkipEnvironment = true; geometryOwner.testNoPresentation = true
+        geometryOwner.menuInteraction.captureOverride = { _, done in done(true) }; geometryOwner.permissionOverride = true; geometryOwner.testSkipInput = true; geometryOwner.testSkipEnvironment = true; geometryOwner.testNoPresentation = true
         geometryOwner.readOverride = { _, done in done(entries) }; geometryOwner.iconReadOverride = nativeIconRead
         geometryOwner.start(); geometryOwner.prepareDrag()
         let verifiedOriginal = geometryOwner.item(a).icon
@@ -509,7 +556,7 @@ import AppKit
                     "Native glyph crops use global Quartz coordinates, negative display origins and real Retina scale")
         try require(MenuBarIconCapture.crop(surface, surface: area, item: area.offsetBy(dx: -1, dy: 0)) == nil, "Out-of-surface entries must not capture unrelated pixels")
         let timedIcons = MenuBarDrawer(defaults: delayedDefaults, visibility: bridge)
-        timedIcons.permissionOverride = true; timedIcons.testSkipInput = true; timedIcons.testSkipEnvironment = true; timedIcons.testNoPresentation = true; timedIcons.iconReadTimeout = 0.02
+        timedIcons.menuInteraction.captureOverride = { _, done in done(true) }; timedIcons.permissionOverride = true; timedIcons.testSkipInput = true; timedIcons.testSkipEnvironment = true; timedIcons.testNoPresentation = true; timedIcons.iconReadTimeout = 0.02
         timedIcons.readOverride = { _, done in done(entries) }; timedIcons.iconReadOverride = { _, _, _ in }
         timedIcons.start(); timedIcons.prepareDrag()
         awaitTransition { timedIcons.issue != nil }
@@ -529,7 +576,7 @@ import AppKit
             autoreleasepool {
                 let owner = MenuBarDrawer(defaults: delayedDefaults, visibility: bridge)
                 releasedOwner = owner; releasedView = owner.view
-                owner.permissionOverride = false; owner.testSkipInput = true; owner.testSkipEnvironment = true; owner.testNoPresentation = true
+                owner.menuInteraction.captureOverride = { _, done in done(true) }; owner.permissionOverride = false; owner.testSkipInput = true; owner.testSkipEnvironment = true; owner.testNoPresentation = true
                 owner.start(); owner.view.items = [.init(bundle: a, name: "Finder", icon: nil)]; owner.stop()
             }
             try require(releasedOwner == nil && releasedView == nil, "Repeated enable/disable must release drawer, accessibility children and view")

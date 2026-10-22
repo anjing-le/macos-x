@@ -18,6 +18,7 @@ struct MenuDrawerItem {
     var onDragFinished: (() -> Void)?
     var onClose: (() -> Void)?
     var onOpen: ((String) -> Void)?
+    var onActivate: ((String, [MenuBarPointerSample]) -> Void)?
     var onMove: ((String, Int) -> Void)?
     var onRestore: ((String, CGPoint) -> Void)?
     var onPresence: ((Bool) -> Void)?
@@ -28,6 +29,9 @@ struct MenuDrawerItem {
     var isDragging: Bool { dragging }
     private var dragOriginal: [MenuDrawerItem]?
     private var tracking: NSTrackingArea?
+    private var pendingBundle: String?
+    private var pendingSamples: [MenuBarPointerSample] = []
+    private var activationWork: DispatchWorkItem?
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     var singleRow = false
@@ -76,6 +80,11 @@ struct MenuDrawerItem {
         guard let index = index(at: point) else { down = nil; return }
         dragOriginal = items
         selected = items[index].bundle; down = (items[index].bundle, point, event.modifierFlags.contains(.command)); dragging = false
+        if onActivate != nil {
+            if pendingBundle != items[index].bundle { cancelActivation() }
+            activationWork?.cancel(); activationWork = nil
+            pendingBundle = items[index].bundle; pendingSamples.append(MenuBarPointerSample(event))
+        }
     }
     override func mouseDragged(with event: NSEvent) {
         guard isEnabled else { return }
@@ -83,6 +92,7 @@ struct MenuDrawerItem {
         let point = convert(event.locationInWindow, from: nil)
         guard dragging || hypot(point.x - down.1.x, point.y - down.1.y) > 4 else { return }
         dragging = true; onInteraction?()
+        cancelActivation()
         if onMove != nil, bounds.contains(point), let from = items.firstIndex(where: { $0.bundle == down.0 }) {
             let to = insertion(at: point)
             if from != to { let item = items.remove(at: from); items.insert(item, at: to) }
@@ -99,9 +109,35 @@ struct MenuDrawerItem {
             dragging = false
             if bounds.insetBy(dx: -6, dy: -6).contains(point), let index = items.firstIndex(where: { $0.bundle == down.0 }) { onMove?(down.0, index) }
             else if let window { onRestore?(down.0, window.convertPoint(toScreen: event.locationInWindow)) }
-        } else if index(at: point).map({ items[$0].bundle }) == down.0 { onOpen?(down.0) }
+        } else if index(at: point).map({ items[$0].bundle }) == down.0 {
+            if onActivate != nil {
+                pendingSamples.append(MenuBarPointerSample(event))
+                if event.clickCount >= 2 { flushActivation() }
+                else {
+                    let work = DispatchWorkItem { [weak self] in self?.flushActivation() }
+                    activationWork = work
+                    DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval, execute: work)
+                }
+            } else { onOpen?(down.0) }
+        } else { cancelActivation() }
+    }
+    override func rightMouseDown(with event: NSEvent) { mouseDown(with: event) }
+    override func rightMouseUp(with event: NSEvent) {
+        mouseUp(with: event)
+        if onActivate != nil { flushActivation() }
+    }
+    private func flushActivation() {
+        let bundle = pendingBundle, samples = pendingSamples
+        cancelActivation()
+        guard isEnabled, let bundle, items.contains(where: { $0.bundle == bundle && $0.available }),
+              MenuBarPointerSample.valid(samples) else { return }
+        onActivate?(bundle, samples)
+    }
+    func cancelActivation() {
+        activationWork?.cancel(); activationWork = nil; pendingSamples.removeAll(); pendingBundle = nil
     }
     func cancelDrag() {
+        cancelActivation()
         if let original = dragOriginal { items = original }
         down = nil; dragging = false; dragOriginal = nil; onDragFinished?(); needsDisplay = true
     }
