@@ -122,9 +122,9 @@ final class ShortcutRadarDashboard: NSView, NSTextFieldDelegate, NSTableViewData
         }
         else if busy { coverage.stringValue = "正在检测 · 可随时取消" }
         else if let snapshot {
-            let completed = snapshot.coverage.filter { $0.status == .read }.count
+            let inspected = snapshot.coverage.filter { $0.status != .unavailable }.count
             let formatter = DateFormatter(); formatter.dateFormat = "HH:mm"
-            coverage.stringValue = "\(snapshot.accessibility ? "公开菜单已读 \(completed)/\(snapshot.totalApps) 个应用" : "部分结果 · 未读取应用菜单") · \(formatter.string(from: snapshot.date))"
+            coverage.stringValue = "\(snapshot.accessibility ? "公开菜单已检查 \(inspected)/\(snapshot.totalApps) 个应用" : "部分结果 · 未读取应用菜单") · \(formatter.string(from: snapshot.date))"
             var details = snapshot.coverage.map { "\($0.app.name)：\($0.status == .read ? "已读取公开菜单" : $0.status == .limited ? "部分读取" : "菜单不可用")" }
             if !snapshot.systemAvailable { details.append("系统快捷键登记读取失败") }
             if snapshot.truncated { details.append("已到检测时间、节点或数量上限；未读取项不表示没有快捷键") }

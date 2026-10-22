@@ -74,6 +74,15 @@ private final class RadarFixtureSurface: SketchSurface { override var isFlipped:
     @MainActor static func main() async {
         do {
             _ = NSApplication.shared; NSApp.appearance = NSAppearance(named: .aqua)
+            let menuLabels: [UInt16: String] = [14: "E", 123: "←", 82: "Num 0"]
+            try require(ShortcutRadarScanner.menuChord(code: nil, character: "E", mask: 24, labels: menuLabels) == RadarChord(key: "E", modifiers: 16),
+                        "System Fn-E remains Fn-E rather than becoming an unmodified E")
+            try require(ShortcutRadarScanner.menuChord(code: 14, character: "e", mask: 0, labels: menuLabels) == RadarChord(key: "E", modifiers: 8), "AX default Command encoding remains intact")
+            try require(ShortcutRadarScanner.menuChord(code: 14, character: "e", mask: 15, labels: menuLabels) == RadarChord(key: "E", modifiers: 7), "AX NoCommand is independent of Shift, Control and Option")
+            try require(ShortcutRadarScanner.menuChord(code: 123, character: "", mask: 16, labels: menuLabels) == RadarChord(key: "←", modifiers: 24), "Fn with Command preserves physical nonprinting keys")
+            try require(ShortcutRadarScanner.menuChord(code: 82, character: "0", mask: 0, labels: menuLabels) == RadarChord(key: "Num 0", modifiers: 8), "Native keypad identity wins over the printed character")
+            try require(ShortcutRadarScanner.menuChord(code: nil, character: "E", mask: 40, labels: menuLabels) == nil, "Future unknown modifier bits never turn into false simpler chords")
+            try require(ShortcutRadarScanner.menuChord(code: 128, character: "🎤", mask: 8, labels: menuLabels) == nil, "An unmapped system dictation pictogram is not presented as a literal keyboard key")
             if let index = CommandLine.arguments.firstIndex(of: "--hold-probe"), CommandLine.arguments.count > index + 1 {
                 var ref: EventHotKeyRef?
                 let status = RegisterEventHotKey(90, UInt32(controlKey | optionKey | shiftKey | cmdKey),

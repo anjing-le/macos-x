@@ -79,6 +79,12 @@ enum CaptureEditor {
         try Data([1]).write(to: broken.directory)
         do { _ = try broken.add(image(8,8)); preconditionFailure("Failed persistence must not be reported as saved") } catch {}
         precondition(broken.items.isEmpty)
+        let resetStore = CaptureShelfStore(directory: directory.appendingPathComponent("reset-index"))
+        let resetItem = try resetStore.add(image(8, 8))
+        try FileManager.default.removeItem(at: resetStore.directory.appendingPathComponent("items.json"))
+        let emptyReload = try resetStore.load()
+        precondition(emptyReload.isEmpty && resetStore.items.isEmpty && resetStore.image(resetItem.id) == nil,
+                     "A missing index clears old in-memory members instead of reopening phantom images after module restart")
         let fixture = [first,second,third]
         let thumbs = Dictionary(uniqueKeysWithValues: fixture.map { item in (item.id,NSImage(cgImage: image(item.width,item.height,color: item.id == second.id ? .systemOrange : .systemBlue,title: item.id == first.id ? "设计草稿" : "参考图片"),size: .zero)) })
         let legacy=try JSONDecoder().decode(CaptureShelfStore.Item.self,from:Data("{\"id\":\"\(first.id.uuidString)\",\"width\":360,\"height\":240,\"bytes\":1}".utf8))

@@ -27,7 +27,7 @@ final class CaptureShelfStore: @unchecked Sendable {
     }
     func load() throws -> [Item] {
         removed = nil
-        guard FileManager.default.fileExists(atPath: manifest.path) else { return [] }
+        guard FileManager.default.fileExists(atPath: manifest.path) else { items = []; return [] }
         let size = try manifest.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         guard size <= 131_072 else { throw Failure.message("收纳目录索引过大，未加载。") }
         let decoded = try JSONDecoder().decode([Item].self, from: Data(contentsOf: manifest))

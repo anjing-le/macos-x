@@ -41,6 +41,27 @@ import MacOSXCore
         func key(_ code:UInt16, flags:NSEvent.ModifierFlags=[])->NSEvent {
             NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:flags,timestamp:0,windowNumber:0,context:nil,characters:"",charactersIgnoringModifiers:"",isARepeat:false,keyCode:code)!
         }
+        // Exercise the real page host, not just individually resized boards.
+        // An unrecognised dashboard must get the same width as established pages.
+        final class NewDashboard: NSView {
+            override var intrinsicContentSize: NSSize { NSSize(width: 840, height: 420) }
+        }
+        let pageHost = ToolboxContent(frame: CGRect(x: 0, y: 0, width: 960, height: 640))
+        let newDashboard = NewDashboard(frame: .zero)
+        let hostWindow = NSWindow(contentRect: pageHost.frame, styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        hostWindow.isReleasedWhenClosed = false; hostWindow.contentView = pageHost
+        pageHost.showDetail([newDashboard])
+        for width: CGFloat in [960, 740, 360, 960] {
+            hostWindow.setContentSize(CGSize(width: width, height: 640))
+            pageHost.needsLayout = true; pageHost.layoutSubtreeIfNeeded()
+            let pageScroll = pageHost.subviews.compactMap { $0 as? NSScrollView }.first!
+            try require(abs(newDashboard.frame.width - (pageScroll.contentView.bounds.width - 48)) < 1,
+                        "Every dashboard follows the real host width without a class-specific allow-list")
+            let rect = newDashboard.convert(newDashboard.bounds, to: pageHost)
+            try require(rect.minX >= 0 && rect.maxX <= pageHost.bounds.maxX,
+                        "Narrow client windows never clip a newer dashboard horizontally")
+        }
+        hostWindow.contentView = nil; hostWindow.close()
         let registrySuite="cc.anjing.macos-x.registry-fixture.\(UUID().uuidString)"
         let registryDefaults=UserDefaults(suiteName:registrySuite)!
         defer { registryDefaults.removePersistentDomain(forName:registrySuite) }

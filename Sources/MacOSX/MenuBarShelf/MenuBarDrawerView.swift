@@ -10,6 +10,7 @@ struct MenuDrawerItem {
 /// The identical native view is used in the popover and in the dashboard.
 /// App icons identify real AX-backed entries; they do not simulate a menu.
 @MainActor final class MenuBarDrawerView: NSView {
+    var isEnabled = true { didSet { if isEnabled != oldValue { needsDisplay = true } } }
     var items: [MenuDrawerItem] = [] { didSet { needsDisplay = true; updateAccessibility() } }
     var selected: String? { didSet { needsDisplay = true; updateHint() } }
     var accepting = false { didSet { needsDisplay = true } }
@@ -69,6 +70,7 @@ struct MenuDrawerItem {
         onInteraction?()
     }
     override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return }
         window?.makeFirstResponder(self); onInteraction?()
         let point = convert(event.locationInWindow, from: nil)
         guard let index = index(at: point) else { down = nil; return }
@@ -76,6 +78,7 @@ struct MenuDrawerItem {
         selected = items[index].bundle; down = (items[index].bundle, point, event.modifierFlags.contains(.command)); dragging = false
     }
     override func mouseDragged(with event: NSEvent) {
+        guard isEnabled else { return }
         guard let down, down.2 else { return }
         let point = convert(event.locationInWindow, from: nil)
         guard dragging || hypot(point.x - down.1.x, point.y - down.1.y) > 4 else { return }
@@ -88,6 +91,7 @@ struct MenuDrawerItem {
         needsDisplay = true
     }
     override func mouseUp(with event: NSEvent) {
+        guard isEnabled else { cancelDrag(); return }
         guard let down else { return }; self.down = nil; onInteraction?()
         defer { dragOriginal = nil; onDragFinished?(); needsDisplay = true }
         let point = convert(event.locationInWindow, from: nil)
@@ -103,6 +107,7 @@ struct MenuDrawerItem {
     }
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 53 { cancelDrag(); onClose?() }
+        else if !isEnabled { return }
         else if event.keyCode == 36, let selected { onOpen?(selected) }
         else if event.keyCode == 123 || event.keyCode == 124 {
             guard !items.isEmpty else { return }
@@ -124,7 +129,7 @@ struct MenuDrawerItem {
                 SketchPencil.stroke(path, color: SketchPalette.blue, width: 2)
             }
             if !(dragging && down?.0 == item.bundle) {
-                item.icon?.draw(in: iconFrame(index), from: .zero, operation: .sourceOver, fraction: item.available ? 1 : 0.35, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.none])
+                item.icon?.draw(in: iconFrame(index), from: .zero, operation: .sourceOver, fraction: isEnabled && item.available ? 1 : 0.35, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.none])
             }
             if item.icon == nil {
                 let style = NSMutableParagraphStyle(); style.alignment = .center; style.lineBreakMode = .byTruncatingTail
@@ -151,13 +156,27 @@ struct MenuDrawerItem {
             let element = MenuDrawerAccessibilityItem()
             element.setAccessibilityRole(.button); element.setAccessibilityLabel(item.name)
             element.setAccessibilityParent(self)
-            element.onPress = { [weak self] in self?.onOpen?(item.bundle) }
+            element.owner = self; element.bundle = item.bundle
             return element
         })
     }
 }
 
 @MainActor private final class MenuDrawerAccessibilityItem: NSAccessibilityElement {
-    var onPress: (() -> Void)?
-    override func accessibilityPerformPress() -> Bool { onPress?(); return onPress != nil }
+    weak var owner: MenuBarDrawerView?
+    var bundle = ""
+    override func isAccessibilityEnabled() -> Bool {
+        owner?.isEnabled == true && owner?.onOpen != nil
+            && owner?.items.contains(where: { $0.bundle == bundle && $0.available }) == true
+    }
+    override func accessibilityFrame() -> NSRect {
+        guard let owner, let window = owner.window,
+              let index = owner.items.firstIndex(where: { $0.bundle == bundle }) else { return .zero }
+        let frame = owner.convert(owner.cellFrame(index), to: nil)
+        return window.convertToScreen(frame)
+    }
+    override func accessibilityPerformPress() -> Bool {
+        guard isAccessibilityEnabled(), let owner else { return false }
+        owner.onOpen?(bundle); return true
+    }
 }

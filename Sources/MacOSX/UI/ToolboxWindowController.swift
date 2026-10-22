@@ -166,9 +166,9 @@ private final class ToolboxContent: NSView {
         scroll.documentView = detailDocument
         views.forEach { view in
             detail.addArrangedSubview(view)
-            if view is SettingsBoardView || view is ModuleSettingsHeader || view is ModuleCatalogView || view is SystemStatusDashboardView || view is ShortcutRadarDashboard {
-                view.widthAnchor.constraint(equalTo: detail.widthAnchor).isActive = true
-            }
+            // Every page follows the same available width. A class allow-list
+            // left newer dashboards at their intrinsic desktop width on resize.
+            view.widthAnchor.constraint(equalTo: detail.widthAnchor).isActive = true
         }
         scroll.contentView.scroll(to: .zero)
         needsLayout = true
@@ -191,9 +191,7 @@ private final class ToolboxContent: NSView {
             grid.arrange(width: width, minimumHeight: height)
         } else {
             let inset: CGFloat = 24
-            let preferredWidth = max(480, detail.arrangedSubviews.map { $0.intrinsicContentSize.width }.max() ?? 480)
-            let fillsPage = detail.arrangedSubviews.contains { $0 is SettingsBoardView || $0 is ModuleCatalogView || $0 is SystemStatusDashboardView || $0 is ShortcutRadarDashboard }
-            let contentWidth = max(220, fillsPage ? width - inset * 2 : min(preferredWidth, width - inset * 2))
+            let contentWidth = max(220, width - inset * 2)
             detailWidth.constant = contentWidth
             detail.frame = NSRect(x: inset, y: inset, width: contentWidth, height: max(0, detail.fittingSize.height))
             detail.layoutSubtreeIfNeeded()

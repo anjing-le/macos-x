@@ -118,15 +118,17 @@ final class ShortcutRadarScanner: @unchecked Sendable {
             if role == kAXMenuItemRole, (array[5] as? NSNumber)?.boolValue == true {
                 let code = (array[2] as? NSNumber)?.uint16Value
                 let character = array[3] as? String ?? ""
-                let key = code.flatMap { labels[$0] } ?? nativeMenuKey(character)
-                if let mask = (array[4] as? NSNumber)?.uint32Value, let key, !key.isEmpty,
-                   !character.isEmpty || (code != nil && code != 0) {
-                    // AX: Shift=1, Option=2, Control=4, NoCommand=8. This is NOT NSEvent's mask.
-                    let modifiers: UInt8 = (mask & 4 != 0 ? 1 : 0) | (mask & 2 != 0 ? 2 : 0)
-                        | (mask & 1 != 0 ? 4 : 0) | (mask & 8 == 0 ? 8 : 0)
-                    uses.append(.init(chord: .init(key: key, modifiers: modifiers), appID: app.id, appName: app.name,
-                        action: title.isEmpty ? "未命名菜单命令" : title, path: path.joined(separator: " › "),
-                        scope: .application, evidence: .menu))
+                if !character.isEmpty || (code != nil && code != 0) {
+                    if let chord = menuChord(code: code, character: character,
+                                             mask: (array[4] as? NSNumber)?.uint32Value, labels: labels) {
+                        uses.append(.init(chord: chord, appID: app.id, appName: app.name,
+                            action: title.isEmpty ? "未命名菜单命令" : title, path: path.joined(separator: " › "),
+                            scope: .application, evidence: .menu))
+                    } else {
+                        // Unknown modifiers/glyphs are incomplete evidence, not
+                        // a different, simpler shortcut such as an unmodified E.
+                        limited = true
+                    }
                 }
             }
             guard depth < 8, !token.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else {
@@ -148,13 +150,25 @@ final class ShortcutRadarScanner: @unchecked Sendable {
         return (uses, limited ? .limited : .read)
     }
 
+    fileprivate static func menuChord(code: UInt16?, character: String, mask: UInt32?, labels: [UInt16: String]) -> RadarChord? {
+        // AX uses its own encoding: Shift=1, Option=2, Control=4, NoCommand=8.
+        // The system Fn-E menu on macOS 27 reports 24 (NoCommand | 0x10).
+        // Keep this observed extension here; do not drop future unknown bits.
+        guard let mask, mask & ~UInt32(31) == 0,
+              let key = code.flatMap({ labels[$0] }) ?? nativeMenuKey(character), !key.isEmpty else { return nil }
+        let modifiers: UInt8 = (mask & 4 != 0 ? 1 : 0) | (mask & 2 != 0 ? 2 : 0)
+            | (mask & 1 != 0 ? 4 : 0) | (mask & 8 == 0 ? 8 : 0) | (mask & 16 != 0 ? 16 : 0)
+        return .init(key: key, modifiers: modifiers)
+    }
+
     private static func nativeMenuKey(_ string: String) -> String? {
         guard string.count == 1, let scalar = string.unicodeScalars.first else { return nil }
         let symbols: [UInt32: String] = [0xF700: "↑", 0xF701: "↓", 0xF702: "←", 0xF703: "→",
             0x09: "Tab", 0x0D: "↩", 0x20: "Space", 0x1B: "Esc", 0x7F: "⌫"]
         if let symbol = symbols[scalar.value] { return symbol }
         if (0xF704...0xF717).contains(scalar.value) { return "F\(scalar.value - 0xF704 + 1)" }
-        guard !CharacterSet.controlCharacters.contains(scalar), scalar.properties.generalCategory != .privateUse else { return nil }
+        guard !CharacterSet.controlCharacters.contains(scalar), scalar.properties.generalCategory != .privateUse,
+              !string.unicodeScalars.contains(where: { $0.properties.isEmojiPresentation }) else { return nil }
         return string.uppercased()
     }
 }

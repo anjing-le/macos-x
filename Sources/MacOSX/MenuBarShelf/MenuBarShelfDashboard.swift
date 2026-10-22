@@ -77,6 +77,7 @@ import AppKit
     }
     func update(active: Bool, state: MenuBarShelfModule.State, auto: Bool, issue: String?, count: Int, native: Bool) {
         self.native = native
+        drawer.isEnabled = active && state != .reading; visible.isEnabled = active && state != .reading
         expanded.isEnabled = active; collapsed.isEnabled = active && state != .reading
         refresh.isEnabled = active; preview.isEnabled = active && native
         automatic.isHidden = native; automatic.isEnabled = active; automatic.state = auto ? .on : .off

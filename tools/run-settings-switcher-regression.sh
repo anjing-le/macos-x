@@ -20,7 +20,7 @@ m=(root/'Sources/MacOSX/Shared/ModuleCoordinator.swift').read_text()
 header=m[m.index('@MainActor\nfinal class ModuleSettingsHeader:'):].replace('ModuleCoordinator', 'SettingsHeaderFixtureModel')
 (out/'SettingsHeader.swift').write_text('import AppKit\n'+header)
 t=(root/'Sources/MacOSX/UI/ToolboxWindowController.swift').read_text()
-(out/'RegistryAndFixture.swift').write_text(t[:t.index('@MainActor\nprivate final class CardGrid')]+(root/'tools/settings-switcher-regression.swift').read_text())
+(out/'RegistryAndFixture.swift').write_text(t[:t.index('@MainActor\nfinal class ToolboxWindowController:')]+(root/'tools/settings-switcher-regression.swift').read_text())
 (out/'Preview.app/Contents/Info.plist').write_text('<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>cc.anjing.macos-x.settings.fixture</string><key>CFBundleExecutable</key><string>Preview</string><key>CFBundlePackageType</key><string>APPL</string><key>LSUIElement</key><true/></dict></plist>')
 PY
 xcrun swiftc -I "$guide_bin/Modules" "$guide_bin"/MacOSXCore.build/*.swift.o \

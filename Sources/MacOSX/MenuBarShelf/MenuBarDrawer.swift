@@ -588,6 +588,7 @@ import ApplicationServices
     private func persist() { defaults.set(order, forKey: selectionKey); input.entries = entries.filter { $0.visible && !order.contains($0.bundle) && originalIcons[$0.bundle] != nil } }
     private func changed() { if isOpen { show(); presence(false) } else { updateView() }; onChange?() }
     private func updateView() {
+        view.isEnabled = active && !busy
         let items = drawerItems
         if !view.items.elementsEqual(items, by: { $0.bundle == $1.bundle && $0.name == $1.name && $0.icon === $1.icon && $0.available == $1.available }) {
             view.items = items

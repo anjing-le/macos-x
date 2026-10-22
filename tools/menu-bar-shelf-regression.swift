@@ -542,11 +542,23 @@ import AppKit
         let examples = [a, b, c].map { MenuDrawerItem(bundle: $0, name: $0.components(separatedBy: ".").last!, icon: NSImage(cgImage: previewIcons[$0]!.image, size: previewIcons[$0]!.size)) }
         view.setItems(drawer: examples, visible: examples.reversed())
         view.update(active: true, state: .collapsed, auto: false, issue: nil, count: 3, native: true)
+        var accessibleOpens = [String]()
+        view.drawer.onOpen = { accessibleOpens.append($0) }
+        let accessibleIcon = view.drawer.accessibilityChildren()!.first as! NSAccessibilityElement
+        try require(accessibleIcon.isAccessibilityEnabled() && accessibleIcon.accessibilityPerformPress() && accessibleOpens == [a],
+                    "Collected icons expose an enabled, working native accessibility action")
+        view.update(active: false, state: .expanded, auto: false, issue: nil, count: 3, native: true)
+        try require(!accessibleIcon.isAccessibilityEnabled() && !accessibleIcon.accessibilityPerformPress() && accessibleOpens == [a],
+                    "Disabled module icons cannot invoke stale accessibility actions")
+        view.update(active: true, state: .collapsed, auto: false, issue: nil, count: 3, native: true)
         for width: CGFloat in [840, 460, 360, 220] {
             view.frame = CGRect(x: 0, y: 0, width: width, height: width < 520 ? 580 : 500)
             view.needsLayout = true; view.layoutSubtreeIfNeeded()
             try require(view.subviews.filter { !$0.isHidden }.allSatisfy { view.bounds.contains($0.frame) }, "Every visible control fits wide and narrow settings")
             try require(view.drawer.items.count == 3 && view.visible.items.count == 3, "Compact settings preserve all app identities")
+            let expectedAccessibleFrame = window.convertToScreen(view.drawer.convert(view.drawer.cellFrame(0), to: nil))
+            try require(accessibleIcon.accessibilityFrame() == expectedAccessibleFrame && expectedAccessibleFrame.width > 0,
+                        "Accessible icon frames track actual slots after wide/narrow resizing")
         }
         var moved: (String, Int)?
         view.drawer.onMove = { moved = ($0, $1) }
