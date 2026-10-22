@@ -59,8 +59,13 @@ func AXUIElementPerformAction(_ element: AXUIElement, _ action: CFString) -> AXE
             }
         }
         precondition(first.focused == 6 && second.focused == 6, "Repeated native focus must run on main")
-        try? await Task.sleep(nanoseconds: 1_200_000_000)
-        precondition(completed.last == 11, "The latest native focus must complete")
+        // Four production verification delays already total ~1s. A fixed
+        // 1.2s sleep also assumed negligible scheduler delay on the CI runner.
+        let completionDeadline = ProcessInfo.processInfo.systemUptime + 5
+        while completed.last != 11 && ProcessInfo.processInfo.systemUptime < completionDeadline {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        precondition(completed.last == 11, "The latest native focus must complete within the fixture deadline")
         second.mini = true
         let local = snapshot.windows.first { $0.id == 102 }!
         let beforeStop = completed.count
