@@ -104,7 +104,7 @@ import AppKit
         try require(drawer.order == [a, c] && drawer.isOpen, "Drop keeps drawer open and saves the new icon")
         drawer.activationTimeout = 0.02; drawer.add(b)
         let late = bridge.pending.removeFirst()
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        awaitTransition { !drawer.busy }
         let lateHandle = FixtureHandle(); late(lateHandle)
         try require(fourth.invalidations == 1 && lateHandle.invalidations == 1 && !drawer.busy && !drawer.hidden && drawer.order == [a, c], "Timeout drops late handles without committing false membership")
         drawer.apply(); let duringStop = bridge.pending.removeFirst(); drawer.stop()
@@ -213,7 +213,7 @@ import AppKit
                     "Failed menu exception retains the working restriction rather than exposing the whole bar")
         targeted.activationTimeout = 0.02; targeted.openMenu(b)
         let lateException = targetedBridge.pending.removeFirst()
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        awaitTransition { !targeted.busy }
         let lateExceptionHandle = FixtureHandle(); lateException(lateExceptionHandle)
         try require(lateExceptionHandle.invalidations == 1 && targetHandle.invalidations == 0 && !targeted.busy,
                     "Timed-out target exceptions discard late handles without exposing other icons")
@@ -223,8 +223,8 @@ import AppKit
                     "Explicit show-all cancels a menu exception and prevents a stale callback from rehiding icons")
         targeted.readOverride = { _, done in done(entries) }; targeted.apply(); let retainedAfterRead = FixtureHandle(); targetedBridge.pending.removeFirst()(retainedAfterRead)
         targeted.iconReadTimeout = 0.02; targeted.readOverride = { _, _ in }; targeted.readEntries(force: true)
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
-        try require(retainedAfterRead.invalidations == 0 && targeted.hidden,
+        awaitTransition { targeted.issue?.contains("读取超时") == true }
+        try require(retainedAfterRead.invalidations == 0 && targeted.hidden && targeted.issue?.contains("读取超时") == true,
                     "An icon read timeout keeps the last successful native hiding rule")
         targeted.stop()
         var nativeSelection = MenuBarMenuSelection()
@@ -512,7 +512,7 @@ import AppKit
         timedIcons.permissionOverride = true; timedIcons.testSkipInput = true; timedIcons.testSkipEnvironment = true; timedIcons.testNoPresentation = true; timedIcons.iconReadTimeout = 0.02
         timedIcons.readOverride = { _, done in done(entries) }; timedIcons.iconReadOverride = { _, _, _ in }
         timedIcons.start(); timedIcons.prepareDrag()
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        awaitTransition { timedIcons.issue != nil }
         try require(!timedIcons.hidden && !timedIcons.busy && timedIcons.issue?.contains("超时") == true, "An unresponsive native pixel request fails open and reports a retry instead of stranding hidden icons")
         timedIcons.stop()
         // Existing native UI is rendered using fixture app identities, not the
