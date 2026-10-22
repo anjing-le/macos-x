@@ -251,7 +251,8 @@ import AppKit
         input.stop()
         var stillCurrent = true, replayed: [CGEventType] = [], replayFinished = false
         MenuBarDrawerInput.move(from: .zero, to: CGPoint(x: 20, y: 0), isCurrent: { stillCurrent }, send: { type, _ in replayed.append(type); if type == .leftMouseDown { stillCurrent = false } }) { replayFinished = true }
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.10))
+        let replayDeadline = Date(timeIntervalSinceNow: 5)
+        while !replayFinished, Date() < replayDeadline { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.005)) }
         try require(replayed == [.leftMouseDown, .leftMouseUp] && replayFinished, "Cancelled replay releases its own mouse down but never posts a new drag")
         let offlineDefaults = UserDefaults(suiteName: suite + ".offline")!
         defer { offlineDefaults.removePersistentDomain(forName: suite + ".offline") }
