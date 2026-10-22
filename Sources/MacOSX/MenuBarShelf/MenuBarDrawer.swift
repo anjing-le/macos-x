@@ -145,7 +145,7 @@ import ApplicationServices
         let screen = NSScreen.screens.first { $0.frame.contains(CGPoint(x: anchor.midX, y: anchor.midY)) } ?? NSScreen.main
         guard let screen else { return }
         let icons = drawerItems
-        let width = min(max(240, min(620, MenuBarDrawerView.rowWidth(icons))), max(220, screen.visibleFrame.width - 24))
+        let width = min(max(icons.isEmpty ? 144 : 48, min(620, MenuBarDrawerView.rowWidth(icons))), max(220, screen.visibleFrame.width - 24))
         let height = min(MenuBarDrawerView.height(items: icons, width: width), screen.visibleFrame.height - 24)
         let origin = CGPoint(x: max(screen.visibleFrame.minX + 8, min(anchor.midX - width / 2, screen.visibleFrame.maxX - width - 8)), y: min(anchor.minY, screen.visibleFrame.maxY) - height - 4)
         if panel == nil {
@@ -155,10 +155,11 @@ import ApplicationServices
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
             panel.contentView = view; self.panel = panel
         }
-        panel?.setFrame(CGRect(origin: origin, size: CGSize(width: width, height: height)), display: true)
-        view.frame.size = CGSize(width: width, height: height)
+        let frame = CGRect(origin: origin, size: CGSize(width: width, height: height))
+        if panel?.frame != frame { panel?.setFrame(frame, display: true) }
+        if view.frame.size != frame.size { view.frame.size = frame.size }
         updateView()
-        if testNoPresentation { openForTest = true } else { panel?.orderFrontRegardless() }
+        if testNoPresentation { openForTest = true } else if panel?.isVisible != true { panel?.orderFrontRegardless() }
         installMonitors()
     }
     func close() {
@@ -310,16 +311,22 @@ import ApplicationServices
         menuWatch?.cancel(); menuWatch = nil; reapplyOnHover = false
         menuGeneration += 1; actionToken?.cancel(); actionToken = nil
         restrictionGeneration += 1; let expected = restrictionGeneration
-        restriction?.invalidate(); restriction = nil; hidden = false
-        if proposed.isEmpty { order = []; persist(); issue = nil; changed(); completion?(true); return }
+        // Keep the confirmed restriction alive until its replacement is active.
+        // Releasing first briefly restores the entire native menu bar.
+        if proposed.isEmpty {
+            restriction?.invalidate(); restriction = nil; hidden = false
+            order = []; persist(); issue = nil; changed(); completion?(true); return
+        }
         let confirmed = Set(entries.map(\.bundle)).intersection(proposed)
         guard confirmed.allSatisfy({ originalIcons[$0] != nil }) else {
+            restriction?.invalidate(); restriction = nil; hidden = false
             issue = CGPreflightScreenCaptureAccess() ? "原图标暂不可读取，已保留真实菜单栏；可点击读取图标重试。" : "需要屏幕录制权限读取原菜单栏图标；未读到的图标保持显示。"
             changed(); completion?(false); return
         }
         guard !confirmed.isEmpty else {
             // Offline/unreadable members stay configured but visible. Removing
             // another member must still succeed when no remaining app is running.
+            restriction?.invalidate(); restriction = nil; hidden = false
             order = proposed; persist(); issue = nil; changed(); completion?(true); return
         }
         busy = true; changed()
@@ -328,13 +335,16 @@ import ApplicationServices
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.active, self.restrictionGeneration == expected else { return }
             self.restrictionGeneration += 1; self.watchdog = nil; self.busy = false
+            self.restriction?.invalidate(); self.restriction = nil; self.hidden = false
             self.issue = "系统隐藏响应超时，图标已恢复；可重试。"; self.changed(); completion?(false)
         }
         watchdog = work; DispatchQueue.main.asyncAfter(deadline: .now() + activationTimeout, execute: work)
         visibility.activate(allowing: Array(all.subtracting(confirmed)).sorted()) { [weak self] handle in
             guard let self, self.active, self.restrictionGeneration == expected else { handle?.invalidate(); return }
             self.watchdog?.cancel(); self.watchdog = nil; self.busy = false
+            let previous = self.restriction
             self.restriction = handle; self.hidden = handle != nil
+            previous?.invalidate()
             if handle != nil { self.order = proposed; self.persist(); self.issue = nil }
             else { self.issue = "系统未能收纳，图标已恢复；请重试。" }
             self.changed(); completion?(handle != nil)

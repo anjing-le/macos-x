@@ -11,7 +11,7 @@ struct MenuDrawerItem {
 /// App icons identify real AX-backed entries; they do not simulate a menu.
 @MainActor final class MenuBarDrawerView: NSView {
     var items: [MenuDrawerItem] = [] { didSet { needsDisplay = true; updateAccessibility() } }
-    var selected: String? { didSet { needsDisplay = true } }
+    var selected: String? { didSet { needsDisplay = true; updateHint() } }
     var accepting = false { didSet { needsDisplay = true } }
     var onDragImage: ((MenuDrawerItem, CGPoint) -> Void)?
     var onDragFinished: (() -> Void)?
@@ -21,7 +21,7 @@ struct MenuDrawerItem {
     var onRestore: ((String, CGPoint) -> Void)?
     var onPresence: ((Bool) -> Void)?
     var onInteraction: (() -> Void)?
-    var message = "⌘ 拖入图标，收纳在这里" { didSet { needsDisplay = true } }
+    var message = "⌘ 拖入图标，收纳在这里" { didSet { updateHint() } }
     private var down: (String, CGPoint, Bool)?
     private var dragging = false
     private var dragOriginal: [MenuDrawerItem]?
@@ -29,14 +29,15 @@ struct MenuDrawerItem {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     var singleRow = false
-    private static func width(_ item: MenuDrawerItem) -> CGFloat { max(36, min(332, (item.icon?.size.width ?? 24) + 12)) }
-    static func rowWidth(_ items: [MenuDrawerItem]) -> CGFloat { 24 + items.reduce(0) { $0 + width($1) } }
+    private static func width(_ item: MenuDrawerItem) -> CGFloat { max(24, min(332, (item.icon?.size.width ?? 24) + 4)) }
+    static func rowWidth(_ items: [MenuDrawerItem]) -> CGFloat { 16 + items.reduce(0) { $0 + width($1) } }
     private static func frames(_ items: [MenuDrawerItem], width: CGFloat, singleRow: Bool) -> [CGRect] {
-        var x: CGFloat = 12, y: CGFloat = 12
+        var x: CGFloat = 8, y: CGFloat = 6
+        let rowHeight = max(28, items.map { ($0.icon?.size.height ?? 24) + 4 }.max() ?? 28)
         return items.map { item in
-            let w = min(Self.width(item), max(36, width - 24))
-            if !singleRow, x > 12, x + w > width - 12 { x = 12; y += 44 }
-            let result = CGRect(x: x, y: y, width: w, height: 40); x += w; return result
+            let w = min(Self.width(item), max(24, width - 16))
+            if !singleRow, x > 8, x + w > width - 8 { x = 8; y += rowHeight + 2 }
+            let result = CGRect(x: x, y: y, width: w, height: rowHeight); x += w; return result
         }
     }
     func cellFrame(_ index: Int) -> CGRect { Self.frames(items, width: bounds.width, singleRow: singleRow)[index] }
@@ -52,18 +53,18 @@ struct MenuDrawerItem {
         } ?? 0
     }
     static func height(items: [MenuDrawerItem], width: CGFloat) -> CGFloat {
-        (frames(items, width: width, singleRow: false).last?.maxY ?? 52) + 34
+        (frames(items, width: width, singleRow: false).last?.maxY ?? 34) + 6
     }
     override func updateTrackingAreas() {
         super.updateTrackingAreas(); if let tracking { removeTrackingArea(tracking) }
         let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self)
         addTrackingArea(area); tracking = area
     }
-    override func mouseEntered(with event: NSEvent) { onPresence?(true) }
+    override func mouseEntered(with event: NSEvent) { updateHint(); onPresence?(true) }
     override func mouseExited(with event: NSEvent) { onPresence?(false) }
     override func mouseMoved(with event: NSEvent) {
         selected = index(at: convert(event.locationInWindow, from: nil)).map { items[$0].bundle }
-        toolTip = selected.flatMap { id in items.first { $0.bundle == id }?.name }
+        updateHint()
         onInteraction?()
     }
     override func mouseDown(with event: NSEvent) {
@@ -126,18 +127,24 @@ struct MenuDrawerItem {
             }
             if item.icon == nil {
                 let style = NSMutableParagraphStyle(); style.alignment = .center; style.lineBreakMode = .byTruncatingTail
-                (item.name as NSString).draw(in: frame.insetBy(dx: 3, dy: 12), withAttributes: [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: SketchPalette.muted, .paragraphStyle: style])
+                (item.name as NSString).draw(in: CGRect(x: frame.minX + 3, y: frame.midY - 6, width: frame.width - 6, height: 13), withAttributes: [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: SketchPalette.muted, .paragraphStyle: style])
             }
         }
 
         if items.isEmpty {
             let plus = NSImage(systemSymbolName: "tray.and.arrow.down", accessibilityDescription: nil)
-            plus?.draw(in: CGRect(x: bounds.midX - 15, y: 20, width: 30, height: 26), from: .zero, operation: .sourceOver, fraction: 0.5, respectFlipped: true, hints: nil)
+            plus?.draw(in: CGRect(x: bounds.midX - 15, y: bounds.midY - 13, width: 30, height: 26), from: .zero, operation: .sourceOver, fraction: 0.5, respectFlipped: true, hints: nil)
         }
-        let style = NSMutableParagraphStyle(); style.alignment = .center
-        (message as NSString).draw(in: CGRect(x: 10, y: bounds.height - 29, width: bounds.width - 20, height: 18), withAttributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: accepting ? SketchPalette.blue : SketchPalette.muted, .paragraphStyle: style])
+
+    }
+    private func updateHint() {
+        let name = selected.flatMap { id in items.first { $0.bundle == id }?.name }
+        let hint = [name, message.isEmpty ? nil : message].compactMap { $0 }.joined(separator: "\n")
+        if toolTip != hint { toolTip = hint }
+        setAccessibilityHelp(message)
     }
     private func updateAccessibility() {
+        updateHint()
         setAccessibilityElement(false)
         setAccessibilityChildren(items.map { item -> NSAccessibilityElement in
             let element = MenuDrawerAccessibilityItem()

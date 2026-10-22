@@ -48,7 +48,9 @@ import AppKit
         let first = FixtureHandle(); bridge.pending.removeFirst()(first)
         try require(drawer.order == [a] && drawer.hidden, "Successful native restriction commits membership")
         try require(bridge.calls[0].contains(Bundle.main.bundleIdentifier!) && bridge.calls[0].contains("com.apple.controlcenter"), "Own apple and system recovery controls always remain visible")
-        drawer.add(b); bridge.pending.removeFirst()(nil)
+        drawer.add(b)
+        try require(first.invalidations == 0 && drawer.hidden, "Pending replacement keeps the old native restriction alive without an all-visible gap")
+        bridge.pending.removeFirst()(nil)
         try require(first.invalidations == 1 && drawer.order == [a] && !drawer.hidden && drawer.issue != nil, "Failure fails open and retains last committed membership")
         drawer.add(b); let second = FixtureHandle(); bridge.pending.removeFirst()(second)
         let calls = bridge.calls.count
@@ -57,7 +59,9 @@ import AppKit
         try require(drawer.order == [b, a] && bridge.calls.count == calls, "Sorting persists immediately without recapturing or another native activation")
         try require(drawer.item(a).icon === beforeSortIcon, "Sorting reuses the exact captured native glyph")
         try require(defaults.stringArray(forKey: "menuBarShelf.drawerBundles.v1") == [b, a], "Membership order survives relaunch")
-        drawer.restore(b); let third = FixtureHandle(); bridge.pending.removeFirst()(third)
+        drawer.restore(b)
+        try require(second.invalidations == 0 && drawer.hidden, "Drag-out keeps the old rule until the new allowed set is active")
+        let third = FixtureHandle(); bridge.pending.removeFirst()(third)
         try require(drawer.order == [a] && second.invalidations == 1, "Drag-out restores a member while keeping the remaining selection")
         drawer.openMenu(a)
         try require(pressed == [a] && third.invalidations == 1 && !drawer.isOpen, "Click restores real items and forwards one AX press, never a simulated menu")
@@ -91,7 +95,7 @@ import AppKit
         let late = bridge.pending.removeFirst()
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
         let lateHandle = FixtureHandle(); late(lateHandle)
-        try require(lateHandle.invalidations == 1 && !drawer.busy && !drawer.hidden && drawer.order == [a, c], "Timeout drops late handles without committing false membership")
+        try require(fourth.invalidations == 1 && lateHandle.invalidations == 1 && !drawer.busy && !drawer.hidden && drawer.order == [a, c], "Timeout drops late handles without committing false membership")
         drawer.apply(); let duringStop = bridge.pending.removeFirst(); drawer.stop()
         let stoppedHandle = FixtureHandle(); duringStop(stoppedHandle)
         try require(stoppedHandle.invalidations == 1 && !drawer.active && !drawer.input.enabled && !drawer.isOpen && !drawer.hasDismissWork, "Stop restores icons and discards pending activation/input/popup")
@@ -258,6 +262,14 @@ import AppKit
         var dragFeedback = 0, dragRelease = 0
         view.drawer.onDragImage = { _, _ in dragFeedback += 1 }; view.drawer.onDragFinished = { dragRelease += 1 }
         try require(view.drawer.iconFrame(0).size == examples[0].icon!.size, "UI draws native pixels at their original size")
+        let compactHeight = MenuBarDrawerView.height(items: examples, width: MenuBarDrawerView.rowWidth(examples))
+        try require(compactHeight == 40 && MenuBarDrawerView.rowWidth(examples) == 88, "Native 20×24 glyphs use compact slots and no permanent footer")
+        let hintFrame = view.drawer.frame
+        view.drawer.mouseMoved(with: localEvent(.mouseMoved, CGPoint(x: view.drawer.cellFrame(0).midX, y: view.drawer.cellFrame(0).midY)))
+        try require(view.drawer.toolTip?.contains(examples[0].name) == true && view.drawer.toolTip?.contains(view.drawer.message) == true && view.drawer.frame == hintFrame, "Hover exposes name and actions without resizing the drawer")
+        let tall = MenuDrawerItem(bundle: "tall", name: "Tall", icon: NSImage(size: CGSize(width: 20, height: 33)))
+        let tallView = MenuBarDrawerView(frame: CGRect(x: 0, y: 0, width: 48, height: MenuBarDrawerView.height(items: [tall], width: 48))); tallView.items = [tall]
+        try require(tallView.bounds.contains(tallView.iconFrame(0)), "Compact vertical padding never clips a taller native glyph")
         let firstCell = view.drawer.cellFrame(0), lastCell = view.drawer.cellFrame(2)
         view.drawer.mouseDown(with: localEvent(.leftMouseDown, CGPoint(x: firstCell.midX, y: firstCell.midY)))
         view.drawer.mouseDragged(with: localEvent(.leftMouseDragged, CGPoint(x: lastCell.midX, y: lastCell.midY)))
@@ -284,8 +296,9 @@ import AppKit
                 view.cacheDisplay(in: view.bounds, to: image)
                 try image.representation(using: .png, properties: [:])!.write(to: path.appendingPathComponent("menu-drawer-\(Int(width)).png"))
             }
-            let popup = MenuBarDrawerView(frame: CGRect(x: 0, y: 0, width: 344, height: 108)); popup.items = examples; popup.selected = b
-            window.contentView = popup; window.setContentSize(CGSize(width: 344, height: 108))
+            let popupSize = CGSize(width: MenuBarDrawerView.rowWidth(examples), height: MenuBarDrawerView.height(items: examples, width: MenuBarDrawerView.rowWidth(examples)))
+            let popup = MenuBarDrawerView(frame: CGRect(origin: .zero, size: popupSize)); popup.items = examples; popup.selected = b
+            window.contentView = popup; window.setContentSize(popupSize)
             popup.message = "点击打开 · ⌘ 拖动排序，拖出恢复"
             let image = popup.bitmapImageRepForCachingDisplay(in: popup.bounds)!; popup.cacheDisplay(in: popup.bounds, to: image)
             try image.representation(using: .png, properties: [:])!.write(to: path.appendingPathComponent("menu-drawer-popup.png"))

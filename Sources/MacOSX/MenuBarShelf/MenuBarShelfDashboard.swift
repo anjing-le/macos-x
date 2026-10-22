@@ -94,14 +94,17 @@ import AppKit
         let top: CGFloat = narrow ? 116 : 86
         drawerLabel.frame = CGRect(x: 0, y: top, width: width - 110, height: 24)
         preview.frame = CGRect(x: width - 100, y: top - 2, width: 100, height: 28)
-        drawerScroll.frame = CGRect(x: 0, y: top + 32, width: width, height: 88)
-        visibleLabel.frame = CGRect(x: 0, y: top + 134, width: width - 110, height: 24)
-        refresh.frame = CGRect(x: width - 100, y: top + 130, width: 100, height: 28)
-        visibleScroll.frame = CGRect(x: 0, y: top + 166, width: width, height: 88)
-        for (scroll, document) in [(drawerScroll, drawer), (visibleScroll, visible)] {
-            document.frame = CGRect(x: 0, y: 0, width: max(scroll.contentSize.width, MenuBarDrawerView.rowWidth(document.items)), height: 84)
+        let drawerHeight = MenuBarDrawerView.height(items: drawer.items, width: MenuBarDrawerView.rowWidth(drawer.items))
+        let visibleHeight = MenuBarDrawerView.height(items: visible.items, width: MenuBarDrawerView.rowWidth(visible.items))
+        drawerScroll.frame = CGRect(x: 0, y: top + 32, width: width, height: drawerHeight + 12)
+        let visibleTop = drawerScroll.frame.maxY + 16
+        visibleLabel.frame = CGRect(x: 0, y: visibleTop, width: width - 110, height: 24)
+        refresh.frame = CGRect(x: width - 100, y: visibleTop - 2, width: 100, height: 28)
+        visibleScroll.frame = CGRect(x: 0, y: visibleTop + 32, width: width, height: visibleHeight + 12)
+        for (scroll, document, height) in [(drawerScroll, drawer, drawerHeight), (visibleScroll, visible, visibleHeight)] {
+            document.frame = CGRect(x: 0, y: 0, width: max(scroll.contentSize.width, MenuBarDrawerView.rowWidth(document.items)), height: height)
         }
-        let bottom = top + 266
+        let bottom = visibleScroll.frame.maxY + 14
         expanded.frame = CGRect(x: 0, y: bottom, width: 96, height: 30)
         collapsed.frame = CGRect(x: 106, y: bottom, width: 72, height: 30)
         automatic.frame = CGRect(x: 188, y: bottom, width: max(32, width - 188), height: 30)
