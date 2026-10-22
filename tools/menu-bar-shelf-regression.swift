@@ -17,9 +17,11 @@ import AppKit
         func require(_ value: Bool, _ message: String) throws { if !value { throw NSError(domain: message, code: 1) } }
         let suite = "cc.anjing.macos-x.menu-shelf-fixture.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!; defer { defaults.removePersistentDomain(forName: suite) }
+        // Fixtures deliver their own environment changes; live runner launches
+        // must not race deterministic recovery assertions.
         let bridge = FixtureVisibility()
         let drawer = MenuBarDrawer(defaults: defaults, visibility: bridge)
-        drawer.permissionOverride = true; drawer.testNoPresentation = true; drawer.testSkipInput = true
+        drawer.permissionOverride = true; drawer.testNoPresentation = true; drawer.testSkipInput = true; drawer.testSkipEnvironment = true
         drawer.pressedButtons = { 0 }
         let screen = NSScreen.main!, anchor = CGRect(x: screen.visibleFrame.maxX - 220, y: screen.visibleFrame.maxY, width: 30, height: 24)
         drawer.anchorProvider = { anchor }
@@ -103,14 +105,14 @@ import AppKit
         let restored = MenuBarDrawer(defaults: defaults, visibility: bridge)
         try require(restored.order == [a, c], "A new module reads the stored real membership")
         restored.iconReadOverride = nativeIconRead
-        restored.permissionOverride = false; restored.testNoPresentation = true; restored.testSkipInput = true
+        restored.permissionOverride = false; restored.testNoPresentation = true; restored.testSkipInput = true; restored.testSkipEnvironment = true
         restored.start(); restored.prepareDrag()
         try require(restored.issue != nil && !restored.hidden, "Missing permission must be explicit and fail open")
         restored.stop()
         let recoveryDefaults = UserDefaults(suiteName: suite + ".recovery")!
         defer { recoveryDefaults.removePersistentDomain(forName: suite + ".recovery") }
         let recoveryBridge = FixtureVisibility(), recovery = MenuBarDrawer(defaults: recoveryDefaults, visibility: recoveryBridge)
-        recovery.permissionOverride = true; recovery.testSkipInput = true; recovery.testNoPresentation = true
+        recovery.permissionOverride = true; recovery.testSkipInput = true; recovery.testSkipEnvironment = true; recovery.testNoPresentation = true
         recovery.readOverride = { _, done in done(entries) }; recovery.iconReadOverride = nativeIconRead
         recovery.start(); recovery.prepareDrag(); recovery.add(a)
         let held = FixtureHandle(); recoveryBridge.pending.removeFirst()(held)
@@ -165,7 +167,7 @@ import AppKit
         let menuRecoveryDefaults = UserDefaults(suiteName: suite + ".menu-recovery")!
         defer { menuRecoveryDefaults.removePersistentDomain(forName: suite + ".menu-recovery") }
         let menuRecoveryBridge = FixtureVisibility(), menuRecovery = MenuBarDrawer(defaults: menuRecoveryDefaults, visibility: menuRecoveryBridge)
-        menuRecovery.permissionOverride = true; menuRecovery.testSkipInput = true; menuRecovery.testNoPresentation = true
+        menuRecovery.permissionOverride = true; menuRecovery.testSkipInput = true; menuRecovery.testSkipEnvironment = true; menuRecovery.testNoPresentation = true
         menuRecovery.anchorProvider = { anchor }; menuRecovery.pointer = { CGPoint(x: anchor.midX, y: anchor.midY) }
         menuRecovery.readOverride = { _, done in done(entries) }; menuRecovery.iconReadOverride = nativeIconRead
         menuRecovery.pressOverride = { _, _, done in done(true) }
@@ -184,7 +186,7 @@ import AppKit
         defer { targetedDefaults.removePersistentDomain(forName: suite + ".targeted") }
         targetedDefaults.set([a, b], forKey: "menuBarShelf.drawerBundles.v1")
         let targetedBridge = FixtureVisibility(), targeted = MenuBarDrawer(defaults: targetedDefaults, visibility: targetedBridge)
-        targeted.permissionOverride = true; targeted.testSkipInput = true; targeted.testNoPresentation = true
+        targeted.permissionOverride = true; targeted.testSkipInput = true; targeted.testSkipEnvironment = true; targeted.testNoPresentation = true
         targeted.readOverride = { _, done in done(entries) }; targeted.iconReadOverride = nativeIconRead
         var targetedPresses = [String]()
         targeted.pressOverride = { entry, _, done in targetedPresses.append(entry.bundle); done(true) }
@@ -229,14 +231,14 @@ import AppKit
         defer { delayedDefaults.removePersistentDomain(forName: suite + ".delayed") }
         let delayed = MenuBarDrawer(defaults: delayedDefaults, visibility: bridge)
         delayed.iconReadOverride = nativeIconRead
-        delayed.permissionOverride = true; delayed.testSkipInput = true; delayed.testNoPresentation = true
+        delayed.permissionOverride = true; delayed.testSkipInput = true; delayed.testSkipEnvironment = true; delayed.testNoPresentation = true
         var readBack: (([MenuBarEntry]) -> Void)?, readToken: MenuBarReadToken?
         delayed.readOverride = { token, callback in readToken = token; readBack = callback }
         delayed.start(); delayed.prepareDrag(); delayed.stop(); readBack?(entries)
         try require(readToken?.isCancelled == true && delayed.entries.isEmpty && !delayed.input.enabled, "Stopped inventory never restores stale entries or input capture")
         let latest = MenuBarDrawer(defaults: delayedDefaults, visibility: bridge)
         latest.iconReadOverride = nativeIconRead
-        latest.permissionOverride = true; latest.testSkipInput = true; latest.testNoPresentation = true
+        latest.permissionOverride = true; latest.testSkipInput = true; latest.testSkipEnvironment = true; latest.testNoPresentation = true
         latest.readOverride = { _, callback in readBack = callback }
         var latestPresses = [String]()
         latest.pressOverride = { entry, _, callback in latestPresses.append(entry.bundle); callback(true) }
@@ -248,7 +250,7 @@ import AppKit
         let continuityDefaults = UserDefaults(suiteName: suite + ".continuity")!
         defer { continuityDefaults.removePersistentDomain(forName: suite + ".continuity") }
         let continuityBridge = FixtureVisibility(), continuity = MenuBarDrawer(defaults: continuityDefaults, visibility: continuityBridge)
-        continuity.permissionOverride = true; continuity.testSkipInput = true; continuity.testNoPresentation = true
+        continuity.permissionOverride = true; continuity.testSkipInput = true; continuity.testSkipEnvironment = true; continuity.testNoPresentation = true
         continuity.iconReadOverride = nativeIconRead; continuity.readOverride = { _, done in done(entries) }
         continuity.pressedButtons = { 0 }; continuity.dismissDelay = 0.025
         var currentAnchor = anchor, pointer = CGPoint(x: anchor.midX, y: anchor.midY)
@@ -376,14 +378,14 @@ import AppKit
         offlineDefaults.set([a, b], forKey: "menuBarShelf.drawerBundles.v1")
         let offline = MenuBarDrawer(defaults: offlineDefaults, visibility: bridge)
         offline.iconReadOverride = nativeIconRead
-        offline.permissionOverride = true; offline.testSkipInput = true; offline.testNoPresentation = true
+        offline.permissionOverride = true; offline.testSkipInput = true; offline.testSkipEnvironment = true; offline.testNoPresentation = true
         offline.readOverride = { _, done in done([]) }
         let callsBeforeOffline = bridge.calls.count
         offline.start(); offline.restore(a)
         try require(offline.order == [b] && !offline.hidden && !offline.busy && bridge.calls.count == callsBeforeOffline, "An unreadable remaining app cannot prevent removing a saved drawer member")
         offline.stop()
         let missing = MenuBarDrawer(defaults: delayedDefaults, visibility: bridge)
-        missing.permissionOverride = true; missing.testSkipInput = true; missing.testNoPresentation = true
+        missing.permissionOverride = true; missing.testSkipInput = true; missing.testSkipEnvironment = true; missing.testNoPresentation = true
         missing.readOverride = { _, done in done(entries) }; missing.iconReadOverride = { _, _, done in done([:]) }
         missing.start(); missing.prepareDrag()
         let beforeMissing = bridge.calls.count
@@ -392,7 +394,7 @@ import AppKit
                     "Missing original pixels cannot hide the real entry, intercept its drag or substitute an application icon")
         missing.stop()
         let lateIcons = MenuBarDrawer(defaults: delayedDefaults, visibility: bridge)
-        lateIcons.permissionOverride = true; lateIcons.testSkipInput = true; lateIcons.testNoPresentation = true
+        lateIcons.permissionOverride = true; lateIcons.testSkipInput = true; lateIcons.testSkipEnvironment = true; lateIcons.testNoPresentation = true
         lateIcons.readOverride = { _, done in done(entries) }
         var latePixels: (([String: MenuBarIconPixels]) -> Void)?
         lateIcons.iconReadOverride = { _, _, done in latePixels = done }
@@ -438,7 +440,7 @@ import AppKit
         let cacheDefaults = UserDefaults(suiteName: suite + ".pixel-layout")!
         defer { cacheDefaults.removePersistentDomain(forName: suite + ".pixel-layout") }
         let cacheBridge = FixtureVisibility(), cacheOwner = MenuBarDrawer(defaults: cacheDefaults, visibility: cacheBridge)
-        cacheOwner.permissionOverride = true; cacheOwner.testSkipInput = true; cacheOwner.testNoPresentation = true; cacheOwner.pressedButtons = { 0 }
+        cacheOwner.permissionOverride = true; cacheOwner.testSkipInput = true; cacheOwner.testSkipEnvironment = true; cacheOwner.testNoPresentation = true; cacheOwner.pressedButtons = { 0 }
         var snapshot = entries
         cacheOwner.readOverride = { _, done in done(snapshot) }; cacheOwner.iconReadOverride = nativeIconRead
         cacheOwner.start(); cacheOwner.prepareDrag()
@@ -467,7 +469,7 @@ import AppKit
         let geometryDefaults = UserDefaults(suiteName: suite + ".capture-geometry")!
         defer { geometryDefaults.removePersistentDomain(forName: suite + ".capture-geometry") }
         let geometryOwner = MenuBarDrawer(defaults: geometryDefaults, visibility: FixtureVisibility())
-        geometryOwner.permissionOverride = true; geometryOwner.testSkipInput = true; geometryOwner.testNoPresentation = true
+        geometryOwner.permissionOverride = true; geometryOwner.testSkipInput = true; geometryOwner.testSkipEnvironment = true; geometryOwner.testNoPresentation = true
         geometryOwner.readOverride = { _, done in done(entries) }; geometryOwner.iconReadOverride = nativeIconRead
         geometryOwner.start(); geometryOwner.prepareDrag()
         let verifiedOriginal = geometryOwner.item(a).icon
@@ -499,7 +501,7 @@ import AppKit
                     "Native glyph crops use global Quartz coordinates, negative display origins and real Retina scale")
         try require(MenuBarIconCapture.crop(surface, surface: area, item: area.offsetBy(dx: -1, dy: 0)) == nil, "Out-of-surface entries must not capture unrelated pixels")
         let timedIcons = MenuBarDrawer(defaults: delayedDefaults, visibility: bridge)
-        timedIcons.permissionOverride = true; timedIcons.testSkipInput = true; timedIcons.testNoPresentation = true; timedIcons.iconReadTimeout = 0.02
+        timedIcons.permissionOverride = true; timedIcons.testSkipInput = true; timedIcons.testSkipEnvironment = true; timedIcons.testNoPresentation = true; timedIcons.iconReadTimeout = 0.02
         timedIcons.readOverride = { _, done in done(entries) }; timedIcons.iconReadOverride = { _, _, _ in }
         timedIcons.start(); timedIcons.prepareDrag()
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
@@ -508,7 +510,7 @@ import AppKit
         // Existing native UI is rendered using fixture app identities, not the
         // user's live inventory or preferences. Wide and narrow bounds are checked.
         let module = MenuBarShelfModule(defaults: defaults, visibility: bridge, native: true)
-        module.configureDrawer = { $0.permissionOverride = false; $0.testSkipInput = true; $0.testNoPresentation = true }
+        module.configureDrawer = { $0.permissionOverride = false; $0.testSkipInput = true; $0.testSkipEnvironment = true; $0.testNoPresentation = true }
         module.start(); let owned = module.drawer
         try require(owned?.active == true, "Native module owns exactly one apple drawer")
         module.stop()
@@ -519,7 +521,7 @@ import AppKit
             autoreleasepool {
                 let owner = MenuBarDrawer(defaults: delayedDefaults, visibility: bridge)
                 releasedOwner = owner; releasedView = owner.view
-                owner.permissionOverride = false; owner.testSkipInput = true; owner.testNoPresentation = true
+                owner.permissionOverride = false; owner.testSkipInput = true; owner.testSkipEnvironment = true; owner.testNoPresentation = true
                 owner.start(); owner.view.items = [.init(bundle: a, name: "Finder", icon: nil)]; owner.stop()
             }
             try require(releasedOwner == nil && releasedView == nil, "Repeated enable/disable must release drawer, accessibility children and view")

@@ -63,6 +63,7 @@ import ApplicationServices
     var pressOverride: ((MenuBarEntry, MenuBarReadToken, @escaping (Bool) -> Void) -> Void)?
     var testNoPresentation = false
     var testSkipInput = false
+    var testSkipEnvironment = false
     var activationTimeout: TimeInterval = 4
     var dismissDelay: TimeInterval = 1.2
     var pointer: () -> CGPoint = { NSEvent.mouseLocation }
@@ -95,21 +96,23 @@ import ApplicationServices
     }
     func start() {
         guard !active else { return }; active = true
-        let center = NSWorkspace.shared.notificationCenter
-        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
-                MainActor.assumeIsolated {
-                    let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
-                    self?.environmentChanged(rebuild: false, application: app?.bundleIdentifier)
-                }
+        if !testSkipEnvironment {
+            let center = NSWorkspace.shared.notificationCenter
+            for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
+                observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                    MainActor.assumeIsolated {
+                        let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+                        self?.environmentChanged(rebuild: false, application: app?.bundleIdentifier)
+                    }
+                })
+            }
+            observers.append(center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.environmentChanged(rebuild: true) }
+            })
+            observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.environmentChanged(rebuild: true) }
             })
         }
-        observers.append(center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.environmentChanged(rebuild: true) }
-        })
-        observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.environmentChanged(rebuild: true) }
-        })
         installInput()
         // Persisted choices may be reapplied, but an empty new module does no
         // launch-time cross-app scan, hiding, permission prompt or screen capture.
