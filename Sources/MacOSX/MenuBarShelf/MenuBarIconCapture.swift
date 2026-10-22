@@ -22,7 +22,7 @@ final class MenuBarIconCapture {
               completion: @escaping ([String: MenuBarIconPixels]) -> Void) {
         queue.async { [self] in
             current?.cancel(); pending?.token.cancel()
-            pending = Job(entries: Array(entries.prefix(128)), token: token, completion: completion); drain()
+            pending = Job(entries: Array(entries.filter(\.visible).prefix(128)), token: token, completion: completion); drain()
         }
     }
     func clear() {

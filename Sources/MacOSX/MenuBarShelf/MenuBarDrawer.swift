@@ -232,7 +232,7 @@ import ApplicationServices
         readEntries(force: false)
     }
     func readEntries(force: Bool, after: (() -> Void)? = nil) {
-        guard active, permitted else { after?(); return }
+        guard active, permitted, !busy else { after?(); return }
         if reading { if let after { pendingAfterRead = after }; return }
         if !force, ProcessInfo.processInfo.systemUptime - readDate < 2 { after?(); return }
         reading = true; generation += 1; let expected = generation
@@ -249,7 +249,7 @@ import ApplicationServices
             guard let self, self.active, self.generation == expected, !token.isCancelled else { return }
             let own = Bundle.main.bundleIdentifier ?? "cc.anjing.macos-x"
             let filtered = Array(entries.filter { !MenuBarSections.systemOwners.contains($0.bundle) && $0.bundle != own }.prefix(512))
-            let wanted = filtered.filter { !self.hidden || !self.order.contains($0.bundle) || self.originalIcons[$0.bundle] == nil }
+            let wanted = filtered.filter { $0.visible && (!self.hidden || !self.order.contains($0.bundle) || self.originalIcons[$0.bundle] == nil) }
             let finish: ([String: MenuBarIconPixels]) -> Void = { [weak self] pixels in
                 guard let self, self.active, self.generation == expected, !token.isCancelled else { return }
                 self.reading = false; self.readToken = nil; self.readWatchdog?.cancel(); self.readWatchdog = nil; self.readDate = ProcessInfo.processInfo.systemUptime
@@ -267,7 +267,7 @@ import ApplicationServices
                 self.originalIcons = self.originalIcons.filter { keep.contains($0.key) }
                 self.iconCosts = self.iconCosts.filter { keep.contains($0.key) }
                 // Only cached native pixels may be dragged. Unknown items stay native.
-                self.input.entries = filtered.filter { !self.order.contains($0.bundle) && self.originalIcons[$0.bundle] != nil }
+                self.input.entries = filtered.filter { $0.visible && !self.order.contains($0.bundle) && self.originalIcons[$0.bundle] != nil }
                 self.appIcons.removeAll(); self.changed()
                 after?(); let pending = self.pendingAfterRead; self.pendingAfterRead = nil; pending?()
                 self.presence(self.contains(self.pointer()))
@@ -330,6 +330,11 @@ import ApplicationServices
         guard permitted, visibility.available else {
             showAll(); issue = permitted ? "当前系统暂不支持抽屉隐藏，图标已全部恢复。" : "请先授予辅助功能权限。"; changed(); completion?(false); return
         }
+        // A native layout change invalidates every in-flight position/image
+        // pair. Never replace a verified glyph with a crop from an older layout.
+        generation += 1; readToken?.cancel(); readToken = nil
+        readWatchdog?.cancel(); readWatchdog = nil; reading = false; pendingAfterRead = nil; readDate = 0
+        input.entries.removeAll()
         menuWatch?.cancel(); menuWatch = nil; reapplyOnHover = false
         menuGeneration += 1; actionToken?.cancel(); actionToken = nil
         restrictionGeneration += 1; let expected = restrictionGeneration
@@ -337,7 +342,8 @@ import ApplicationServices
         // Releasing first briefly restores the entire native menu bar.
         if proposed.isEmpty {
             restriction?.invalidate(); restriction = nil; hidden = false
-            order = []; persist(); issue = nil; changed(); completion?(true); return
+            order = []; persist(); input.entries.removeAll(); issue = nil; changed(); completion?(true)
+            readEntries(force: true); return
         }
         let confirmed = Set(entries.map(\.bundle)).intersection(proposed)
         guard confirmed.allSatisfy({ originalIcons[$0] != nil }) else {
@@ -349,7 +355,8 @@ import ApplicationServices
             // Offline/unreadable members stay configured but visible. Removing
             // another member must still succeed when no remaining app is running.
             restriction?.invalidate(); restriction = nil; hidden = false
-            order = proposed; persist(); issue = nil; changed(); completion?(true); return
+            order = proposed; persist(); input.entries.removeAll(); issue = nil; changed(); completion?(true)
+            readEntries(force: true); return
         }
         busy = true; changed()
         let all = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
@@ -367,13 +374,17 @@ import ApplicationServices
             let previous = self.restriction
             self.restriction = handle; self.hidden = handle != nil
             previous?.invalidate()
-            if handle != nil { self.order = proposed; self.persist(); self.issue = nil }
+            if handle != nil { self.order = proposed; self.persist(); self.input.entries.removeAll(); self.issue = nil }
             else { self.issue = "系统未能收纳，图标已恢复；请重试。" }
             self.changed(); completion?(handle != nil)
+            if handle != nil { self.readEntries(force: true) }
             self.presence(self.contains(self.pointer()))
         }
     }
     func showAll() {
+        generation += 1; readToken?.cancel(); readToken = nil
+        readWatchdog?.cancel(); readWatchdog = nil; reading = false; pendingAfterRead = nil; readDate = 0
+        input.entries.removeAll()
         menuGeneration += 1; actionToken?.cancel(); actionToken = nil
         restrictionGeneration += 1; watchdog?.cancel(); watchdog = nil
         restriction?.invalidate(); restriction = nil; hidden = false; busy = false
@@ -501,7 +512,7 @@ import ApplicationServices
     private func inMenuBand(_ point: CGPoint) -> Bool {
         NSScreen.screens.contains { $0.frame.contains(point) && point.y >= $0.visibleFrame.maxY }
     }
-    private func persist() { defaults.set(order, forKey: selectionKey); input.entries = entries.filter { !order.contains($0.bundle) && originalIcons[$0.bundle] != nil } }
+    private func persist() { defaults.set(order, forKey: selectionKey); input.entries = entries.filter { $0.visible && !order.contains($0.bundle) && originalIcons[$0.bundle] != nil } }
     private func changed() { if isOpen { show(); presence(false) } else { updateView() }; onChange?() }
     private func updateView() {
         let items = drawerItems

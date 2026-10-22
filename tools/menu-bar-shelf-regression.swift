@@ -281,6 +281,61 @@ import AppKit
         lateIcons.start(); lateIcons.prepareDrag(); lateIcons.stop()
         nativeIconRead(entries, MenuBarReadToken()) { latePixels?($0) }
         try require(lateIcons.item(a).icon == nil && lateIcons.input.entries.isEmpty, "Late screen pixels cannot repopulate a stopped drawer")
+        let compositorArea = CGRect(x: 1512, y: -241, width: 2560, height: 30)
+        let stale = MenuBarEntry(bundle: a, frame: CGRect(x: 3600, y: -239, width: 20, height: 24), pid: 101)
+        let physical = MenuBarContainer(pid: 101, frame: CGRect(x: 3800, y: -241, width: 44, height: 30), surface: compositorArea)
+        let reconciled = MenuBarContainerGeometry.reconcile([stale], containers: [physical])[0]
+        try require(reconciled.visible && reconciled.frame == physical.frame && reconciled.pid == stale.pid,
+                    "Native compositor container replaces stale application coordinates and includes the full icon height")
+        let nativeSurface = CGContext(data: nil, width: 5120, height: 60, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let physicalX = (physical.frame.minX - compositorArea.minX) * 2
+        nativeSurface.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        nativeSurface.fill(CGRect(x: physicalX + 4, y: 0, width: 4, height: 60))
+        nativeSurface.setFillColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1))
+        nativeSurface.fill(CGRect(x: physicalX + 80, y: 0, width: 4, height: 60))
+        let fullGlyph = MenuBarIconCapture.crop(nativeSurface.makeImage()!, surface: compositorArea, item: reconciled.frame)!
+        let fullBitmap = NSBitmapImageRep(cgImage: fullGlyph.image)
+        try require(fullGlyph.size == CGSize(width: 44, height: 30) && fullBitmap.colorAt(x: 5, y: 30)!.redComponent > 0.9
+                        && fullBitmap.colorAt(x: 81, y: 30)!.blueComponent > 0.9,
+                    "Final native glyph retains both outer edges and full height after compositor reflow")
+        let hiddenEntry = MenuBarContainerGeometry.reconcile([stale], containers: [])[0]
+        try require(!hiddenEntry.visible && hiddenEntry.frame == stale.frame, "Hidden app coordinates cannot be treated as a visible pixel source")
+        let otherDisplay = MenuBarContainer(pid: 101, frame: CGRect(x: 100, y: 0, width: 44, height: 33), surface: CGRect(x: 0, y: 0, width: 1512, height: 33))
+        try require(!MenuBarContainerGeometry.reconcile([stale], containers: [otherDisplay])[0].visible,
+                    "Incomplete native inventory cannot substitute a matching PID from another display")
+        try require(MenuBarContainerGeometry.reconcile([stale], containers: [otherDisplay, physical])[0].frame == physical.frame,
+                    "Multi-display coordinates retain the physical menu surface and original owner")
+        let cacheDefaults = UserDefaults(suiteName: suite + ".pixel-layout")!
+        defer { cacheDefaults.removePersistentDomain(forName: suite + ".pixel-layout") }
+        let cacheBridge = FixtureVisibility(), cacheOwner = MenuBarDrawer(defaults: cacheDefaults, visibility: cacheBridge)
+        cacheOwner.permissionOverride = true; cacheOwner.testSkipInput = true; cacheOwner.testNoPresentation = true; cacheOwner.pressedButtons = { 0 }
+        var snapshot = entries
+        cacheOwner.readOverride = { _, done in done(snapshot) }; cacheOwner.iconReadOverride = nativeIconRead
+        cacheOwner.start(); cacheOwner.prepareDrag()
+        let confirmedIcon = cacheOwner.item(a).icon
+        snapshot = entries.map { MenuBarEntry(bundle: $0.bundle, frame: $0.frame, pid: $0.pid, visible: false) }
+        var requestedPixels = [MenuBarEntry]()
+        cacheOwner.iconReadOverride = { requested, token, done in requestedPixels = requested; nativeIconRead(requested, token, done) }
+        cacheOwner.readEntries(force: true)
+        try require(requestedPixels.isEmpty && cacheOwner.item(a).icon === confirmedIcon && cacheOwner.input.entries.isEmpty,
+                    "Unresolved containers preserve verified images and never arm stale native drag targets")
+        snapshot = entries
+        var stalePixels: (([String: MenuBarIconPixels]) -> Void)?, staleToken: MenuBarReadToken?
+        cacheOwner.iconReadOverride = { _, token, done in staleToken = token; stalePixels = done }
+        cacheOwner.readEntries(force: true); cacheOwner.add(a)
+        try require(staleToken?.isCancelled == true, "Changing native visibility cancels any position/image pair captured before reflow")
+        var wrongPixels: [String: MenuBarIconPixels] = [:]
+        nativeIconRead(entries, MenuBarReadToken()) { wrongPixels = $0 }
+        stalePixels?(wrongPixels)
+        try require(cacheOwner.item(a).icon === confirmedIcon, "Late pre-reflow crops cannot replace the verified original")
+        cacheBridge.pending.removeFirst()(nil)
+        cacheOwner.readEntries(force: true)
+        let restoredLayoutToken = staleToken
+        cacheOwner.showAll()
+        try require(restoredLayoutToken?.isCancelled == true && cacheOwner.input.entries.isEmpty,
+                    "Explicit native restoration also invalidates in-flight pixels and drag coordinates")
+        cacheOwner.stop()
         let pixels = CGContext(data: nil, width: 120, height: 48, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         pixels.setFillColor(CGColor(red: 1, green: 0.2, blue: 0.1, alpha: 1)); pixels.fill(CGRect(x: 0, y: 0, width: 120, height: 48))
         let surface = pixels.makeImage()!, area = CGRect(x: 1512, y: -241, width: 60, height: 24)

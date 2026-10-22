@@ -6,6 +6,7 @@ struct MenuBarEntry {
     let frame: CGRect
     var element: AXUIElement? = nil
     var pid: pid_t = 0
+    var visible = true
 }
 
 /// Failed/unreadable applications remain allowed. A partial inventory must not
@@ -32,6 +33,33 @@ final class MenuBarReadToken {
     var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
 }
 
+struct MenuBarContainer {
+    let pid: pid_t
+    let frame: CGRect
+    var surface: CGRect? = nil
+}
+
+/// On macOS 27 app-provided AX frames can survive native hiding/reflow.
+/// MenuBarAgent's on-screen containers are authoritative for image geometry.
+enum MenuBarContainerGeometry {
+    static func reconcile(_ entries: [MenuBarEntry], containers: [MenuBarContainer]) -> [MenuBarEntry] {
+        entries.map { entry in
+            let center = CGPoint(x: entry.frame.midX, y: entry.frame.midY)
+            let matches = containers.filter {
+                $0.pid == entry.pid && $0.frame.minX.isFinite && $0.frame.minY.isFinite
+                    && $0.frame.width > 0 && $0.frame.width <= 320 && $0.frame.height > 0 && $0.frame.height <= 80
+                    && ($0.surface?.contains(center) ?? (abs($0.frame.midY - entry.frame.midY) <= 80))
+            }
+            let nearest = matches.min { a, b in
+                hypot(a.frame.midX - entry.frame.midX, (a.frame.midY - entry.frame.midY) * 16)
+                    < hypot(b.frame.midX - entry.frame.midX, (b.frame.midY - entry.frame.midY) * 16)
+            }
+            guard let nearest else { return MenuBarEntry(bundle: entry.bundle, frame: entry.frame, element: entry.element, pid: entry.pid, visible: false) }
+            return MenuBarEntry(bundle: entry.bundle, frame: nearest.frame, element: entry.element, pid: entry.pid)
+        }
+    }
+}
+
 /// One serial worker; one explicit collapse = at most 3 seconds / 128 apps /
 /// 64 items per app. Nothing reads AX on the status-item event callback.
 final class MenuBarInventory {
@@ -56,9 +84,11 @@ final class MenuBarInventory {
     func read(_ apps: [(pid_t, String)], token: MenuBarReadToken, completion: @escaping ([MenuBarEntry]) -> Void) {
         queue.async {
             let deadline = ProcessInfo.processInfo.systemUptime + 3
+            let compositor = ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27
+            let appDeadline = compositor ? deadline - 1 : deadline
             var entries: [MenuBarEntry] = []
             for (pid, bundle) in apps.prefix(128) {
-                guard !token.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { break }
+                guard !token.isCancelled, ProcessInfo.processInfo.systemUptime < appDeadline else { break }
                 let application = AXUIElementCreateApplication(pid)
                 AXUIElementSetMessagingTimeout(application, 0.035)
                 var value: CFTypeRef?
@@ -72,7 +102,7 @@ final class MenuBarInventory {
                 var appEntries: [MenuBarEntry] = []
                 var complete = true
                 for item in items {
-                    guard !token.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { complete = false; break }
+                    guard !token.isCancelled, ProcessInfo.processInfo.systemUptime < appDeadline else { complete = false; break }
                     AXUIElementSetMessagingTimeout(item, 0.035)
                     var positionValue: CFTypeRef?, sizeValue: CFTypeRef?
                     guard AXUIElementCopyAttributeValue(item, kAXPositionAttribute as CFString, &positionValue) == .success,
@@ -89,9 +119,51 @@ final class MenuBarInventory {
                 // Refuse to classify a bundle if a sibling item could not be read.
                 if complete, items.count < 64 { entries += appEntries }
             }
+            if compositor {
+                let containers = Self.containers(token: token, deadline: deadline)
+                entries = MenuBarContainerGeometry.reconcile(entries, containers: containers)
+            }
             guard !token.isCancelled else { return }
-            DispatchQueue.main.async { if !token.isCancelled { completion(entries) } }
+            let result = entries
+            DispatchQueue.main.async { if !token.isCancelled { completion(result) } }
         }
+    }
+    private static func containers(token: MenuBarReadToken, deadline: TimeInterval) -> [MenuBarContainer] {
+        var result: [MenuBarContainer] = []
+        func children(_ element: AXUIElement, _ key: String) -> [AXUIElement] {
+            guard !token.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { return [] }
+            AXUIElementSetMessagingTimeout(element, 0.035)
+            var value: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, key as CFString, &value) == .success else { return [] }
+            return Array((value as? [AXUIElement] ?? []).prefix(128))
+        }
+        func frame(_ element: AXUIElement) -> CGRect? {
+            var p: CFTypeRef?, s: CFTypeRef?, point = CGPoint.zero, size = CGSize.zero
+            guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &p) == .success,
+                  AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &s) == .success,
+                  let p, let s, CFGetTypeID(p) == AXValueGetTypeID(), CFGetTypeID(s) == AXValueGetTypeID(),
+                  AXValueGetValue(unsafeBitCast(p, to: AXValue.self), .cgPoint, &point),
+                  AXValueGetValue(unsafeBitCast(s, to: AXValue.self), .cgSize, &size),
+                  point.x.isFinite, point.y.isFinite, size.width.isFinite, size.height.isFinite else { return nil }
+            return CGRect(origin: point, size: size)
+        }
+        for agent in NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.MenuBarAgent").prefix(2) {
+            let app = AXUIElementCreateApplication(agent.processIdentifier)
+            for window in children(app, kAXWindowsAttribute) {
+                guard let area = frame(window), area.height > 0, area.height <= 80 else { continue }
+                for group in children(window, kAXChildrenAttribute) {
+                    guard !token.isCancelled, ProcessInfo.processInfo.systemUptime < deadline, result.count < 256 else { return result }
+                    AXUIElementSetMessagingTimeout(group, 0.035)
+                    guard let rect = frame(group), rect.width > 0, rect.width <= 320, rect.height > 0, rect.height <= 80, area.contains(rect) else { continue }
+                    for child in children(group, kAXChildrenAttribute) {
+                        var pid: pid_t = 0
+                        guard AXUIElementGetPid(child, &pid) == .success, pid > 0, pid != agent.processIdentifier else { continue }
+                        result.append(MenuBarContainer(pid: pid, frame: rect, surface: area)); break
+                    }
+                }
+            }
+        }
+        return result
     }
 }
 
