@@ -117,7 +117,11 @@ import AppKit
         } else if let image = Self.images[asset] {
             let source = CGRect(x: slice.minX * image.size.width, y: slice.minY * image.size.height,
                                 width: slice.width * image.size.width, height: slice.height * image.size.height)
-            image.draw(in: bounds.height < 70 ? CGRect(x:6,y:8,width:32,height:bounds.height-16) : CGRect(x:12,y:36,width:bounds.width-24,height:bounds.height-48),
+            let box = bounds.height < 70 ? CGRect(x:6,y:8,width:32,height:bounds.height-16) : CGRect(x:12,y:36,width:bounds.width-24,height:bounds.height-48)
+            let scale = min(max(0, box.width) / max(1, source.width), max(0, box.height) / max(1, source.height))
+            let size = CGSize(width: source.width * scale, height: source.height * scale)
+            let picture = CGRect(x: box.midX-size.width/2, y: box.midY-size.height/2, width: size.width, height: size.height)
+            image.draw(in: picture,
                        from: source, operation: .sourceOver, fraction: 1,
                        respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
         }
