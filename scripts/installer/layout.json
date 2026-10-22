@@ -3,7 +3,17 @@
   "height": 440,
   "iconSize": 112,
   "textSize": 14,
-  "app": [190, 226],
-  "applications": [530, 226],
-  "windowOrigin": [180, 160]
+  "app": [
+    190,
+    226
+  ],
+  "applications": [
+    530,
+    226
+  ],
+  "windowOrigin": [
+    180,
+    160
+  ],
+  "windowHeight": 504
 }

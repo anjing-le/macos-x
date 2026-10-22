@@ -51,7 +51,8 @@ with tempfile.TemporaryDirectory(prefix='macos-x-dmg-check-') as temporary:
                 assert metadata['MacOSX.app']['Iloc'] == tuple(layout['app'])
                 assert metadata['Applications']['Iloc'] == tuple(layout['applications'])
                 window, view = metadata['.']['bwsp'], metadata['.']['icvp']
-                assert window['WindowBounds'] == '{{%s, %s}, {%s, %s}}' % (*layout['windowOrigin'], layout['width'], layout['height'])
+                assert window['WindowBounds'] == '{{%s, %s}, {%s, %s}}' % (*layout['windowOrigin'], layout['width'], layout['windowHeight'])
+                assert layout['windowHeight'] >= layout['height'] + 64
                 assert not any(window[key] for key in ['ShowToolbar', 'ShowStatusBar', 'ShowPathbar', 'ShowSidebar', 'ShowTabView'])
                 assert view['iconSize'] == layout['iconSize'] and view['arrangeBy'] == 'none'
                 assert view['backgroundType'] == 2
