@@ -15,6 +15,14 @@ import AppKit
         _ = NSApplication.shared; NSApp.setActivationPolicy(.accessory)
         NSApp.appearance = NSAppearance(named: .aqua)
         func require(_ value: Bool, _ message: String) throws { if !value { throw NSError(domain: message, code: 1) } }
+        // Dispatch timers can be coalesced on a background CI runner. Wait for
+        // the observed transition within a bound, rather than assume 190 ms.
+        func awaitTransition(_ condition: () -> Bool) {
+            let deadline = ProcessInfo.processInfo.systemUptime + 2
+            while !condition(), ProcessInfo.processInfo.systemUptime < deadline {
+                RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.01))
+            }
+        }
         let suite = "cc.anjing.macos-x.menu-shelf-fixture.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!; defer { defaults.removePersistentDomain(forName: suite) }
         // Fixtures deliver their own environment changes; live runner launches
@@ -119,14 +127,14 @@ import AppKit
         let originalCalls = recoveryBridge.calls.count
         recovery.environmentChanged(rebuild: false, application: "fixture.unrelated")
         try require(recovery.hidden && held.invalidations == 0, "An unrelated app launch never exposes collected icons")
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.19))
+        awaitTransition { recoveryBridge.calls.count > originalCalls }
         try require(recoveryBridge.calls.count == originalCalls + 1 && held.invalidations == 0,
                     "An updated allow-list is installed without dropping the old restriction")
         let replaced = FixtureHandle(); recoveryBridge.pending.removeFirst()(replaced)
         try require(recovery.hidden && held.invalidations == 1, "Application changes finish collected without requiring another hover")
         recovery.environmentChanged(rebuild: true)
         try require(!recovery.hidden && replaced.invalidations == 1, "Display/wake recovery releases an obsolete native restriction")
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.19))
+        awaitTransition { !recoveryBridge.pending.isEmpty }
         try require(recoveryBridge.pending.count == 1, "A rebuilt inventory automatically reapplies saved collection")
         recoveryBridge.pending.removeFirst()(FixtureHandle())
         try require(recovery.hidden, "Recovered screens return to collection without a pointer event")
@@ -142,11 +150,11 @@ import AppKit
         recovery.readEntries(force: true); recovery.apply(); recoveryBridge.pending.removeFirst()(FixtureHandle())
         let beforeRecoveryBurst = recoveryBridge.calls.count
         for _ in 0..<3 { recovery.environmentChanged(rebuild: false, application: "fixture.unrelated") }
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.19))
+        awaitTransition { recoveryBridge.calls.count > beforeRecoveryBurst }
         try require(recoveryBridge.calls.count == beforeRecoveryBurst + 1, "A launch burst coalesces into one native replacement (before=\(beforeRecoveryBurst), after=\(recoveryBridge.calls.count), pending=\(recoveryBridge.pending.count), busy=\(recovery.busy), hidden=\(recovery.hidden))")
         let staleReplacement = recoveryBridge.pending.removeFirst()
         recovery.environmentChanged(rebuild: false, application: "fixture.newer")
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.19))
+        awaitTransition { !recoveryBridge.pending.isEmpty }
         let staleRecoveryHandle = FixtureHandle(); staleReplacement(staleRecoveryHandle)
         try require(staleRecoveryHandle.invalidations == 1 && recoveryBridge.pending.count == 1,
                     "A newer environment supersedes an in-flight replacement without losing its recovery")
