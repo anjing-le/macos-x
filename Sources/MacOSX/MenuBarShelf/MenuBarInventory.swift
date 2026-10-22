@@ -192,7 +192,7 @@ final class MenuBarMenuWatch {
     private var localMonitor: Any?, globalMonitor: Any?
     private var attached = false
     private let lock = NSLock()
-    private var cancelled = false, notified = false, checking = false, closePending = false
+    private var cancelled = false, notified = false, checking = false, closePending = false, selectionPending = false
     private var selection = MenuBarMenuSelection()
     private static let cleanup = DispatchQueue(label: "cc.anjing.macos-x.menu-watch-cleanup")
     init?(pid: pid_t, item: AXUIElement, onClosed: @escaping () -> Void) {
@@ -226,8 +226,10 @@ final class MenuBarMenuWatch {
     private func checkSelection(menuClosed: Bool = false) {
         lock.lock()
         closePending = closePending || menuClosed
-        guard !cancelled, !notified, !checking else { lock.unlock(); return }
-        checking = true; let closeEvent = closePending; closePending = false; lock.unlock()
+        guard !cancelled, !notified else { lock.unlock(); return }
+        if checking { selectionPending = true; lock.unlock(); return }
+        checking = true; selectionPending = false
+        let closeEvent = closePending; closePending = false; lock.unlock()
         Self.cleanup.async { [self] in
             lock.lock(); let canRead = !cancelled && !notified; lock.unlock()
             var value: CFTypeRef?
@@ -235,13 +237,13 @@ final class MenuBarMenuWatch {
                 ? (value as? NSNumber)?.boolValue : nil
             lock.lock(); checking = false
             let closed = !cancelled && selection.receive(selected, closedNotification: closeEvent)
-            let repeatClose = !cancelled && !notified && closePending
+            let repeatSelection = !cancelled && !notified && (closePending || selectionPending)
             let observedMenu = !cancelled && !notified && selection.sawSelected
             lock.unlock()
             if closed { notifyClosed() }
             else {
                 if observedMenu { DispatchQueue.main.async { [weak self] in self?.installSelectionMonitors() } }
-                if repeatClose { checkSelection() }
+                if repeatSelection { checkSelection() }
             }
         }
     }
