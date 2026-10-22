@@ -71,7 +71,7 @@ final class MenuBarInventory {
                 DispatchQueue.main.async { if !token.isCancelled { completion(false, nil) } }; return
             }
             AXUIElementSetMessagingTimeout(element, 0.15)
-            let watch = MenuBarMenuWatch(pid: entry.pid, onClosed: onClosed)
+            let watch = MenuBarMenuWatch(pid: entry.pid, item: element, onClosed: onClosed)
             guard !token.isCancelled else { watch?.cancel(); return }
             let ok = AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
             DispatchQueue.main.async {
@@ -169,32 +169,99 @@ final class MenuBarInventory {
     }
 }
 
-/// One observer scoped to the currently opened real menu. Registration and
-/// teardown AX messages stay off the UI thread. No menu-state polling.
+/// A submenu closing cannot close its still-selected parent menu.
+struct MenuBarMenuSelection {
+    private(set) var sawSelected = false
+    private var closed = false
+    mutating func receive(_ selected: Bool?, closedNotification: Bool = false) -> Bool {
+        guard !closed else { return false }
+        if selected == true { sawSelected = true }
+        if (sawSelected && selected == false) || (closedNotification && selected != true) { closed = true; return true }
+        return false
+    }
+}
+
+/// One scoped observer, with selection checks triggered only by menu/user events.
+/// AX messages stay off the UI thread; no menu-state polling or hide timer.
 final class MenuBarMenuWatch {
     private var observer: AXObserver?
     private let app: AXUIElement
+    private let item: AXUIElement
     private let onClosed: () -> Void
+    private var notifications: [String] = []
+    private var localMonitor: Any?, globalMonitor: Any?
+    private var attached = false
+    private let lock = NSLock()
+    private var cancelled = false, notified = false, checking = false, closePending = false
+    private var selection = MenuBarMenuSelection()
     private static let cleanup = DispatchQueue(label: "cc.anjing.macos-x.menu-watch-cleanup")
-    init?(pid: pid_t, onClosed: @escaping () -> Void) {
+    init?(pid: pid_t, item: AXUIElement, onClosed: @escaping () -> Void) {
         guard pid > 0 else { return nil }
-        app = AXUIElementCreateApplication(pid); self.onClosed = onClosed
-        AXUIElementSetMessagingTimeout(app, 0.1)
+        app = AXUIElementCreateApplication(pid); self.item = item; self.onClosed = onClosed
+        AXUIElementSetMessagingTimeout(app, 0.1); AXUIElementSetMessagingTimeout(item, 0.1)
         var raw: AXObserver?
-        guard AXObserverCreate(pid, { _, _, _, context in
+        guard AXObserverCreate(pid, { _, _, notification, context in
             guard let context else { return }
             let watch = Unmanaged<MenuBarMenuWatch>.fromOpaque(context).takeUnretainedValue()
-            watch.onClosed()
+            if notification as String == kAXMenuClosedNotification { watch.checkSelection(menuClosed: true) }
+            else { watch.checkSelection() }
         }, &raw) == .success, let raw else { return nil }
         observer = raw
-        guard AXObserverAddNotification(raw, app, kAXMenuClosedNotification as CFString, Unmanaged.passUnretained(self).toOpaque()) == .success else { observer = nil; return nil }
+        for name in [kAXMenuClosedNotification, kAXMenuOpenedNotification, kAXSelectedChildrenChangedNotification] {
+            if AXObserverAddNotification(raw, app, name as CFString, Unmanaged.passUnretained(self).toOpaque()) == .success { notifications.append(name) }
+        }
+        guard !notifications.isEmpty else { observer = nil; return nil }
     }
-    func attach() { if let observer { CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes) } }
+    func attach() {
+        lock.lock(); let canAttach = !cancelled && !notified; lock.unlock()
+        guard canAttach, let observer else { return }
+        attached = true
+        CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+        checkSelection()
+    }
+    private func notifyClosed() {
+        lock.lock(); let deliver = !cancelled && !notified; if deliver { notified = true }; lock.unlock()
+        if deliver { onClosed() }
+    }
+    private func checkSelection(menuClosed: Bool = false) {
+        lock.lock()
+        closePending = closePending || menuClosed
+        guard !cancelled, !notified, !checking else { lock.unlock(); return }
+        checking = true; let closeEvent = closePending; closePending = false; lock.unlock()
+        Self.cleanup.async { [self] in
+            lock.lock(); let canRead = !cancelled && !notified; lock.unlock()
+            var value: CFTypeRef?
+            let selected: Bool? = canRead && AXUIElementCopyAttributeValue(item, kAXSelectedAttribute as CFString, &value) == .success
+                ? (value as? NSNumber)?.boolValue : nil
+            lock.lock(); checking = false
+            let closed = !cancelled && selection.receive(selected, closedNotification: closeEvent)
+            let repeatClose = !cancelled && !notified && closePending
+            let observedMenu = !cancelled && !notified && selection.sawSelected
+            lock.unlock()
+            if closed { notifyClosed() }
+            else {
+                if observedMenu { DispatchQueue.main.async { [weak self] in self?.installSelectionMonitors() } }
+                if repeatClose { checkSelection() }
+            }
+        }
+    }
+    /// Install only after AX confirmed a selected native menu. A custom popover
+    /// with no selection signal never gains a keyboard/mouse watcher or timeout.
+    private func installSelectionMonitors() {
+        lock.lock(); let canWatch = !cancelled && !notified; lock.unlock()
+        guard canWatch, attached, localMonitor == nil else { return }
+        let mask: NSEvent.EventTypeMask = [.leftMouseUp, .rightMouseUp, .keyUp]
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in self?.checkSelection(); return event }
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] _ in self?.checkSelection() }
+    }
     func cancel() {
+        lock.lock(); cancelled = true; lock.unlock(); attached = false
+        if let localMonitor { NSEvent.removeMonitor(localMonitor) }; localMonitor = nil
+        if let globalMonitor { NSEvent.removeMonitor(globalMonitor) }; globalMonitor = nil
         guard let observer else { return }; self.observer = nil
         CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
-        let app = app
-        Self.cleanup.async { AXObserverRemoveNotification(observer, app, kAXMenuClosedNotification as CFString) }
+        let app = app, notifications = notifications
+        Self.cleanup.async { for name in notifications { AXObserverRemoveNotification(observer, app, name as CFString) } }
     }
     deinit { cancel() }
 }

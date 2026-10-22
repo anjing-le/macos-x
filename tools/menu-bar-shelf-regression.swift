@@ -107,6 +107,86 @@ import AppKit
         restored.start(); restored.prepareDrag()
         try require(restored.issue != nil && !restored.hidden, "Missing permission must be explicit and fail open")
         restored.stop()
+        let recoveryDefaults = UserDefaults(suiteName: suite + ".recovery")!
+        defer { recoveryDefaults.removePersistentDomain(forName: suite + ".recovery") }
+        let recoveryBridge = FixtureVisibility(), recovery = MenuBarDrawer(defaults: recoveryDefaults, visibility: recoveryBridge)
+        recovery.permissionOverride = true; recovery.testSkipInput = true; recovery.testNoPresentation = true
+        recovery.readOverride = { _, done in done(entries) }; recovery.iconReadOverride = nativeIconRead
+        recovery.start(); recovery.prepareDrag(); recovery.add(a)
+        let held = FixtureHandle(); recoveryBridge.pending.removeFirst()(held)
+        let originalCalls = recoveryBridge.calls.count
+        recovery.environmentChanged(rebuild: false, application: "fixture.unrelated")
+        try require(recovery.hidden && held.invalidations == 0, "An unrelated app launch never exposes collected icons")
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.19))
+        try require(recoveryBridge.calls.count == originalCalls + 1 && held.invalidations == 0,
+                    "An updated allow-list is installed without dropping the old restriction")
+        let replaced = FixtureHandle(); recoveryBridge.pending.removeFirst()(replaced)
+        try require(recovery.hidden && held.invalidations == 1, "Application changes finish collected without requiring another hover")
+        recovery.environmentChanged(rebuild: true)
+        try require(!recovery.hidden && replaced.invalidations == 1, "Display/wake recovery releases an obsolete native restriction")
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.19))
+        try require(recoveryBridge.pending.count == 1, "A rebuilt inventory automatically reapplies saved collection")
+        recoveryBridge.pending.removeFirst()(FixtureHandle())
+        try require(recovery.hidden, "Recovered screens return to collection without a pointer event")
+        let beforeManual = recoveryBridge.calls.count
+        recovery.environmentChanged(rebuild: true); recovery.showAll()
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.19))
+        try require(!recovery.hidden && recoveryBridge.calls.count == beforeManual,
+                    "Explicit show-all cancels queued automatic hiding")
+        recovery.environmentChanged(rebuild: false, application: "fixture.unrelated")
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.19))
+        try require(!recovery.hidden && recovery.order == [a] && recoveryBridge.calls.count == beforeManual,
+                    "Application changes respect an explicit expanded state and retain the saved membership")
+        recovery.readEntries(force: true); recovery.apply(); recoveryBridge.pending.removeFirst()(FixtureHandle())
+        let beforeRecoveryBurst = recoveryBridge.calls.count
+        for _ in 0..<3 { recovery.environmentChanged(rebuild: false, application: "fixture.unrelated") }
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.19))
+        try require(recoveryBridge.calls.count == beforeRecoveryBurst + 1, "A launch burst coalesces into one native replacement")
+        let staleReplacement = recoveryBridge.pending.removeFirst()
+        recovery.environmentChanged(rebuild: false, application: "fixture.newer")
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.19))
+        let staleRecoveryHandle = FixtureHandle(); staleReplacement(staleRecoveryHandle)
+        try require(staleRecoveryHandle.invalidations == 1 && recoveryBridge.pending.count == 1,
+                    "A newer environment supersedes an in-flight replacement without losing its recovery")
+        recoveryBridge.pending.removeFirst()(FixtureHandle())
+        var lateRecoveryRead: (([MenuBarEntry]) -> Void)?
+        recovery.readOverride = { _, done in lateRecoveryRead = done }
+        recovery.environmentChanged(rebuild: true)
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.19))
+        let beforeLateRecovery = recoveryBridge.calls.count
+        recovery.showAll(); lateRecoveryRead?(entries)
+        try require(!recovery.hidden && recoveryBridge.calls.count == beforeLateRecovery,
+                    "A late inventory cannot hide icons after the user chose show-all")
+        recovery.readOverride = { _, done in done(entries) }; recovery.readEntries(force: true); recovery.apply()
+        recoveryBridge.pending.removeFirst()(FixtureHandle())
+        recovery.environmentChanged(rebuild: true); let beforeRecoveryStop = recoveryBridge.calls.count; recovery.stop()
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.19))
+        try require(recoveryBridge.calls.count == beforeRecoveryStop && !recovery.hidden, "Stop cancels automatic recovery and leaves native icons accessible")
+        let menuRecoveryDefaults = UserDefaults(suiteName: suite + ".menu-recovery")!
+        defer { menuRecoveryDefaults.removePersistentDomain(forName: suite + ".menu-recovery") }
+        let menuRecoveryBridge = FixtureVisibility(), menuRecovery = MenuBarDrawer(defaults: menuRecoveryDefaults, visibility: menuRecoveryBridge)
+        menuRecovery.permissionOverride = true; menuRecovery.testSkipInput = true; menuRecovery.testNoPresentation = true
+        menuRecovery.anchorProvider = { anchor }; menuRecovery.pointer = { CGPoint(x: anchor.midX, y: anchor.midY) }
+        menuRecovery.readOverride = { _, done in done(entries) }; menuRecovery.iconReadOverride = nativeIconRead
+        menuRecovery.pressOverride = { _, _, done in done(true) }
+        menuRecovery.start(); menuRecovery.prepareDrag(); menuRecovery.add(a); menuRecoveryBridge.pending.removeFirst()(FixtureHandle())
+        menuRecovery.openMenu(a)
+        var menuRecoveryRead: (([MenuBarEntry]) -> Void)?, menuRecoveryToken: MenuBarReadToken?
+        menuRecovery.readOverride = { token, done in menuRecoveryToken = token; menuRecoveryRead = done }
+        let beforeMenuRecovery = menuRecoveryBridge.calls.count
+        menuRecovery.hover(anchor, inside: true)
+        try require(menuRecoveryToken?.isCancelled == false && menuRecoveryBridge.calls.count == beforeMenuRecovery,
+                    "Fallback hover waits for fresh icon geometry instead of cancelling its own read")
+        menuRecoveryRead?(entries)
+        try require(menuRecoveryBridge.calls.count == beforeMenuRecovery + 1, "Fresh geometry completes fallback menu collection")
+        menuRecoveryBridge.pending.removeFirst()(FixtureHandle()); menuRecovery.stop()
+        var nativeSelection = MenuBarMenuSelection()
+        try require(!nativeSelection.receive(false) && !nativeSelection.receive(nil), "A closed/unreadable custom popover does not start an automatic hide timeout")
+        try require(!nativeSelection.receive(true) && !nativeSelection.receive(true, closedNotification: true),
+                    "Closing a submenu does not hide its still-selected parent menu")
+        try require(nativeSelection.receive(false) && !nativeSelection.receive(false), "A confirmed selected-to-unselected transition closes exactly once")
+        var notifiedSelection = MenuBarMenuSelection()
+        try require(notifiedSelection.receive(nil, closedNotification: true), "A real menu-close event remains usable when selection is unavailable")
         // A late inventory cannot recreate a stopped module or install hiding.
         let delayedDefaults = UserDefaults(suiteName: suite + ".delayed")!
         defer { delayedDefaults.removePersistentDomain(forName: suite + ".delayed") }
@@ -471,6 +551,6 @@ import AppKit
             try image.representation(using: .png, properties: [:])!.write(to: path.appendingPathComponent("menu-drawer-popup.png"))
         }
         window.orderOut(nil)
-        print("Menu drawer regression passed: transactional membership, saved order, real view drag, native action routing, hover corridor, idle delay, failure/timeout/stop, input capture isolation and narrow settings. No real application icons were hidden or events posted.")
+        print("Menu drawer regression passed: collected-state recovery, explicit show-all, coalesced replacement, menu selection and submenu lifetime, transactional membership, saved order, real view drag, native action routing, hover corridor, idle delay, failure/timeout/stop, input capture isolation and narrow settings. No real application icons were hidden or events posted.")
     }
 }
