@@ -140,13 +140,11 @@ final class MenuBarIconCapture {
         context.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
         let data = raw.assumingMemoryBound(to: UInt8.self)
         for x in 0..<w where data[(x + w) * 4 + 3] < 250 || data[(x + (h - 2) * w) * 4 + 3] < 250 { return glyph }
-        let border = (0..<w).map { x -> ([Double], [Double]) in
-            ((0..<3).map { Double(data[(w + x) * 4 + $0]) / 255 },
-             (0..<3).map { Double(data[((h - 2) * w + x) * 4 + $0]) / 255 })
-        }
+        let background = backgroundField(data, width: w, height: h)
         for y in 0..<h { for x in 0..<w {
-            let offset = (y * w + x) * 4, t = Double(y) / Double(h - 1)
-            let bg = (0..<3).map { border[x].0[$0] * (1 - t) + border[x].1[$0] * t }
+            let index = y * w + x, offset = index * 4
+            if background.mask[index] { for c in 0..<4 { data[offset + c] = 0 }; continue }
+            let bg = (0..<3).map { Double(background.values[index * 3 + $0]) / 255 }
             let pixel = (0..<3).map { Double(data[offset + $0]) / 255 }
             if zip(pixel, bg).map({ abs($0 - $1) }).max()! <= 4.0 / 255 { for c in 0..<4 { data[offset + c] = 0 }; continue }
             for light in [false, true] {
@@ -178,6 +176,60 @@ final class MenuBarIconCapture {
         guard let result = context.makeImage() else { return glyph }
         return MenuBarIconPixels(image: result, size: glyph.size, sourceFrame: glyph.sourceFrame,
                                  sourceSurface: glyph.sourceSurface, sourceSurfaceID: glyph.sourceSurfaceID)
+    }
+    /// Native item padding is connected to the upper margin, even when a popup
+    /// shadow or translucent wallpaper makes that background nonuniform. Grow
+    /// through smooth neighbouring colours; never extrapolate its bottom-row
+    /// shadow over the whole icon. Reconstruct only the small enclosed ink runs
+    /// from their nearest horizontal/vertical background margins.
+    private static func backgroundField(_ data: UnsafeMutablePointer<UInt8>, width w: Int, height h: Int) -> (mask: [Bool], values: [Float]) {
+        let count = w * h
+        var mask = [Bool](repeating: false, count: count), queue: [Int] = []
+        queue.reserveCapacity(count)
+        func seed(_ index: Int) { if !mask[index] { mask[index] = true; queue.append(index) } }
+        // Do not assume side/bottom pixels are empty: real text may reach them.
+        for x in 0..<w { seed(x); seed(w + x) }
+        var head = 0
+        while head < queue.count {
+            let index = queue[head], x = index % w, y = index / w; head += 1
+            func visit(_ next: Int) {
+                guard !mask[next], (0..<3).allSatisfy({ abs(Int(data[index * 4 + $0]) - Int(data[next * 4 + $0])) <= 4 }) else { return }
+                seed(next)
+            }
+            if x > 0 { visit(index - 1) }; if x + 1 < w { visit(index + 1) }
+            if y > 0 { visit(index - w) }; if y + 1 < h { visit(index + w) }
+        }
+        var values = [Float](repeating: 0, count: count * 3), spans = [UInt16](repeating: .max, count: count)
+        for index in 0..<count { for c in 0..<3 { values[index * 3 + c] = Float(data[index * 4 + c]) } }
+        func fill(_ first: Int, _ last: Int, stride: Int, length: Int) {
+            guard length > 1 else { return }
+            for step in 1..<length {
+                let index = first + step * stride
+                guard length < spans[index] else { continue }
+                spans[index] = UInt16(length)
+                let t = Float(step) / Float(length)
+                for c in 0..<3 { values[index * 3 + c] = Float(data[first * 4 + c]) * (1 - t) + Float(data[last * 4 + c]) * t }
+            }
+        }
+        for y in 0..<h {
+            var x = 0
+            while x < w {
+                if mask[y * w + x] { x += 1; continue }
+                let first = x - 1
+                while x < w, !mask[y * w + x] { x += 1 }
+                if first >= 0, x < w { fill(y * w + first, y * w + x, stride: 1, length: x - first) }
+            }
+        }
+        for x in 0..<w {
+            var y = 0
+            while y < h {
+                if mask[y * w + x] { y += 1; continue }
+                let first = y - 1
+                while y < h, !mask[y * w + x] { y += 1 }
+                if first >= 0, y < h { fill(first * w + x, y * w + x, stride: w, length: y - first) }
+            }
+        }
+        return (mask, values)
     }
     static func crop(_ image: CGImage, surface: CGRect, item: CGRect) -> MenuBarIconPixels? {
         guard surface.width > 0, surface.height > 0, item.width > 0, item.width <= 320,

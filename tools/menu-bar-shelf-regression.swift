@@ -799,6 +799,27 @@ import AppKit
             let vibrant = NSBitmapImageRep(cgImage: MenuBarIconCapture.removeBarBackground(vibrantCrop).image).colorAt(x: 8, y: 14)!.usingColorSpace(.deviceRGB)!
             try require(vibrant.redComponent < 0.02 && vibrant.greenComponent < 0.02 && vibrant.blueComponent < 0.02 && (0.23...0.27).contains(vibrant.alphaComponent),
                         "Inactive remote template ink is unmatted using its subtractive vibrancy, without retaining coloured wallpaper")
+            let shaded = CGContext(data: nil, width: 40, height: 32, bitsPerComponent: 8, bytesPerRow: 160,
+                                   space: p3, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)!
+            let shadedBytes = shaded.data!.assumingMemoryBound(to: UInt8.self)
+            for y in 0..<32 { for x in 0..<40 {
+                let shadow = max(0, Double(y) - 14) * Double(x) / 50
+                let ink = (12..<24).contains(x) && (8..<24).contains(y)
+                for (c, base) in [255.0, 218, 90].enumerated() {
+                    let value = base * (1 - shadow / 255) - (ink ? 64 : 0)
+                    shadedBytes[(y * 40 + x) * 4 + c] = UInt8(value.rounded())
+                }
+                shadedBytes[(y * 40 + x) * 4 + 3] = 255
+            } }
+            // A genuine coloured glyph touching the side is not empty padding.
+            for y in 8..<24 { for (c, value) in [150, 50, 180, 255].enumerated() { shadedBytes[y * 160 + c] = UInt8(value) } }
+            let shadedResult = NSBitmapImageRep(cgImage: MenuBarIconCapture.removeBarBackground(.init(image: shaded.makeImage()!, size: CGSize(width: 40, height: 32))).image)
+            let shadowInk = shadedResult.colorAt(x: 18, y: 18)!.usingColorSpace(.deviceRGB)!
+            try require(shadedResult.colorAt(x: 35, y: 28)!.alphaComponent == 0
+                        && shadedResult.colorAt(x: 28, y: 16)!.alphaComponent == 0
+                        && shadowInk.redComponent < 0.02 && shadowInk.blueComponent < 0.02 && (0.22...0.28).contains(shadowInk.alphaComponent)
+                        && shadedResult.colorAt(x: 0, y: 16)!.alphaComponent > 0.99,
+                        "A spatially varying bar shadow is removed without colour blocks, while native edge ink remains intact")
         }
         if let directory = ProcessInfo.processInfo.environment["MENU_BAR_SHELF_PREVIEW_DIR"] {
             let path = URL(fileURLWithPath: directory); try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
