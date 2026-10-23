@@ -8,10 +8,14 @@ struct MenuDrawerItem {
 }
 
 /// The identical native view is used in the popover and in the dashboard.
-/// App icons identify real AX-backed entries; they do not simulate a menu.
+/// Status-item snapshots identify AX-backed entries; these are not live views
+/// hosted from the owning applications, and do not simulate their menus.
 @MainActor final class MenuBarDrawerView: NSView {
     var isEnabled = true { didSet { if isEnabled != oldValue { needsDisplay = true } } }
-    var items: [MenuDrawerItem] = [] { didSet { needsDisplay = true; updateAccessibility() } }
+    var items: [MenuDrawerItem] = [] { didSet {
+        needsDisplay = true
+        if items.map(\.bundle) != oldValue.map(\.bundle) { updateAccessibility() } else { updateHint() }
+    } }
     var selected: String? { didSet { needsDisplay = true; updateHint() } }
     var accepting = false { didSet { needsDisplay = true } }
     var onDragImage: ((MenuDrawerItem, CGPoint) -> Void)?
@@ -34,6 +38,7 @@ struct MenuDrawerItem {
     private var activationWork: DispatchWorkItem?
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     var singleRow = false
     private static func width(_ item: MenuDrawerItem) -> CGFloat { max(24, min(332, (item.icon?.size.width ?? 24) + 4)) }
     static func rowWidth(_ items: [MenuDrawerItem]) -> CGFloat { 16 + items.reduce(0) { $0 + width($1) } }

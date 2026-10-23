@@ -10,6 +10,9 @@ import ApplicationServices
 /// freshly read AX extras; menus are always opened by their owning process.
 @MainActor final class MenuBarDrawer {
     var onChange: (() -> Void)?
+    var onPixelsChange: (() -> Void)?
+    var onAppleEvent: ((NSEvent) -> Void)?
+    var onPreviewPhase: ((MenuBarLiveSession.Phase) -> Void)?
     var anchorProvider: (() -> CGRect?)?
     private(set) var active = false
     private(set) var issue: String?
@@ -24,6 +27,11 @@ import ApplicationServices
     private let inventory = MenuBarInventory()
     private let iconCapture = MenuBarIconCapture()
     let menuInteraction = MenuBarNativeInteraction()
+    private lazy var live = MenuBarLiveSession(visibility: visibility)
+    private let coveredInput = MenuBarCoveredInput()
+    private var liveFailed = false
+    private var liveStartWork: DispatchWorkItem?
+    private var pendingLiveEnvironment: (rebuild: Bool, application: String?)?
     private var interactionRestriction: MenuVisibilityHandle?
     private var restoringInteraction = false
     private var interactionRequested = false
@@ -99,6 +107,45 @@ import ApplicationServices
         input.onBegin = { [weak self] entry, point in self?.beginDrag(entry, at: point) }
         input.onDrag = { [weak self] point in self?.drag(to: point) }
         input.onEnd = { [weak self] point in self?.finishDrag(at: point) }
+        input.onCoveredInput = { [weak self] type, event in self?.coveredInput.consume(type, event: event) ?? false }
+        coveredInput.onDismiss = { [weak self] apple in
+            guard let self else { return }
+            if apple { self.live.finish() } else { self.close() }
+        }
+        coveredInput.onApple = { [weak self] in self?.onAppleEvent?($0) }
+        coveredInput.onIdle = { [weak self] in self?.beginLiveIfNeeded() }
+        live.onCovered = { [weak self] regions in
+            guard let self, let anchor = self.anchor else { return false }
+            let top = NSScreen.screens.first?.frame.maxY ?? 0
+            let apple = CGRect(x: anchor.minX, y: top - anchor.maxY, width: anchor.width, height: anchor.height)
+            return self.coveredInput.arm(regions: regions, apple: apple)
+        }
+        live.onEnded = { [weak self] in self?.coveredInput.uncover() }
+        live.onPhase = { [weak self] in self?.onPreviewPhase?($0) }
+        live.onCoverageChanged = { [weak self] in self?.coveredInput.updateRegions($0) }
+        live.onExposed = { [weak self] in self?.restriction?.invalidate(); self?.restriction = nil }
+        live.onRestore = { [weak self] done in
+            guard let self, self.active, self.wantsCollapsed else { done(false); return }
+            let expected = self.restrictionGeneration
+            let allowed = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+                .union(MenuBarSections.systemOwners).union([Bundle.main.bundleIdentifier ?? "cc.anjing.macos-x"]).subtracting(self.order)
+            self.visibility.activate(allowing: Array(allowed).sorted()) { [weak self] handle in
+                guard let self, self.active, self.live.isActive, self.restrictionGeneration == expected else { handle?.invalidate(); done(false); return }
+                let previous = self.restriction; self.restriction = handle; self.hidden = handle != nil
+                previous?.invalidate(); done(handle != nil)
+            }
+        }
+        live.onFailure = { [weak self] in
+            guard let self, self.active else { return }; self.liveFailed = true
+            self.hidden = self.restriction != nil
+            self.issue = "图标实时读取中断，请重新展开重试。"; self.changed()
+        }
+        live.onPixels = { [weak self] pixels in
+            guard let self, self.active else { return }
+            self.storePixels(pixels.filter { self.order.contains($0.key) })
+            if self.isOpen { self.show() }
+            self.onPixelsChange?()
+        }
     }
     func start() {
         guard !active else { return }; active = true
@@ -150,12 +197,12 @@ import ApplicationServices
         if !testSkipInput, !input.start() { input.enabled = false; issue = "拖动监听暂不可用；可在下面点击图标收纳。" }
     }
     func hover(_ frame: CGRect, inside: Bool) {
-        anchor = frame
+        if !live.isActive { anchor = frame }
         guard active else { return }
         if inside {
             // Tracking events can arrive after the pointer has already crossed
             // into another window; never reopen from an obsolete enter event.
-            guard frame.insetBy(dx: -5, dy: -7).contains(pointer()) else { presence(false); return }
+            guard (anchor ?? frame).insetBy(dx: -5, dy: -7).contains(pointer()) else { presence(false); return }
             cancelDismissal(); show()
             if reapplyOnHover, wantsCollapsed {
                 reapplyOnHover = false; installInput()
@@ -171,10 +218,10 @@ import ApplicationServices
         if isOpen { close() } else { show(); prepareDrag() }
     }
     func show() {
-        guard active, let anchor = anchorProvider?() ?? anchor else { return }
+        guard active, let anchor = live.isActive ? anchor : (anchorProvider?() ?? anchor) else { return }
         self.anchor = anchor
         let wasOpen = isOpen
-        if !wasOpen { cancelDismissal() }
+        if !wasOpen { cancelDismissal(); liveFailed = false }
         let screen = NSScreen.screens.first { $0.frame.contains(CGPoint(x: anchor.midX, y: anchor.midY)) } ?? NSScreen.main
         guard let screen else { return }
         let icons = drawerItems
@@ -191,6 +238,7 @@ import ApplicationServices
         if panel == nil {
             let panel = MenuDrawerPanel(contentRect: CGRect(origin: origin, size: CGSize(width: width, height: height)), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             panel.level = .popUpMenu; panel.isOpaque = false; panel.backgroundColor = .clear
+            panel.title = "菜单栏抽屉"
             panel.hasShadow = true; panel.hidesOnDeactivate = false; panel.isReleasedWhenClosed = false
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
             panel.contentView = view; self.panel = panel
@@ -201,13 +249,26 @@ import ApplicationServices
         updateView()
         if testNoPresentation { openForTest = true } else if panel?.isVisible != true { panel?.orderFrontRegardless() }
         installMonitors()
+        if liveStartWork == nil, !live.isActive {
+            let work = DispatchWorkItem { [weak self] in self?.liveStartWork = nil; self?.beginLiveIfNeeded() }
+            liveStartWork = work; DispatchQueue.main.async(execute: work)
+        }
     }
-    func close() {
+    private func beginLiveIfNeeded() {
+        guard active, hidden, !busy, !reading, isOpen, !gestureActive, !liveFailed,
+              input.enabled, !testNoPresentation, !testSkipInput, !live.isActive, !coveredInput.isRouting,
+              !order.isEmpty, let anchor else { return }
+        let screen = NSScreen.screens.first { $0.frame.contains(CGPoint(x: anchor.midX, y: anchor.midY)) } ?? NSScreen.main
+        guard let id = (screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value else { return }
+        live.start(entries: entries.filter { order.contains($0.bundle) }, displayID: id)
+    }
+    func close(keepingLive: Bool = false) {
         cancelDismissal(); panel?.orderOut(nil); openForTest = false
         removeMonitors(); view.cancelDrag(); view.accepting = false
+        if !keepingLive { live.finish() }
     }
     func contains(_ point: CGPoint) -> Bool {
-        let anchor = anchorProvider?() ?? anchor
+        let anchor = live.isActive ? anchor : (anchorProvider?() ?? anchor)
         if let anchor, anchor.insetBy(dx: -5, dy: -7).contains(point) { return true }
         if isOpen, let frame = panel?.frame {
             if frame.insetBy(dx: -5, dy: -5).contains(point) { return true }
@@ -256,10 +317,12 @@ import ApplicationServices
         guard active else { return }
         guard permitted else { issue = "需要辅助功能权限来读取和操作真实菜单栏图标。"; changed(); return }
         installInput()
+        if live.isActive { return }
         readEntries(force: false)
     }
     func readEntries(force: Bool, after: (() -> Void)? = nil) {
         guard active, permitted, !busy else { after?(); return }
+        guard !live.isActive else { after?(); return }
         if reading { if let after { pendingAfterRead = after }; return }
         if !force, ProcessInfo.processInfo.systemUptime - readDate < 2 { after?(); return }
         reading = true; generation += 1; let expected = generation
@@ -289,21 +352,12 @@ import ApplicationServices
                 let currentEntries = filtered.map { entry -> MenuBarEntry in
                     guard requested.contains(entry.bundle), entry.visible else { return entry }
                     return MenuBarEntry(bundle: entry.bundle, frame: pixels[entry.bundle]?.sourceFrame ?? entry.frame,
-                                        element: entry.element, pid: entry.pid, visible: pixels[entry.bundle] != nil)
+                                        element: entry.element, pid: entry.pid, visible: pixels[entry.bundle] != nil,
+                                        surface: pixels[entry.bundle]?.sourceSurface ?? entry.surface,
+                                        surfaceID: pixels[entry.bundle]?.sourceSurfaceID ?? entry.surfaceID)
                 }
                 self.entries = currentEntries
-                for (bundle, pixel) in pixels {
-                    self.originalIcons[bundle] = NSImage(cgImage: pixel.image, size: pixel.size)
-                    self.iconCosts[bundle] = pixel.image.bytesPerRow * pixel.image.height
-                }
-                let retained = Set(filtered.map(\.bundle)).union(self.order)
-                var keep = Set<String>(), bytes = 0
-                for bundle in self.order + filtered.map(\.bundle) where retained.contains(bundle) && !keep.contains(bundle) {
-                    guard let cost = self.iconCosts[bundle], keep.count < 64, bytes + cost <= 4_000_000 else { continue }
-                    keep.insert(bundle); bytes += cost
-                }
-                self.originalIcons = self.originalIcons.filter { keep.contains($0.key) }
-                self.iconCosts = self.iconCosts.filter { keep.contains($0.key) }
+                self.storePixels(pixels)
                 // Only cached native pixels may be dragged. Unknown items stay native.
                 self.input.entries = currentEntries.filter { $0.visible && !self.order.contains($0.bundle) && self.originalIcons[$0.bundle] != nil }
                 self.appIcons.removeAll(); self.changed()
@@ -321,6 +375,19 @@ import ApplicationServices
             inventory.read(apps, token: token, completion: receive)
         }
     }
+    private func storePixels(_ pixels: [String: MenuBarIconPixels]) {
+        for (bundle, pixel) in pixels {
+            originalIcons[bundle] = NSImage(cgImage: pixel.image, size: pixel.size)
+            iconCosts[bundle] = pixel.image.bytesPerRow * pixel.image.height
+        }
+        var keep = Set<String>(), bytes = 0
+        for bundle in order + entries.map(\.bundle) where !keep.contains(bundle) {
+            guard let cost = iconCosts[bundle], keep.count < 64, bytes + cost <= 4_000_000 else { continue }
+            keep.insert(bundle); bytes += cost
+        }
+        originalIcons = originalIcons.filter { keep.contains($0.key) }; iconCosts = iconCosts.filter { keep.contains($0.key) }
+        appIcons.removeAll()
+    }
     func item(_ bundle: String) -> MenuDrawerItem {
         if let item = appIcons[bundle] { return item }
         let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundle).first
@@ -337,8 +404,11 @@ import ApplicationServices
     }
     func add(_ bundle: String, at index: Int? = nil, completion: ((Bool) -> Void)? = nil) {
         guard active, permitted, visibility.available, !busy, !order.contains(bundle), order.count < 40,
-              bundle != Bundle.main.bundleIdentifier, !MenuBarSections.systemOwners.contains(bundle),
-              entries.contains(where: { $0.bundle == bundle }) else { completion?(false); return }
+              bundle != Bundle.main.bundleIdentifier, !MenuBarSections.systemOwners.contains(bundle) else { completion?(false); return }
+        guard entries.contains(where: { $0.bundle == bundle && $0.visible }), originalIcons[bundle] != nil else {
+            issue = "原图或当前位置尚未确认，已保留菜单栏图标；请重新读取。"
+            changed(); completion?(false); return
+        }
         var next = order; next.insert(bundle, at: min(max(0, index ?? order.count), order.count))
         apply(next: next, completion: completion)
     }
@@ -364,6 +434,16 @@ import ApplicationServices
     /// activation succeeds; failures keep the last confirmed order visible.
     func apply(next: [String]? = nil, completion: ((Bool) -> Void)? = nil) {
         guard active, !busy else { completion?(false); return }
+        if live.isActive {
+            busy = true
+            live.finish { [weak self] restored in
+                guard let self, self.active else { completion?(false); return }
+                self.busy = false
+                guard restored else { completion?(false); return }
+                self.apply(next: next, completion: completion)
+            }
+            return
+        }
         let proposed = next ?? order
         wantsCollapsed = !proposed.isEmpty; cancelRecovery(); menuBundle = nil
         guard permitted, visibility.available else {
@@ -385,7 +465,11 @@ import ApplicationServices
             readEntries(force: true); return
         }
         let confirmed = Set(entries.map(\.bundle)).intersection(proposed)
-        guard confirmed.allSatisfy({ originalIcons[$0] != nil }) else {
+        // Previously saved membership is the user's hiding intent. A restart
+        // has no pixel cache, and macOS overflow may temporarily omit a crop;
+        // restore that membership and obtain fresh pixels on first expansion.
+        // A newly collected owner still requires verified native pixels.
+        guard confirmed.subtracting(order).allSatisfy({ originalIcons[$0] != nil }) else {
             restriction?.invalidate(); restriction = nil; hidden = false
             issue = CGPreflightScreenCaptureAccess() ? "原图标暂不可读取，已保留真实菜单栏；可点击读取图标重试。" : "需要屏幕录制权限读取原菜单栏图标；未读到的图标保持显示。"
             changed(); completion?(false); return
@@ -436,6 +520,8 @@ import ApplicationServices
         menuWatch?.cancel(); menuWatch = nil; reapplyOnHover = false; issue = nil; changed()
     }
     private func cancelMenuInteraction() {
+        liveStartWork?.cancel(); liveStartWork = nil
+        coveredInput.cancel(); live.cancel()
         menuInteraction.cancel(); interactionRestriction?.invalidate(); interactionRestriction = nil
         restoringInteraction = false
         interactionRequested = false
@@ -443,6 +529,23 @@ import ApplicationServices
     func openMenu(_ bundle: String, samples: [MenuBarPointerSample] = MenuBarPointerSample.singleClick) {
         guard active, !busy, menuBundle != bundle, MenuBarPointerSample.valid(samples) else { return }
         guard permitted else { issue = "请先授予辅助功能权限。"; changed(); return }
+        if live.isActive, let entry = entries.first(where: { $0.bundle == bundle }) {
+            busy = true; menuBundle = bundle; close(keepingLive: true)
+            changed()
+            let expected = menuGeneration
+            if live.activate(entry, samples: samples, completion: { [weak self] ok in
+                guard let self, self.active, self.menuGeneration == expected else { return }
+                self.busy = false; self.menuBundle = nil
+                if !ok { self.issue = "本次操作未完成，请重试。" }
+                self.changed()
+            }) { return }
+            live.finish { [weak self] restored in
+                guard let self, self.active, self.menuGeneration == expected else { return }
+                self.busy = false; self.menuBundle = nil
+                if restored { self.openMenu(bundle, samples: samples) } else { self.changed() }
+            }
+            return
+        }
         cancelRecovery(); cancelMenuInteraction()
         generation += 1; readToken?.cancel(); readToken = nil
         readWatchdog?.cancel(); readWatchdog = nil; reading = false; pendingAfterRead = nil; readDate = 0
@@ -493,13 +596,15 @@ import ApplicationServices
                 let remaining = Set(self.order).subtracting([bundle])
                 let all = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
                     .union(MenuBarSections.systemOwners).union([Bundle.main.bundleIdentifier ?? "cc.anjing.macos-x", bundle])
-                // Keep the original restriction as a recovery handle. The
-                // temporary input surface remains behind opaque bar stills.
+                // Replace the restriction only after the covered native input
+                // surface is active; do not leave competing owner assertions.
                 self.interactionRequested = true
                 self.visibility.activate(allowing: Array(all.subtracting(remaining)).sorted()) { [weak self] handle in
                     guard let self, self.active, self.menuGeneration == expected, !token.isCancelled else { handle?.invalidate(); return }
                     guard let handle else { self.restoreAfterGesture(success: false, expected: expected); return }
-                    self.interactionRestriction = handle; relay()
+                    self.interactionRestriction = handle
+                    self.restriction?.invalidate(); self.restriction = nil
+                    relay()
                 }
             }
         }
@@ -536,12 +641,16 @@ import ApplicationServices
             guard let handle else { timeout.perform(); return }
             let previous = self.restriction; self.restriction = handle; self.hidden = true
             previous?.invalidate(); self.interactionRestriction?.invalidate(); self.interactionRestriction = nil
-            // Keep the still until native reflow has reached the compositor.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { finish() }
+            let owners = Set(NSWorkspace.shared.runningApplications.filter { self.order.contains($0.bundleIdentifier ?? "") }.map(\.processIdentifier))
+            self.menuInteraction.waitForHidden(owners) { [weak self] confirmed in
+                guard let self, self.active, self.menuGeneration == expected else { return }
+                if confirmed { finish() } else { timeout.perform() }
+            }
         }
     }
     func beginDrag(_ entry: MenuBarEntry, at point: CGPoint) {
         guard active, !busy else { return }
+        live.finish()
         dragSource = entry; dragOrigin = point; dragMoved = false; cancelDismissal()
         show(); view.accepting = contains(point)
     }
@@ -581,6 +690,7 @@ import ApplicationServices
         }
     }
     func showDragImage(_ item: MenuDrawerItem, at point: CGPoint) {
+        if live.isActive { live.finish() }
         guard !testNoPresentation, let icon = item.icon else { return }
         let size = icon.size
         if ghost == nil {
@@ -657,8 +767,25 @@ import ApplicationServices
     }
     func environmentChanged(rebuild: Bool, application: String? = nil) {
         guard active else { return }
+        // A process without an application identity owns no collectible entry.
+        // Its launch/exit must not clear verified images or lift concealment.
+        if !rebuild, application == nil { return }
         // An unrelated launch must not interrupt a real menu still being used.
         if !rebuild, let menuBundle, application != menuBundle { return }
+        if live.isActive {
+            let waiting = pendingLiveEnvironment != nil
+            pendingLiveEnvironment = (rebuild || (pendingLiveEnvironment?.rebuild ?? false), application)
+            guard !waiting else { return }
+            busy = true; close()
+            live.finish { [weak self] restored in
+                guard let self else { return }
+                let pending = self.pendingLiveEnvironment; self.pendingLiveEnvironment = nil
+                guard self.active else { return }; self.busy = false
+                if restored, let pending { self.environmentChanged(rebuild: pending.rebuild, application: pending.application) }
+                else { self.changed() }
+            }
+            return
+        }
         let preserveRestriction = wantsCollapsed && hidden && !rebuild
             && application.map { !order.contains($0) } == true
         movementGeneration += 1; input.cancelPendingGesture(); cancelRecovery(); cancelMenuInteraction()

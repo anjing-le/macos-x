@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Darwin
 
 struct MenuBarEntry {
     let bundle: String
@@ -7,6 +8,10 @@ struct MenuBarEntry {
     var element: AXUIElement? = nil
     var pid: pid_t = 0
     var visible = true
+    // Geometry and pixels must come from the same compositor surface. The
+    // owning app's AX coordinates alone cannot identify that surface on 27.
+    var surface: CGRect? = nil
+    var surfaceID: CGWindowID? = nil
 }
 
 /// Failed/unreadable applications remain allowed. A partial inventory must not
@@ -37,25 +42,57 @@ struct MenuBarContainer {
     let pid: pid_t
     let frame: CGRect
     var surface: CGRect? = nil
+    var surfaceID: CGWindowID? = nil
+}
+
+struct MenuBarContainerSnapshot {
+    let entries: [MenuBarContainer]
+    let complete: Bool
+}
+
+/// Same optional AX-to-window mapping used by the window switcher. Keeping it
+/// local makes shelf capture independent of whether that module is installed.
+private enum MenuBarSurfaceIdentity {
+    private typealias GetWindow = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
+    private static let function: GetWindow? = {
+        guard let handle = dlopen(nil, RTLD_LAZY), let symbol = dlsym(handle, "_AXUIElementGetWindow") else { return nil }
+        return unsafeBitCast(symbol, to: GetWindow.self)
+    }()
+    static func windowID(_ element: AXUIElement) -> CGWindowID? {
+        guard let function else { return nil }
+        var id: CGWindowID = 0
+        return function(element, &id) == .success && id != 0 ? id : nil
+    }
 }
 
 /// On macOS 27 app-provided AX frames can survive native hiding/reflow.
 /// MenuBarAgent's on-screen containers are authoritative for image geometry.
 enum MenuBarContainerGeometry {
-    static func reconcile(_ entries: [MenuBarEntry], containers: [MenuBarContainer]) -> [MenuBarEntry] {
+    static func reconcile(_ entries: [MenuBarEntry], containers: [MenuBarContainer], surfaceID: CGWindowID? = nil) -> [MenuBarEntry] {
         entries.map { entry in
             let center = CGPoint(x: entry.frame.midX, y: entry.frame.midY)
             let matches = containers.filter {
                 $0.pid == entry.pid && $0.frame.minX.isFinite && $0.frame.minY.isFinite
                     && $0.frame.width > 0 && $0.frame.width <= 320 && $0.frame.height > 0 && $0.frame.height <= 80
-                    && ($0.surface?.contains(center) ?? (abs($0.frame.midY - entry.frame.midY) <= 80))
+                    && (surfaceID != nil ? $0.surfaceID == surfaceID : ($0.surface?.contains(center) ?? (abs($0.frame.midY - entry.frame.midY) <= 80)))
             }
-            let nearest = matches.min { a, b in
-                hypot(a.frame.midX - entry.frame.midX, (a.frame.midY - entry.frame.midY) * 16)
-                    < hypot(b.frame.midX - entry.frame.midX, (b.frame.midY - entry.frame.midY) * 16)
+            // A PID may own several status items. Picking the nearest one from
+            // stale AX coordinates can turn a neighbour into this app's icon.
+            // Until individual items can be identified, leave ambiguity native.
+            let unique = matches.reduce(into: [MenuBarContainer]()) { values, value in
+                if !values.contains(where: { $0.frame == value.frame && $0.surface == value.surface && $0.surfaceID == value.surfaceID }) { values.append(value) }
             }
-            guard let nearest else { return MenuBarEntry(bundle: entry.bundle, frame: entry.frame, element: entry.element, pid: entry.pid, visible: false) }
-            return MenuBarEntry(bundle: entry.bundle, frame: nearest.frame, element: entry.element, pid: entry.pid)
+            guard unique.count == 1, let match = unique.first else {
+                return MenuBarEntry(bundle: entry.bundle, frame: entry.frame, element: entry.element, pid: entry.pid, visible: false)
+            }
+            // Overflow proxies can report several remote owners in overlapping
+            // rectangles. They are not the original widgets and must not be
+            // cropped or treated as independent drag targets.
+            guard !containers.contains(where: {
+                $0.pid != match.pid && $0.surfaceID == match.surfaceID && $0.surface == match.surface
+                    && $0.frame.intersection(match.frame).width > 0.5 && $0.frame.intersection(match.frame).height > 0.5
+            }) else { return MenuBarEntry(bundle: entry.bundle, frame: entry.frame, element: entry.element, pid: entry.pid, visible: false) }
+            return MenuBarEntry(bundle: entry.bundle, frame: match.frame, element: entry.element, pid: entry.pid, surface: match.surface, surfaceID: match.surfaceID)
         }
     }
 }
@@ -128,17 +165,25 @@ final class MenuBarInventory {
             DispatchQueue.main.async { if !token.isCancelled { completion(result) } }
         }
     }
-    static func containers(token: MenuBarReadToken, deadline: TimeInterval) -> [MenuBarContainer] {
+    static func containers(token: MenuBarReadToken, deadline: TimeInterval,
+                           surfaceID requestedSurface: CGWindowID? = nil, owners: Set<pid_t>? = nil) -> [MenuBarContainer] {
+        snapshot(token: token, deadline: deadline, surfaceID: requestedSurface, owners: owners).entries
+    }
+    static func snapshot(token: MenuBarReadToken, deadline: TimeInterval,
+                         surfaceID requestedSurface: CGWindowID? = nil, owners: Set<pid_t>? = nil) -> MenuBarContainerSnapshot {
         var result: [MenuBarContainer] = []
+        var complete = true
         func children(_ element: AXUIElement, _ key: String) -> [AXUIElement] {
-            guard !token.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { return [] }
+            guard !token.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { complete = false; return [] }
             AXUIElementSetMessagingTimeout(element, 0.035)
             var value: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(element, key as CFString, &value) == .success else { return [] }
-            return Array((value as? [AXUIElement] ?? []).prefix(128))
+            guard AXUIElementCopyAttributeValue(element, key as CFString, &value) == .success,
+                  let values = value as? [AXUIElement] else { complete = false; return [] }
+            if values.count >= 128 { complete = false }
+            return Array(values.prefix(128))
         }
         func frame(_ element: AXUIElement) -> CGRect? {
-            guard !token.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { return nil }
+            guard !token.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { complete = false; return nil }
             AXUIElementSetMessagingTimeout(element, 0.035)
             var p: CFTypeRef?, s: CFTypeRef?, point = CGPoint.zero, size = CGSize.zero
             guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &p) == .success,
@@ -146,26 +191,31 @@ final class MenuBarInventory {
                   let p, let s, CFGetTypeID(p) == AXValueGetTypeID(), CFGetTypeID(s) == AXValueGetTypeID(),
                   AXValueGetValue(unsafeBitCast(p, to: AXValue.self), .cgPoint, &point),
                   AXValueGetValue(unsafeBitCast(s, to: AXValue.self), .cgSize, &size),
-                  point.x.isFinite, point.y.isFinite, size.width.isFinite, size.height.isFinite else { return nil }
+                  point.x.isFinite, point.y.isFinite, size.width.isFinite, size.height.isFinite else { complete = false; return nil }
             return CGRect(origin: point, size: size)
         }
         for agent in NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.MenuBarAgent").prefix(2) {
             let app = AXUIElementCreateApplication(agent.processIdentifier)
             for window in children(app, kAXWindowsAttribute) {
+                guard !token.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { return .init(entries: result, complete: false) }
+                AXUIElementSetMessagingTimeout(window, 0.035)
+                let surfaceID = MenuBarSurfaceIdentity.windowID(window)
+                if let requestedSurface, surfaceID != requestedSurface { continue }
                 guard let area = frame(window), area.height > 0, area.height <= 80 else { continue }
                 for group in children(window, kAXChildrenAttribute) {
-                    guard !token.isCancelled, ProcessInfo.processInfo.systemUptime < deadline, result.count < 256 else { return result }
+                    guard !token.isCancelled, ProcessInfo.processInfo.systemUptime < deadline, result.count < 256 else { return .init(entries: result, complete: false) }
                     AXUIElementSetMessagingTimeout(group, 0.035)
-                    guard let rect = frame(group), rect.width > 0, rect.width <= 320, rect.height > 0, rect.height <= 80, area.contains(rect) else { continue }
                     for child in children(group, kAXChildrenAttribute) {
                         var pid: pid_t = 0
                         guard AXUIElementGetPid(child, &pid) == .success, pid > 0, pid != agent.processIdentifier else { continue }
-                        result.append(MenuBarContainer(pid: pid, frame: rect, surface: area)); break
+                        if let owners, !owners.contains(pid) { break }
+                        guard let rect = frame(group), rect.width > 0, rect.width <= 320, rect.height > 0, rect.height <= 80, area.contains(rect) else { break }
+                        result.append(MenuBarContainer(pid: pid, frame: rect, surface: area, surfaceID: surfaceID)); break
                     }
                 }
             }
         }
-        return result
+        return .init(entries: result, complete: complete && !token.isCancelled && ProcessInfo.processInfo.systemUptime < deadline)
     }
 }
 

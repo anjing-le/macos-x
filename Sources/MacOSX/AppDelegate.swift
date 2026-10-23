@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         buildMenu()
         menuBar.start()
         modules.menuBarAnchor = { [weak self] in self?.menuBar.screenFrame }
+        modules.menuBarCoveredEvent = { [weak self] in self?.menuBar.handleClick($0, now: $0.timestamp) }
         menuBar.onHover = { [weak self] frame, inside in self?.modules.menuBarHover(frame, inside: inside) }
         menuBar.onSingleClick = { [weak self] in self?.modules.menuBarClick() }
         updates.onAvailabilityChanged = { [weak self] available in self?.client?.setUpdateAvailable(available) }

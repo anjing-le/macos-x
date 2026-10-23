@@ -191,8 +191,8 @@ import AppKit
                     "Repeated activation waits for one covered native input surface")
         try require(targetedBridge.calls.last!.contains(a) && !targetedBridge.calls.last!.contains(b), "The temporary input surface is limited to its native owner")
         let targetHandle = FixtureHandle(); targetedBridge.pending.removeFirst()(targetHandle)
-        try require(targetedPresses == [a] && collectedHandle.invalidations == 0 && targetHandle.invalidations == 0,
-                    "The original restriction remains retained throughout native delivery")
+        try require(targetedPresses == [a] && collectedHandle.invalidations == 1 && targetHandle.invalidations == 0,
+                    "The covered native input assertion replaces the old rule only once it is active")
         awaitTransition { !targetedBridge.pending.isEmpty }
         try require(!targetedBridge.calls.last!.contains(a) && !targetedBridge.calls.last!.contains(b), "Every collected app is hidden again after mouse-up, without waiting for menu-close detection")
         let restoredMenuHandle = FixtureHandle(); targetedBridge.pending.removeFirst()(restoredMenuHandle)
@@ -448,6 +448,21 @@ import AppKit
         try require(missing.item(a).icon == nil && missing.input.entries.isEmpty && bridge.calls.count == beforeMissing && !missing.hidden,
                     "Missing original pixels cannot hide the real entry, intercept its drag or substitute an application icon")
         missing.stop()
+
+        let resumedDefaults = UserDefaults(suiteName: suite + ".cold-cache")!
+        defer { resumedDefaults.removePersistentDomain(forName: suite + ".cold-cache") }
+        resumedDefaults.set([a], forKey: "menuBarShelf.drawerBundles.v1")
+        let resumedBridge = FixtureVisibility(), resumed = MenuBarDrawer(defaults: resumedDefaults, visibility: resumedBridge)
+        resumed.permissionOverride = true; resumed.testSkipInput = true; resumed.testSkipEnvironment = true; resumed.testNoPresentation = true
+        resumed.readOverride = { _, done in done(entries.map { MenuBarEntry(bundle: $0.bundle, frame: $0.frame, visible: false) }) }
+        resumed.iconReadOverride = { _, _, done in done([:]) }
+        resumed.start()
+        try require(resumedBridge.calls.count == 1 && resumed.busy && resumed.item(a).icon == nil,
+                    "A cold pixel cache cannot discard previously saved collection intent or expose its native owner")
+        resumedBridge.pending.removeFirst()(FixtureHandle())
+        try require(resumed.hidden && resumed.order == [a] && resumed.input.entries.isEmpty,
+                    "Restoring saved membership never arms an unverified native drag geometry")
+        resumed.stop()
         let lateIcons = MenuBarDrawer(defaults: delayedDefaults, visibility: bridge)
         lateIcons.menuInteraction.captureOverride = { _, done in done(true) }; lateIcons.permissionOverride = true; lateIcons.testSkipInput = true; lateIcons.testSkipEnvironment = true; lateIcons.testNoPresentation = true
         lateIcons.readOverride = { _, done in done(entries) }
@@ -492,6 +507,23 @@ import AppKit
                     "Incomplete native inventory cannot substitute a matching PID from another display")
         try require(MenuBarContainerGeometry.reconcile([stale], containers: [otherDisplay, physical])[0].frame == physical.frame,
                     "Multi-display coordinates retain the physical menu surface and original owner")
+        let duplicate = MenuBarContainer(pid: 101, frame: physical.frame.offsetBy(dx: -80, dy: 0), surface: compositorArea)
+        try require(!MenuBarContainerGeometry.reconcile([stale], containers: [physical, duplicate])[0].visible,
+                    "Two distinct items from one PID cannot be guessed from stale AX coordinates")
+        try require(MenuBarContainerGeometry.reconcile([stale], containers: [physical, physical])[0].visible,
+                    "Duplicate reports of the identical native container are safe to coalesce")
+        let proxy = MenuBarContainer(pid: 102, frame: physical.frame.insetBy(dx: 2, dy: 0), surface: compositorArea)
+        try require(!MenuBarContainerGeometry.reconcile([stale], containers: [physical, proxy])[0].visible,
+                    "Overlapping native overflow proxies from different owners cannot become original icon crops")
+        let sourced = MenuBarEntry(bundle: a, frame: physical.frame, pid: 101, surface: compositorArea, surfaceID: 42)
+        try require(MenuBarIconCapture.matchesSurface(sourced, id: 42, frame: compositorArea, compositor: true)
+                    && !MenuBarIconCapture.matchesSurface(sourced, id: 43, frame: compositorArea, compositor: true),
+                    "Identical rectangles from different native surfaces cannot exchange icon pixels")
+        let replacedSurface = MenuBarEntry(bundle: a, frame: physical.frame, pid: 101, surface: compositorArea, surfaceID: 43)
+        try require(MenuBarIconCapture.stableEntries([sourced], after: [replacedSurface]).isEmpty,
+                    "A recreated compositor window invalidates a crop even when its geometry did not change")
+        try require(!MenuBarIconCapture.matchesSurface(stableA, id: 42, frame: compositorArea, compositor: true),
+                    "Unresolved compositor identity never falls back to a rectangle-only match")
         let cacheDefaults = UserDefaults(suiteName: suite + ".pixel-layout")!
         defer { cacheDefaults.removePersistentDomain(forName: suite + ".pixel-layout") }
         let cacheBridge = FixtureVisibility(), cacheOwner = MenuBarDrawer(defaults: cacheDefaults, visibility: cacheBridge)
@@ -499,14 +531,19 @@ import AppKit
         var snapshot = entries
         cacheOwner.readOverride = { _, done in done(snapshot) }; cacheOwner.iconReadOverride = nativeIconRead
         cacheOwner.start(); cacheOwner.prepareDrag()
-        let confirmedIcon = cacheOwner.item(a).icon
+        var confirmedIcon = cacheOwner.item(a).icon
         snapshot = entries.map { MenuBarEntry(bundle: $0.bundle, frame: $0.frame, pid: $0.pid, visible: false) }
         var requestedPixels = [MenuBarEntry]()
         cacheOwner.iconReadOverride = { requested, token, done in requestedPixels = requested; nativeIconRead(requested, token, done) }
         cacheOwner.readEntries(force: true)
         try require(requestedPixels.isEmpty && cacheOwner.item(a).icon === confirmedIcon && cacheOwner.input.entries.isEmpty,
                     "Unresolved containers preserve verified images and never arm stale native drag targets")
+        cacheOwner.add(a)
+        try require(cacheBridge.calls.isEmpty && cacheOwner.order.isEmpty,
+                    "An old cached image cannot hide an item whose current native container is unresolved")
         snapshot = entries
+        cacheOwner.readEntries(force: true)
+        confirmedIcon = cacheOwner.item(a).icon
         var stalePixels: (([String: MenuBarIconPixels]) -> Void)?, staleToken: MenuBarReadToken?
         cacheOwner.iconReadOverride = { _, token, done in staleToken = token; stalePixels = done }
         cacheOwner.readEntries(force: true); cacheOwner.add(a)
@@ -537,7 +574,11 @@ import AppKit
         geometryOwner.iconReadOverride = { requested, token, done in
             nativeIconRead(requested, token) { values in
                 var refreshed = values
-                for key in Array(refreshed.keys) { refreshed[key]?.sourceFrame = currentFrame }
+                for key in Array(refreshed.keys) {
+                    refreshed[key]?.sourceFrame = currentFrame
+                    refreshed[key]?.sourceSurface = CGRect(x: 0, y: 0, width: 1512, height: 33)
+                    refreshed[key]?.sourceSurfaceID = 42
+                }
                 done(refreshed)
             }
         }
@@ -546,6 +587,8 @@ import AppKit
                     && geometryOwner.entries.filter(\.visible).allSatisfy { $0.frame == currentFrame }
                     && !geometryOwner.input.entries.isEmpty && geometryOwner.input.entries.allSatisfy { $0.frame == currentFrame },
                     "Accepted fresh pixels and native drag hit targets use the same capture-time coordinates")
+        try require(geometryOwner.entries.allSatisfy { $0.surfaceID == 42 && $0.surface == CGRect(x: 0, y: 0, width: 1512, height: 33) },
+                    "Accepted pixels carry their actual compositor identity through to cached input geometry")
         geometryOwner.stop()
         cacheOwner.stop()
         let pixels = CGContext(data: nil, width: 120, height: 48, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
@@ -555,6 +598,8 @@ import AppKit
         try require(cropped.size == CGSize(width: 20, height: 24) && cropped.image.width == 40 && cropped.image.height == 48,
                     "Native glyph crops use global Quartz coordinates, negative display origins and real Retina scale")
         try require(MenuBarIconCapture.crop(surface, surface: area, item: area.offsetBy(dx: -1, dy: 0)) == nil, "Out-of-surface entries must not capture unrelated pixels")
+        try require(MenuBarIconCapture.crop(surface, surface: CGRect(x: 1512, y: -241, width: 120, height: 24), item: CGRect(x: 1532, y: -241, width: 20, height: 24)) == nil,
+                    "An anisotropic padded canvas cannot be treated as native point-to-pixel geometry")
         let timedIcons = MenuBarDrawer(defaults: delayedDefaults, visibility: bridge)
         timedIcons.menuInteraction.captureOverride = { _, done in done(true) }; timedIcons.permissionOverride = true; timedIcons.testSkipInput = true; timedIcons.testSkipEnvironment = true; timedIcons.testNoPresentation = true; timedIcons.iconReadTimeout = 0.02
         timedIcons.readOverride = { _, done in done(entries) }; timedIcons.iconReadOverride = { _, _, _ in }
@@ -641,6 +686,120 @@ import AppKit
         view.drawer.mouseDragged(with: localEvent(.leftMouseDragged, CGPoint(x: lastCell.midX, y: lastCell.midY)))
         view.drawer.cancelDrag()
         try require(view.drawer.items.map(\.bundle) == originalOrder, "Cancelling a drag restores the last saved order and releases its ghost")
+        do {
+            let area = CGRect(x: 0, y: 0, width: 1512, height: 33)
+            let selected = MenuBarContainer(pid: 101, frame: CGRect(x: 1040, y: 0, width: 86, height: 33))
+            let clock = MenuBarContainer(pid: 102, frame: CGRect(x: 1380, y: 0, width: 130, height: 33))
+            let removed = MenuBarContainer(pid: 103, frame: CGRect(x: 1100, y: 0, width: 160, height: 33))
+            try require(!MenuBarNativeInteraction.confirmsHidden(.init(entries: [clock], complete: false), owners: [101])
+                        && MenuBarNativeInteraction.confirmsHidden(.init(entries: [clock], complete: true), owners: [101])
+                        && !MenuBarNativeInteraction.confirmsHidden(.init(entries: [clock, selected], complete: true), owners: [101]),
+                        "A partial AX read cannot be mistaken for proof that collected owners have disappeared")
+            try require(MenuBarNativeInteraction.coverRightEdge(before: [clock, removed], after: [selected, clock], owners: [101], area: area) == 1264,
+                        "Covered reflow retains the removed-item footprint while leaving the unchanged clock native and live")
+            let routing = MenuBarCoveredInput(); var dismissals = 0, appleClicks: [NSEvent] = []
+            routing.onDismiss = { _ in dismissals += 1 }; routing.onApple = { appleClicks.append($0) }
+            func pointer(_ type: CGEventType, _ point: CGPoint, right: Bool = false) -> CGEvent {
+                CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: right ? .right : .left)!
+            }
+            try require(routing.arm(regions: [CGRect(x: 0, y: 0, width: 500, height: 33)], apple: CGRect(x: 100, y: 0, width: 40, height: 33)), "A single covered bar can own its temporary input boundary")
+            let down = pointer(.rightMouseDown, CGPoint(x: 120, y: 12), right: true)
+            let up = pointer(.rightMouseUp, CGPoint(x: 120, y: 12), right: true)
+            up.flags = .maskAlternate; up.setIntegerValueField(.mouseEventClickState, value: 2)
+            try require(routing.consume(.rightMouseDown, event: down) && routing.consume(.rightMouseUp, event: up), "Both halves of a covered apple click are consumed")
+            awaitTransition { dismissals == 1 }
+            try require(appleClicks.isEmpty && !routing.consume(.flagsChanged, event: down), "The old layout cannot receive the click and modifier changes are never swallowed")
+            routing.uncover(); awaitTransition { appleClicks.count == 1 }
+            try require(appleClicks[0].type == .rightMouseUp && appleClicks[0].clickCount == 2 && appleClicks[0].modifierFlags.contains(.option), "The existing apple handler receives original type, count and modifiers after restoration")
+            try require(!routing.isRouting, "A completed covered click releases temporary input state")
+            _ = routing.arm(regions: [CGRect(x: 0, y: 0, width: 500, height: 33)], apple: .zero)
+            _ = routing.consume(.leftMouseDown, event: pointer(.leftMouseDown, CGPoint(x: 10, y: 10)))
+            routing.cancel(); RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
+            try require(dismissals == 1, "A cancelled cover cannot deliver its queued dismissal into a later session")
+
+            let bridge = FixtureVisibility(), session = MenuBarLiveSession(visibility: bridge)
+            session.cover.captureOverride = { _, done in done(true) }
+            var receiver: (([String: MenuBarIconPixels]) -> Void)?, failed: (() -> Void)?
+            var stops = 0, frames = 0, exposed = 0, ended = 0, failures = 0
+            session.pixelsStartOverride = { _, _, receive, failure in receiver = receive; failed = failure }
+            session.pixelsStopOverride = { stops += 1 }; session.onPixels = { _ in frames += 1 }
+            session.onExposed = { exposed += 1 }; session.onEnded = { ended += 1 }; session.onFailure = { failures += 1 }
+            var restore: ((Bool) -> Void)?
+            session.onRestore = { restore = $0 }
+            session.start(entries: [entries[0]], displayID: CGMainDisplayID())
+            let lease = FixtureHandle(); bridge.pending.removeFirst()(lease)
+            awaitTransition { receiver != nil }
+            try require(exposed == 1 && session.isActive, "Concealment is handed off only after the rendering lease is active")
+            var values: [String: MenuBarIconPixels] = [:]; nativeIconRead([entries[0]], MenuBarReadToken()) { values = $0 }
+            receiver?(values); try require(frames == 1, "An open preview accepts current native image frames")
+            var restored: Bool?
+            session.finish { restored = $0 }
+            failed?()
+            try require(lease.invalidations == 0 && restored == nil && failures == 0, "Closing retains the render lease until concealment is restored and ignores a late capture error")
+            restore?(true)
+            try require(lease.invalidations == 1 && restored == true && !session.isActive && ended == 1 && stops > 0, "Restoration drops the lease and releases every rendering resource")
+            receiver?(values); try require(frames == 1, "Late preview pixels cannot reach a closed drawer")
+
+            let actionBridge = FixtureVisibility(), action = MenuBarLiveSession(visibility: actionBridge)
+            action.cover.captureOverride = { _, done in done(true) }; action.onRestore = { $0(true) }
+            var actionFrame: (([String: MenuBarIconPixels]) -> Void)?
+            action.pixelsStartOverride = { _, _, receive, _ in actionFrame = receive }; action.pixelsStopOverride = {}
+            var nativeSamples: [MenuBarPointerSample] = [], actionResult: Bool?
+            action.replayOverride = { _, samples, _, done in nativeSamples = samples; done(true) }
+            action.start(entries: [entries[0]], displayID: CGMainDisplayID()); let renderLease = FixtureHandle(); actionBridge.pending.removeFirst()(renderLease)
+            awaitTransition { actionFrame != nil }; actionFrame?(values)
+            let sequence: [MenuBarPointerSample] = [.init(type: .leftMouseDown, count: 1, timestamp: 0), .init(type: .leftMouseUp, count: 1, timestamp: 0.04), .init(type: .leftMouseDown, count: 2, timestamp: 0.1), .init(type: .leftMouseUp, count: 2, timestamp: 0.14)]
+            try require(action.activate(entries[0], samples: sequence) { actionResult = $0 }, "A ready renderer accepts the user's complete double-click sequence")
+            awaitTransition { !actionBridge.pending.isEmpty }
+            let inputLease = FixtureHandle(); actionBridge.pending.removeFirst()(inputLease)
+            awaitTransition { actionResult != nil }
+            try require(actionResult == true && nativeSamples.map(\.count) == [1, 1, 2, 2] && renderLease.invalidations == 1 && inputLease.invalidations == 1 && !action.isActive,
+                        "A single owner receives the unmodified gesture, then both native leases are released after restoration")
+
+            let pending = MenuBarLiveSession(visibility: bridge); pending.cover.captureOverride = { _, done in done(true) }
+            pending.pixelsStartOverride = { _, _, _, _ in throwAway() }
+            func throwAway() {}
+            pending.start(entries: [entries[0]], displayID: CGMainDisplayID()); pending.restoreTimeout = 0.02
+            var cancelled: Bool?
+            pending.finish { cancelled = $0 }; awaitTransition { cancelled != nil }
+            let lateLease = FixtureHandle(); bridge.pending.removeFirst()(lateLease)
+            try require(cancelled == false && !pending.isActive && lateLease.invalidations == 1, "Closing during a hung activation times out safely and invalidates a late lease")
+
+            let surface = CGContext(data: nil, width: 32, height: 16, bitsPerComponent: 8, bytesPerRow: 128, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            surface.setFillColor(CGColor(red: 1, green: 0.9, blue: 0, alpha: 1)); surface.fill(CGRect(x: 0, y: 0, width: 32, height: 16))
+            surface.setFillColor(CGColor(gray: 0, alpha: 1)); surface.fill(CGRect(x: 8, y: 4, width: 8, height: 8))
+            surface.setFillColor(CGColor(red: 0.6, green: 0.2, blue: 0.7, alpha: 1)); surface.fill(CGRect(x: 20, y: 4, width: 4, height: 8))
+            let input = surface.makeImage()!
+            let originalColour = NSBitmapImageRep(cgImage: input).colorAt(x: 21, y: 8)!.usingColorSpace(.deviceRGB)!
+            let matte = MenuBarIconCapture.removeBarBackground(MenuBarIconPixels(image: input, size: CGSize(width: 16, height: 8)))
+            let bitmap = NSBitmapImageRep(cgImage: matte.image)
+            let colour = bitmap.colorAt(x: 21, y: 8)!.usingColorSpace(.deviceRGB)!
+            let matteOK = bitmap.colorAt(x: 0, y: 0)!.alphaComponent == 0 && bitmap.colorAt(x: 10, y: 8)!.alphaComponent > 0.99 && abs(colour.redComponent - originalColour.redComponent) < 0.02 && abs(colour.blueComponent - originalColour.blueComponent) < 0.02
+            if !matteOK { print("MATTE", bitmap.colorAt(x: 0, y: 0)!, bitmap.colorAt(x: 10, y: 8)!, colour); fflush(stdout) }
+            try require(matteOK, "Bar removal makes the background transparent and preserves neutral and coloured native ink")
+
+            // A photographed P3 yellow bar must stay in its source gamut until
+            // unmatting. Device RGB clips the background and tints neutral ink.
+            let p3 = CGColorSpace(name: CGColorSpace.displayP3)!
+            let yellow = CGContext(data: nil, width: 64, height: 32, bitsPerComponent: 8, bytesPerRow: 256,
+                                   space: p3, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            yellow.setFillColor(CGColor(colorSpace: p3, components: [1, 218.0/255, 90.0/255, 1])!)
+            yellow.fill(CGRect(x: 0, y: 0, width: 64, height: 32))
+            yellow.setFillColor(CGColor(colorSpace: p3, components: [166.0/255, 142.0/255, 59.0/255, 1])!)
+            yellow.fill(CGRect(x: 20, y: 10, width: 12, height: 12))
+            let p3Crop = MenuBarIconCapture.crop(yellow.makeImage()!, surface: CGRect(x: 0, y: 0, width: 32, height: 16),
+                                               item: CGRect(x: 8, y: 0, width: 12, height: 16))!
+            let neutral = NSBitmapImageRep(cgImage: MenuBarIconCapture.removeBarBackground(p3Crop).image).colorAt(x: 8, y: 14)!.usingColorSpace(.deviceRGB)!
+            try require(neutral.redComponent < 0.02 && neutral.greenComponent < 0.02 && neutral.blueComponent < 0.02 && (0.3...0.4).contains(neutral.alphaComponent),
+                        "Cropping a wide-gamut yellow bar preserves neutral translucent ink instead of gold silhouettes")
+            yellow.setFillColor(CGColor(colorSpace: p3, components: [191.0/255, 154.0/255, 26.0/255, 1])!)
+            yellow.fill(CGRect(x: 20, y: 10, width: 12, height: 12))
+            let vibrantCrop = MenuBarIconCapture.crop(yellow.makeImage()!, surface: CGRect(x: 0, y: 0, width: 32, height: 16),
+                                                    item: CGRect(x: 8, y: 0, width: 12, height: 16))!
+            let vibrant = NSBitmapImageRep(cgImage: MenuBarIconCapture.removeBarBackground(vibrantCrop).image).colorAt(x: 8, y: 14)!.usingColorSpace(.deviceRGB)!
+            try require(vibrant.redComponent < 0.02 && vibrant.greenComponent < 0.02 && vibrant.blueComponent < 0.02 && (0.23...0.27).contains(vibrant.alphaComponent),
+                        "Inactive remote template ink is unmatted using its subtractive vibrancy, without retaining coloured wallpaper")
+        }
         if let directory = ProcessInfo.processInfo.environment["MENU_BAR_SHELF_PREVIEW_DIR"] {
             let path = URL(fileURLWithPath: directory); try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
             for width: CGFloat in [840, 360] {

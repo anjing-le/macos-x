@@ -82,7 +82,7 @@ import AppKit
         refresh.isEnabled = active; preview.isEnabled = active && native
         automatic.isHidden = native; automatic.isEnabled = active; automatic.state = auto ? .on : .off
         status.stringValue = issue ?? (!active ? "开启模块后，从顶部苹果进入。" : state == .reading ? "正在更新收纳…" : native ? "图标按应用收纳 · 顺序自动保存" : "按住 ⌘ 将图标拖到收纳箭头左侧，再点击收纳。")
-        note.stringValue = native ? "保留菜单栏图标原貌与比例，点击打开原应用菜单；读取不到的图标保留在菜单栏。\n离开抽屉后自动收起；系统图标和苹果入口始终保留。" : "当前系统使用原生菜单栏分隔方式；抽屉拖入功能需要 macOS 27。"
+        note.stringValue = native ? "展开抽屉时实时显示原生图标，收起后停止取图。\n⌘ 拖动排序，拖出恢复；系统图标和苹果入口保留。" : "当前系统使用原生菜单栏分隔方式；抽屉拖入功能需要 macOS 27。"
         needsLayout = true
     }
     override func draw(_ dirtyRect: NSRect) { SketchPalette.paper.setFill(); dirtyRect.fill() }

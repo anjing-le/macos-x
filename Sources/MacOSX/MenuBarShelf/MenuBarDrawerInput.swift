@@ -8,6 +8,7 @@ import AppKit
     var canBegin: () -> Bool = { true }
     var onCancel: (() -> Void)?
     var onPrepare: (() -> Void)?
+    var onCoveredInput: ((CGEventType, CGEvent) -> Bool)?
     var onBegin: ((MenuBarEntry, CGPoint) -> Void)?
     var onDrag: ((CGPoint) -> Void)?
     var onEnd: ((CGPoint) -> Void)?
@@ -22,7 +23,7 @@ import AppKit
     private var latestDrag: CGPoint?
     func start() -> Bool {
         guard tap == nil else { return true }
-        let types: [CGEventType] = [.leftMouseDown, .leftMouseDragged, .leftMouseUp, .flagsChanged]
+        let types: [CGEventType] = [.leftMouseDown, .leftMouseDragged, .leftMouseUp, .rightMouseDown, .rightMouseUp, .rightMouseDragged, .otherMouseDown, .otherMouseUp, .otherMouseDragged, .flagsChanged]
         let mask: CGEventMask = types.reduce(0) { $0 | (1 << $1.rawValue) }
         guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
             eventsOfInterest: mask, callback: { _, type, event, context in
@@ -45,6 +46,9 @@ import AppKit
     }
     func consume(_ type: CGEventType, event: CGEvent) -> Bool {
         guard enabled, event.getIntegerValueField(.eventSourceUserData) != Self.eventMark else { return false }
+        let customDrag = type == .leftMouseDown && canBegin() && event.flags.contains(.maskCommand)
+            && entries.contains { $0.frame.contains(event.location) }
+        if !dragging, !customDrag, onCoveredInput?(type, event) == true { return true }
         guard dragging || type == .flagsChanged || (type == .leftMouseDown && event.flags.contains(.maskCommand)) else { return false }
         let q = event.location, top = NSScreen.screens.first?.frame.maxY ?? 0
         let point = CGPoint(x: q.x, y: top - q.y)

@@ -28,6 +28,7 @@ import MenuBarVisibilityBridge
     enum State { case expanded, reading, collapsed }
     var onStatusChange: (() -> Void)?
     var anchorProvider: (() -> CGRect?)?
+    var onAppleEvent: ((NSEvent) -> Void)?
     private(set) var active = false
     private(set) var state: State = .expanded
     private(set) var issue: String?
@@ -60,6 +61,11 @@ import MenuBarVisibilityBridge
         if native {
             let drawer = MenuBarDrawer(defaults: defaults, visibility: visibility); self.drawer = drawer
             drawer.anchorProvider = { [weak self] in self?.anchorProvider?() }
+            drawer.onAppleEvent = { [weak self] in self?.onAppleEvent?($0) }
+            drawer.onPixelsChange = { [weak self, weak drawer] in
+                guard let self, let drawer, self.dashboard?.window?.isVisible == true else { return }
+                self.dashboard?.setItems(drawer: drawer.drawerItems, visible: drawer.visibleItems)
+            }
             configureDrawer?(drawer)
             drawer.onChange = { [weak self, weak drawer] in
                 guard let self, let drawer else { return }
