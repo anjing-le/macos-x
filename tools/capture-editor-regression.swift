@@ -132,32 +132,40 @@ import AppKit
         precondition(NSCursor.current === NSCursor.arrow,"Closed editor events cannot revive its cursor")
         print("PASS cursor ownership: repeated selection/edit transitions, native cursor rects, bounded tracking, tool cursors, toolbar and close")
     }
-    func verifyRetainedCopyFixture(board: NSPasteboard) {
+    func verifyCopyExitFixture(board: NSPasteboard, action: Int) {
         let region = window.frame, base = canvas.base
-        let mark = CaptureAnnotation(tool: .rectangle, points: [CGPoint(x: 20,y: 20), CGPoint(x: 80,y: 70)], ink: .red, width: 3)
-        annotations = [mark]; undo = [[]]; canvas.tool = .rectangle
+        annotations = [CaptureAnnotation(tool: .rectangle, points: [CGPoint(x: 20,y: 20), CGPoint(x: 80,y: 70)], ink: .red, width: 3)]
+        undo = [[]]; canvas.tool = .rectangle
         var copied = 0, closes = 0
-        onCopied = { copied += 1 }; onClose = { closes += 1 }
-        func waitForCopy(_ count: Int) {
-            let deadline = Date().addingTimeInterval(3)
-            while copied < count && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
-            precondition(copied == count && !exporting && !closed && closes == 0 && window.frame == region && canvas.base === base,
-                         "PNG acknowledgement retains the same editor, range and frozen base")
-            let data = board.data(forType: .png)!
-            let image = CGImageSourceCreateImageAtIndex(CGImageSourceCreateWithData(data as CFData,nil)!,0,nil)!
-            precondition(image.width == base.width && image.height == base.height && annotations.count == 1 && undo.count == 1,
-                         "Copied PNG keeps range dimensions and preserves annotation history for later edits")
+        onCopied = { copied += 1 }
+        onClose = { closes += 1; precondition(board.data(forType: .png) != nil,"Closing must follow the clipboard write") }
+        let gate = DispatchSemaphore(value: 0)
+        queue.async { _ = gate.wait(timeout: .now() + 3) }
+        switch action {
+        case 0:
+            let copy = NSEvent.keyEvent(with: .keyDown,location: .zero,modifierFlags: .command,timestamp: 0,
+                windowNumber: window.windowNumber,context: nil,characters: "c",charactersIgnoringModifiers: "c",isARepeat: false,keyCode: 8)!
+            precondition(handleSelectionKey(copy))
+        case 1: copyCurrentImage()
+        case 2: confirm()
+        case 3: canvas.onCopy?()
+        default: (window as! Panel).onCopy?()
         }
-        let copy = NSEvent.keyEvent(with: .keyDown,location: .zero,modifierFlags: .command,timestamp: 0,
-            windowNumber: window.windowNumber,context: nil,characters: "c",charactersIgnoringModifiers: "c",isARepeat: false,keyCode: 8)!
-        precondition(handleSelectionKey(copy)); waitForCopy(1)
-        copyCurrentImage(); waitForCopy(2)
-        confirm(); waitForCopy(3)
-        precondition(canvas.tool == .rectangle,"Copy and Enter keep the current drawing tool")
-        undoAction(); precondition(annotations.isEmpty && redo.count == 1,"Undo still works after repeated copies")
-        redoAction(); precondition(annotations.count == 1,"Redo history survives copying")
-        close(); precondition(closes == 1)
-        print("PASS retained editor copy: native Command-C routing, PNG write/decode, repeated copy, Enter, frozen range, tools, undo/redo and explicit close")
+        precondition(!closed && copied == 0,"Export must retain the editor while encoding is pending")
+        gate.signal()
+        let deadline = Date().addingTimeInterval(3)
+        while copied == 0 && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+        precondition(copied == 1 && !exporting && window.frame == region && canvas.base === base)
+        let data = board.data(forType: .png)!
+        let image = CGImageSourceCreateImageAtIndex(CGImageSourceCreateWithData(data as CFData,nil)!,0,nil)!
+        precondition(image.width == base.width && image.height == base.height,"Copy keeps the same frozen extent")
+        if editingPin {
+            precondition(!closed && closes == 0 && annotations.count == 1,"Pin copy keeps its original editing lifecycle")
+            close()
+        } else {
+            precondition(closed && closes == 1 && localMonitor == nil && !toolbar.isVisible && !canvas.pointerActive,
+                         "Screenshot copy releases the editor, tools and listeners after PNG acknowledgement")
+        }
     }
     func verifyCopyWithTextFocusFixture() {
         let input = beginTextFixture(point: CGPoint(x: 20,y: 120),width: 2,ink: .red)
@@ -426,8 +434,14 @@ import AppKit
         pinEntry.dispose()
         let region = CGRect(x: 20, y: 40, width: 100, height: 80)
         let copyBoard = NSPasteboard.withUniqueName()
-        let retained = CaptureEditor(image: image,selectionFrame: region,defaults: defaults,clipboard: copyBoard)
-        retained.verifyRetainedCopyFixture(board: copyBoard); copyBoard.releaseGlobally()
+        for action in 0..<5 {
+            let screenshot = CaptureEditor(image: image,selectionFrame: region,defaults: defaults,clipboard: copyBoard)
+            screenshot.verifyCopyExitFixture(board: copyBoard,action: action)
+        }
+        let pinCopy = CaptureEditor(image: image,selectionFrame: region,editingPin: true,defaults: defaults,clipboard: copyBoard)
+        pinCopy.verifyCopyExitFixture(board: copyBoard,action: 1)
+        copyBoard.releaseGlobally()
+        print("PASS copy acknowledgement: screenshot Command-C, Enter, canvas/panel copy and selection callback exit after PNG write; pin copy stays open")
         let editor = CaptureEditor(image: image, selectionFrame: region, defaults: defaults)
         var states = [Bool]()
         editor.onEditingChanged = { states.append($0) }
@@ -681,19 +695,11 @@ import AppKit
         raw.acceptsInput = true; NSApp.sendEvent(key())
         precondition(results.count == 2 && raw.copyingRange,"The same range can be retried")
         precondition(raw.completedWindow?.id == 42,"Retry must not silently fall back to pixels behind the window")
-        let panel = Panel(contentRect: frame.screen.frame,styleMask: .borderless,backing: .buffered,defer: false)
-        panel.isReleasedWhenClosed = false
-        let view = SelectionView(frame: CGRect(origin: .zero,size: frame.screen.frame.size),snapshot: frame)
-        panel.contentView = view; raw.panels = [panel]; raw.views = [view]
         raw.completeRangeCopy()
-        precondition(raw.copyMonitor != nil && raw.frames.count == 1 && raw.acceptsInput && !raw.copyingRange &&
-                     raw.selection == region && raw.snappedWindow?.id == 42 && panel.isVisible,
-                     "Successful copy retains frozen pixels, geometry, window identity, input and the F1 session")
+        precondition(raw.copyMonitor == nil && raw.frames.isEmpty && !raw.copyingRange && !raw.acceptsInput,
+                     "Successful copy releases the frozen session and its input listener")
         raw.mouseDown(CGPoint(x: region.midX,y: region.midY)); raw.mouseUp(CGPoint(x: region.midX,y: region.midY))
-        guard results.count == 3, case .edit(let afterCopy) = results.last else { preconditionFailure("Click after copying opens the retained range for editing") }
-        precondition(afterCopy == region && raw.completedWindow?.id == 42,"Editing after copy keeps the exact window and range")
-        raw.dismiss()
-        precondition(raw.copyMonitor == nil && raw.frames.isEmpty,"Only closing F1 releases its copy listener and frozen pixels")
+        precondition(results.count == 2,"Clicks after successful copy cannot revive the old screenshot")
         NSApp.mainMenu = previousMenu
         let pending = make(selected: false)
         _ = pending.keyDown(key(49," ",flags: []))

@@ -115,32 +115,10 @@ final class CaptureModule: NSObject {
                             self.editor?.onClose = nil; self.editor?.close(); self.editor = nil
                             self.editorPending = false; self.pinAfterEditor = false; self.shelfAfterEditor = false
                         }
-                        if let target = self.selection.completedWindow {
-                            switch result {
-                            case .copy, .pin, .shelf, .edit:
-                                if case .edit = result { self.editorPending = true }
-                                self.captureTicket = self.images.capture(frames.map(\.screen), window: target, frozenFrames: frames) { [weak self] isolated in
-                                    MainActor.assumeIsolated {
-                                        guard let self, self.running, self.generation == expected, self.captureRevision == captureRevision else { return }
-                                        switch isolated {
-                                        case .success(let windowFrames):
-                                            self.finishSelection(result, frames: windowFrames, generation: expected, revision: captureRevision)
-                                        case .failure(let error):
-                                            self.editorPending = false; self.pinAfterEditor = false; self.shelfAfterEditor = false
-                                            if case .copy = result {
-                                                self.captureInProgress = true
-                                                self.selection.completeRangeCopy(error: "窗口取图失败 · ⌘C 重试，Esc 退出")
-                                            } else { self.selection.dismiss(); self.captureInProgress = false; self.shelf.setSuspended(false) }
-                                            self.handle(error)
-                                        }
-                                    }
-                                }
-                            case .color, .cancel:
-                                self.finishSelection(result, frames: frames, generation: expected, revision: captureRevision)
-                            }
-                        } else {
-                            self.finishSelection(result, frames: frames, generation: expected, revision: captureRevision)
-                        }
+                        // F1 freezes the visible desktop, including decorations,
+                        // hover UI and occlusion. Every action crops those same
+                        // pixels; a later live-window mask must not trim them.
+                        self.finishSelection(result, frames: frames, generation: expected, revision: captureRevision)
                     }
                     timing.record("f1-selection-submitted")
                     self.finishSnapshot()
@@ -192,7 +170,7 @@ final class CaptureModule: NSObject {
                 }
                 switch result {
                 case .copy:
-                    self.captureInProgress = true
+                    self.captureInProgress = false
                     guard let data else {
                         self.captureInProgress = true
                         self.selection.completeRangeCopy(error: "截图编码失败 · ⌘C 重试，Esc 退出")
@@ -208,6 +186,7 @@ final class CaptureModule: NSObject {
                     self.lastRegion = region
                     self.logger.info("range copy written png_bytes=\(data.count,privacy: .public)")
                     self.selection.completeRangeCopy()
+                    self.shelf.setSuspended(false)
                     self.setStatus("已复制截图。")
                 case .pin:
                     self.lastRegion = region

@@ -198,8 +198,8 @@ import os
         }
         if case .copy(let region) = result {
             copyingRange = true
-            // Copy is an independent action: keep the frozen range and its
-            // window identity for further copies, adjustments and editing.
+            // Retain the exact frozen range until the clipboard acknowledges
+            // success; failed copies can retry without changing its identity.
             selection = region; snappedWindow = completedWindow; retainBackdrop()
         } else if case .edit = result {
             awaitingEditor = true
@@ -236,9 +236,11 @@ import os
     }
     func completeRangeCopy(error: String? = nil) {
         guard copyingRange else { return }
-        copyingRange = false
-        views.forEach { $0.hint = error ?? "点击编辑 · Enter / ⌘C 复制 · 拖动调整 · Esc 退出" }
-        resume()
+        if let error {
+            copyingRange = false
+            views.forEach { $0.hint = error }
+            resume()
+        } else { dismiss() }
     }
     func color(at point: CGPoint, rgb: Bool = false) -> String? {
         guard let frame = frames.first(where: { $0.screen.frame.contains(point) }),

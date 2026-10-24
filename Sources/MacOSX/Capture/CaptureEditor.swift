@@ -210,13 +210,13 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
             guard let self, self.textInput != nil else { return false }
             self.finishText(commit: true); return true
         }
-        canvas.onCopy = { [weak self] in self?.copyImage() }
+        canvas.onCopy = { [weak self] in self?.copyImage(closeAfter: self?.editingPin != true) }
         canvas.onUndo = { [weak self] in self?.undoAction() }
         canvas.onRedo = { [weak self] in self?.redoAction() }
         canvas.onConfirm = { [weak self] in self?.confirm() }
         canvas.onCancel = { [weak self] in self?.cancelCurrentOperation() }
         if let panel = window as? Panel {
-            panel.onCopy = { [weak self] in self?.copyImage() }
+            panel.onCopy = { [weak self] in self?.copyImage(closeAfter: self?.editingPin != true) }
             panel.onUndo = { [weak self] in self?.undoAction() }
             panel.onRedo = { [weak self] in self?.redoAction() }
         }
@@ -248,7 +248,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         let command = event.modifierFlags.contains(.command)
         switch event.keyCode {
         case 8 where command && event.modifierFlags.contains(.shift): copyRecognizedText()
-        case 8 where command: copyImage()
+        case 8 where command: copyImage(closeAfter: !editingPin)
         case 8 where event.modifierFlags.contains(.option):
             if let value = colorAtPointer?(event.modifierFlags.contains(.shift)) {
                 NSPasteboard.general.clearContents(); NSPasteboard.general.setString(value, forType: .string)
@@ -345,7 +345,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         toolButtons.forEach { $0.setAccessibilityValue("粗细 \(Int(width))") }
         if window.isVisible { positionToolbar() }
     }
-    func copyCurrentImage() { guard !adjustingRegion else { return }; copyImage() }
+    func copyCurrentImage() { guard !adjustingRegion else { return }; copyImage(closeAfter: !editingPin) }
     func activateEditing() {
         guard !editingPin, !closed, !exporting, !adjustingRegion else { return }
         if annotationEditingSuspended { toggleAnnotationEditing() }
@@ -474,7 +474,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
             render(onFailure: { [weak self] in self?.exporting = false; self?.updateSelectionInput() }) { [weak self] image in
                 guard let self else { return }; self.onApply?(image); self.close()
             }
-        } else { copyImage() }
+        } else { copyImage(closeAfter: true) }
     }
     @objc private func copyRecognizedText() {
         guard !closed, !exporting, recognition == nil else { return }
@@ -662,7 +662,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
             }
         }
     }
-    private func copyImage() {
+    private func copyImage(closeAfter: Bool = false) {
         guard beginExport() else { return }
         render(onFailure: { [weak self] in self?.exporting = false; self?.updateSelectionInput() }) { [weak self] image in
             guard let self else { return }
@@ -677,6 +677,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
                     self.clipboard.clearContents()
                     guard self.clipboard.setData(data, forType: .png) else { self.showStatus("复制失败。"); return }
                     self.onCopied?(); self.onExport?(); self.showStatus("已复制。")
+                    if closeAfter { self.close() }
                 }
             }
         }

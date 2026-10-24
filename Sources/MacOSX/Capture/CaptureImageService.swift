@@ -175,7 +175,15 @@ final class CaptureImageService {
         configuration.width = max(1, Int((screen.frame.width * screen.scale * reduction).rounded(.down)))
         configuration.height = max(1, Int((screen.frame.height * screen.scale * reduction).rounded(.down)))
         configuration.showsCursor = false
+        // Preserve the composed desktop's original framing. The single-window
+        // flag defaults to true on current macOS; never inherit it for F1.
+        configuration.ignoreShadowsDisplay = false
+        configuration.ignoreShadowsSingleWindow = false
         let filter = SCContentFilter(display: display, excludingWindows: [])
+        if #available(macOS 14.2, *) {
+            configuration.includeChildWindows = true
+            filter.includeMenuBar = true
+        }
         let screenshotTiming = CaptureTiming()
         SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration) { [weak self] image, error in
             self?.queue.async { [weak self] in

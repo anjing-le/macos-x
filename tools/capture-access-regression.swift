@@ -26,6 +26,7 @@ final class SCShareableContent {
         completionHandler: @escaping (SCShareableContent?, Error?) -> Void) { MockCapture.holdContent(completionHandler,onScreenOnly: onScreenWindowsOnly) }
 }
 final class SCContentFilter {
+    var includeMenuBar = false
     static var lastWindowID: UInt32?
     static var lastDisplayID: UInt32?
     static var includedWindowIDs = [UInt32]()
@@ -42,8 +43,9 @@ final class SCStreamConfiguration {
     var scalesToFit = false, preservesAspectRatio = false
     var sampleRate = 48_000, channelCount = 2
     var excludesCurrentProcessAudio = false
-    var ignoreShadowsSingleWindow = false, ignoreGlobalClipSingleWindow = false, shouldBeOpaque = false
+    var ignoreShadowsSingleWindow = true, ignoreGlobalClipSingleWindow = false, shouldBeOpaque = false
     var ignoreShadowsDisplay = false
+    var includeChildWindows = false
     var backgroundColor: CGColor?
     var minimumFrameInterval = CMTime.zero
     var pixelFormat: OSType = 0
@@ -566,6 +568,8 @@ private struct CheckFailure: Error { let message: String }
             MockCapture.content()
             try await wait({ MockCapture.pendingImage == 1 },"priority display native image")
             try require(SCContentFilter.lastDisplayID == 8,"Mouse display is frozen first even when it is not the primary display")
+            try require(MockCapture.lastConfiguration?.ignoreShadowsDisplay == false && MockCapture.lastConfiguration?.ignoreShadowsSingleWindow == false && MockCapture.lastConfiguration?.includeChildWindows == true,
+                        "F1 explicitly preserves original framing and child windows")
             MockCapture.image(green)
             try await wait({ MockCapture.pendingImage == 1 },"primary display follows priority display")
             try require(SCContentFilter.lastDisplayID == 7,"Secondary native capture remains single-flight")
@@ -808,78 +812,39 @@ private struct CheckFailure: Error { let message: String }
             let actual = CapturePixelSampler(image: png)!, expected = CapturePixelSampler(image: frozen.cropping(to: CGRect(x: 40,y: 80,width: 160,height: 100))!)!
             try require((0..<100).allSatisfy { y in (0..<160).allSatisfy { x in actual.sample(x: x,y: y) == expected.sample(x: x,y: y) } },
                         "Every free-selection PNG pixel matches the frozen crop")
-            let pinsAfterCopy = CaptureSelection.pinRequests
-            direct.pin()
-            try require(CaptureSelection.pinRequests == pinsAfterCopy + 1,
-                        "Copy retains the active F1 session: F3 uses its range rather than pinning unrelated clipboard content")
-            let beforeRepeat = CaptureSelection.copySucceeded
-            CaptureSelection.lastCompletion?(.copy(crop))
-            try await wait({ CaptureSelection.copySucceeded == beforeRepeat + 1 },"repeat copy in the same F1 session")
-            try require(NSPasteboard.general.fixturePNG == bytes && MockCapture.pendingContent == 0 && MockCapture.pendingImage == 0,
-                        "Repeated copy keeps identical frozen pixels without a new display capture")
-            CaptureSelection.lastCompletion?(.edit(crop))
-            try await wait({ CaptureEditor.current != nil },"editing after copied range")
-            try require(CaptureEditor.current?.selectionFrame == crop && MockCapture.pendingContent == 0 && MockCapture.pendingImage == 0,
-                        "After copy the same frozen range can enter editing without another screen capture")
             direct.stop()
 
-            // The frozen window was red over a green desktop. After F1 its
-            // live content turns blue; only its transparent shape may be used.
+            // Borders, an overlapping tooltip, shadows and corner-background
+            // pixels are part of the frozen desktop, never a later window mask.
             let desktopContext = CaptureRaster.context(width: 800,height: 600)!
             desktopContext.setFillColor(CGColor(red: 0,green: 1,blue: 0,alpha: 1)); desktopContext.fill(CGRect(x: 0,y: 0,width: 800,height: 600))
-            desktopContext.setFillColor(CGColor(colorSpace: desktopContext.colorSpace!,components: [1,0,0,1])!); desktopContext.fill(CGRect(x: 202,y: 594,width: 4,height: 4))
+            desktopContext.setFillColor(CGColor(red: 1,green: 0,blue: 0,alpha: 1)); desktopContext.fill(CGRect(x: 201,y: 589,width: 6,height: 6))
+            desktopContext.setFillColor(CGColor(red: 0,green: 0,blue: 1,alpha: 1)); desktopContext.fill(CGRect(x: 202,y: 590,width: 4,height: 4))
+            desktopContext.setFillColor(CGColor(gray: 1,alpha: 1)); desktopContext.fill(CGRect(x: 201,y: 594,width: 5,height: 3))
             let desktop = desktopContext.makeImage()!
-            let laterContext = CaptureRaster.context(width: 8,height: 8)!
-            laterContext.setFillColor(CGColor(colorSpace: laterContext.colorSpace!,components: [0,0,1,1])!); laterContext.fill(CGRect(x: 2,y: 2,width: 4,height: 4))
-            let laterWindow = laterContext.makeImage()!
-            let magnet = CaptureModule(images: CaptureImageService(reuseDisplayMetadata: false)); magnet.start(); magnet.capture()
-            try await succeedImage(desktop)
-            try await wait({ CaptureSelection.lastCompletion != nil },"magnet range ready")
             let windowRegion = CGRect(x: 0,y: 246,width: 4,height: 4)
-            CaptureSelection.fixtureWindow = CaptureWindow(id: 42,frame: windowRegion)
-            let previousPNG = Data([11,22,33])
-            NSPasteboard.general.fixturePNG = previousPNG
-            let failed = CaptureSelection.copyFailed, beforeCopy = CaptureSelection.copySucceeded
-            CaptureSelection.lastCompletion?(.copy(windowRegion))
-            try await wait({ MockCapture.pendingContent == 1 },"magnet lookup after copy")
-            try require(!MockCapture.lastOnScreenOnly,"Selected window resolves independently of selection-panel visibility")
-            MockCapture.content(windows: [])
-            try await wait({ CaptureSelection.copyFailed == failed + 1 },"missing-window failure keeps copy range")
-            try require(NSPasteboard.general.fixturePNG == previousPNG && CaptureSelection.copySucceeded == beforeCopy && MockCapture.pendingImage == 0,
-                        "A missing magnet target preserves the clipboard and never copies desktop background")
-            CaptureSelection.lastCompletion?(.copy(windowRegion))
-            try await wait({ MockCapture.pendingContent == 1 },"retry the same magnet identity")
-            MockCapture.content()
-            try await wait({ MockCapture.pendingImage == 1 },"isolated magnet image")
-            try require(SCContentFilter.lastWindowID == 42,"Retry uses the exact isolated window")
-            try require(MockCapture.lastConfiguration?.shouldBeOpaque == false && MockCapture.lastConfiguration?.backgroundColor?.alpha == 0,
-                        "Frozen window request preserves transparent alpha for a shape-only mask")
-            MockCapture.image(laterWindow)
-            try await wait({ CaptureSelection.copySucceeded == beforeCopy + 1 },"magnet PNG reaches clipboard acknowledgement")
-            let isolatedBytes = NSPasteboard.general.fixturePNG!
-            let isolatedPNG = CGImageSourceCreateWithData(isolatedBytes as CFData,nil).flatMap { CGImageSourceCreateImageAtIndex($0,0,nil) }!
-            let isolatedPixels = CapturePixelSampler(image: isolatedPNG)!
-            try require(isolatedPNG.width == 8 && isolatedPNG.height == 8,"Magnet PNG retains its window point-to-pixel scale")
-            try require(isolatedPixels.sample(x: 0,y: 0)?.hex == "#FFFFFF" && isolatedPixels.sample(x: 7,y: 0)?.hex == "#FFFFFF" &&
-                        isolatedPixels.sample(x: 0,y: 7)?.hex == "#FFFFFF" && isolatedPixels.sample(x: 7,y: 7)?.hex == "#FFFFFF",
-                        "All four decoded clipboard corners are white, never the green desktop")
-            try require(isolatedPixels.sample(x: 4,y: 4)?.hex == "#FF0000","Clipboard keeps frozen red: \(isolatedPixels.sample(x:4,y:4)!.hex)")
-            try require((0..<8).allSatisfy { y in (0..<8).allSatisfy { x in
-                isolatedPixels.sample(x: x,y: y)?.hex == ((2..<6).contains(x) && (2..<6).contains(y) ? "#FF0000" : "#FFFFFF")
-            } },"Every decoded clipboard pixel is frozen content or white shape padding")
-            magnet.stop()
-            for editing in [true,false] {
+            let reference = desktop.cropping(to: CGRect(x: 200,y: 0,width: 8,height: 8))!
+            let referencePixels = CapturePixelSampler(image: reference)!
+            for action in 0..<3 {
                 let frozenModule = CaptureModule(images: CaptureImageService(reuseDisplayMetadata: false)); frozenModule.start(); frozenModule.capture()
                 try await succeedImage(desktop)
-                try await wait({ CaptureSelection.lastCompletion != nil },"frozen edit/pin range ready")
-                let beforePins = CapturePins.images.count
-                CaptureSelection.lastCompletion?(editing ? .edit(windowRegion) : .pin(windowRegion))
-                try await succeedImage(laterWindow)
-                try await wait({ editing ? CaptureEditor.current != nil : CapturePins.images.count == beforePins + 1 },"frozen edit/pin delivered")
-                let delivered = editing ? CaptureEditor.current!.image : CapturePins.images.last!
+                try await wait({ CaptureSelection.lastCompletion != nil },"frozen magnetized range ready")
+                // The original window could now move, close or lose its tooltip.
+                CaptureSelection.fixtureWindow = CaptureWindow(id: 42,frame: windowRegion)
+                let beforePins = CapturePins.images.count, beforeCopy = CaptureSelection.copySucceeded
+                CaptureSelection.lastCompletion?(action == 0 ? .copy(windowRegion) : action == 1 ? .edit(windowRegion) : .pin(windowRegion))
+                try await wait({ action == 0 ? CaptureSelection.copySucceeded == beforeCopy + 1 : action == 1 ? CaptureEditor.current != nil : CapturePins.images.count == beforePins + 1 },"frozen output delivered")
+                let delivered: CGImage
+                if action == 0 {
+                    let bytes = NSPasteboard.general.fixturePNG!
+                    delivered = CGImageSourceCreateImageAtIndex(CGImageSourceCreateWithData(bytes as CFData,nil)!,0,nil)!
+                } else { delivered = action == 1 ? CaptureEditor.current!.image : CapturePins.images.last! }
                 let pixels = CapturePixelSampler(image: delivered)!
-                try require(pixels.sample(x: 4,y: 4)?.hex == "#FF0000" && pixels.sample(x: 0,y: 0)?.hex == "#FFFFFF",
-                            "Editor and F3 both use frozen red content and white corners, not later blue pixels")
+                try require(delivered.width == reference.width && delivered.height == reference.height &&
+                            (0..<reference.height).allSatisfy { y in (0..<reference.width).allSatisfy { x in pixels.sample(x: x,y: y) == referencePixels.sample(x: x,y: y) } },
+                            "Copy/editor/F3 keep every frozen border, tooltip and corner pixel without applying a later alpha mask")
+                try require(MockCapture.pendingContent == 0 && MockCapture.pendingImage == 0,
+                            "Confirming a frozen window never recaptures or queries its later live state")
                 frozenModule.stop()
             }
             CaptureSelection.fixtureWindow = nil
