@@ -72,9 +72,10 @@ import AppKit
                          "Clicks and hidden tool keys cannot write or draw in movement mode")
             precondition(handleSelectionKey(key(49," ",repeat: true)) && annotationEditingSuspended,
                          "Holding Space cannot re-enter editing")
-            precondition(handleSelectionKey(key(49," ")) && !annotationEditingSuspended && toolbarVisible && canvas.tool == tool &&
+            activateEditing()
+            precondition(!annotationEditingSuspended && toolbarVisible && canvas.tool == tool &&
                          canvas.inputEnabled && !window.ignoresMouseEvents && editing,
-                         "The next Space restores the previous tool and its input routing")
+                         "Click activation restores the previous tool and its input routing")
         }
         canvas.tool = .pen
         func stroke(_ type: NSEvent.EventType,_ point: CGPoint) -> NSEvent {
@@ -130,6 +131,33 @@ import AppKit
         NSCursor.arrow.set(); canvas.mouseMoved(with: event)
         precondition(NSCursor.current === NSCursor.arrow,"Closed editor events cannot revive its cursor")
         print("PASS cursor ownership: repeated selection/edit transitions, native cursor rects, bounded tracking, tool cursors, toolbar and close")
+    }
+    func verifyRetainedCopyFixture(board: NSPasteboard) {
+        let region = window.frame, base = canvas.base
+        let mark = CaptureAnnotation(tool: .rectangle, points: [CGPoint(x: 20,y: 20), CGPoint(x: 80,y: 70)], ink: .red, width: 3)
+        annotations = [mark]; undo = [[]]; canvas.tool = .rectangle
+        var copied = 0, closes = 0
+        onCopied = { copied += 1 }; onClose = { closes += 1 }
+        func waitForCopy(_ count: Int) {
+            let deadline = Date().addingTimeInterval(3)
+            while copied < count && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+            precondition(copied == count && !exporting && !closed && closes == 0 && window.frame == region && canvas.base === base,
+                         "PNG acknowledgement retains the same editor, range and frozen base")
+            let data = board.data(forType: .png)!
+            let image = CGImageSourceCreateImageAtIndex(CGImageSourceCreateWithData(data as CFData,nil)!,0,nil)!
+            precondition(image.width == base.width && image.height == base.height && annotations.count == 1 && undo.count == 1,
+                         "Copied PNG keeps range dimensions and preserves annotation history for later edits")
+        }
+        let copy = NSEvent.keyEvent(with: .keyDown,location: .zero,modifierFlags: .command,timestamp: 0,
+            windowNumber: window.windowNumber,context: nil,characters: "c",charactersIgnoringModifiers: "c",isARepeat: false,keyCode: 8)!
+        precondition(handleSelectionKey(copy)); waitForCopy(1)
+        copyCurrentImage(); waitForCopy(2)
+        confirm(); waitForCopy(3)
+        precondition(canvas.tool == .rectangle,"Copy and Enter keep the current drawing tool")
+        undoAction(); precondition(annotations.isEmpty && redo.count == 1,"Undo still works after repeated copies")
+        redoAction(); precondition(annotations.count == 1,"Redo history survives copying")
+        close(); precondition(closes == 1)
+        print("PASS retained editor copy: native Command-C routing, PNG write/decode, repeated copy, Enter, frozen range, tools, undo/redo and explicit close")
     }
     func verifyCopyWithTextFocusFixture() {
         let input = beginTextFixture(point: CGPoint(x: 20,y: 120),width: 2,ink: .red)
@@ -397,6 +425,9 @@ import AppKit
         precondition(pinEntry.window.frame.size == CGSize(width: 320, height: 400), "Leaving thumbnail mode after editing restores the original magnified size")
         pinEntry.dispose()
         let region = CGRect(x: 20, y: 40, width: 100, height: 80)
+        let copyBoard = NSPasteboard.withUniqueName()
+        let retained = CaptureEditor(image: image,selectionFrame: region,defaults: defaults,clipboard: copyBoard)
+        retained.verifyRetainedCopyFixture(board: copyBoard); copyBoard.releaseGlobally()
         let editor = CaptureEditor(image: image, selectionFrame: region, defaults: defaults)
         var states = [Bool]()
         editor.onEditingChanged = { states.append($0) }
@@ -600,7 +631,7 @@ import AppKit
         precondition(boundedCanvas.lineWidth == 12 && boundedCanvas.mosaicDiameter == 8 && boundedCanvas.ink.red == CaptureInk(SketchPalette.coral).red,
                      "Out-of-range preferences cannot create invalid brush styles")
         bounded.close()
-        print("PASS editor interaction: default adjustment, tool lock/toggle, Esc, pending crop, region replacement and pin isolation; no displayed windows, capture or clipboard writes")
+        print("PASS editor interaction: default adjustment, tool lock/toggle, Esc, pending crop, region replacement and pin isolation; no screen capture or general clipboard writes")
     }
 }
 
@@ -650,8 +681,19 @@ import AppKit
         raw.acceptsInput = true; NSApp.sendEvent(key())
         precondition(results.count == 2 && raw.copyingRange,"The same range can be retried")
         precondition(raw.completedWindow?.id == 42,"Retry must not silently fall back to pixels behind the window")
+        let panel = Panel(contentRect: frame.screen.frame,styleMask: .borderless,backing: .buffered,defer: false)
+        panel.isReleasedWhenClosed = false
+        let view = SelectionView(frame: CGRect(origin: .zero,size: frame.screen.frame.size),snapshot: frame)
+        panel.contentView = view; raw.panels = [panel]; raw.views = [view]
         raw.completeRangeCopy()
-        precondition(raw.copyMonitor == nil && raw.frames.isEmpty,"Only successful copy acknowledgement releases the frozen session")
+        precondition(raw.copyMonitor != nil && raw.frames.count == 1 && raw.acceptsInput && !raw.copyingRange &&
+                     raw.selection == region && raw.snappedWindow?.id == 42 && panel.isVisible,
+                     "Successful copy retains frozen pixels, geometry, window identity, input and the F1 session")
+        raw.mouseDown(CGPoint(x: region.midX,y: region.midY)); raw.mouseUp(CGPoint(x: region.midX,y: region.midY))
+        guard results.count == 3, case .edit(let afterCopy) = results.last else { preconditionFailure("Click after copying opens the retained range for editing") }
+        precondition(afterCopy == region && raw.completedWindow?.id == 42,"Editing after copy keeps the exact window and range")
+        raw.dismiss()
+        precondition(raw.copyMonitor == nil && raw.frames.isEmpty,"Only closing F1 releases its copy listener and frozen pixels")
         NSApp.mainMenu = previousMenu
         let pending = make(selected: false)
         _ = pending.keyDown(key(49," ",flags: []))
@@ -698,16 +740,16 @@ import AppKit
         let target = CaptureWindow(id: 42,frame: region)
         let snapshot = CaptureFrame(screen: screen,image: image,windows: [region],windowTargets: [target])
         let inside = CGPoint(x: region.midX,y: region.midY)
-        var results = [Result](), copies = 0, adjustments = 0
+        var results = [Result](), copies = 0, adjustments = 0, activations = 0
         func make(selected: Bool = false, editor: Bool = false) -> CaptureSelection {
-            results.removeAll(); copies = 0; adjustments = 0
+            results.removeAll(); copies = 0; adjustments = 0; activations = 0
             let controller = CaptureSelection()
             controller.frames = [snapshot]; controller.candidates = [region]; controller.pointer = inside
             controller.acceptsInput = true; controller.selection = selected ? region : .null
             controller.snappedWindow = selected ? target : nil
             controller.completion = { results.append($0) }
             controller.onAdjustmentStarted = { adjustments += 1 }
-            if editor { controller.onEditorCopy = { copies += 1 } }
+            if editor { controller.onEditorCopy = { copies += 1 }; controller.onEditorActivate = { activations += 1 } }
             return controller
         }
         func key(_ code: UInt16,_ text: String,command: Bool = false) -> NSEvent {
@@ -719,8 +761,8 @@ import AppKit
         precondition(results.isEmpty && adjustments == 0,"Mouse-down must not copy or lock a crop before drag intent is known")
         let jitter = CGPoint(x: inside.x + 1,y: inside.y + 1)
         click.mouseDragged(jitter); click.mouseUp(jitter)
-        guard results.count == 1, case .copy(let clicked) = results[0] else { preconditionFailure("Single magnet click copies directly") }
-        precondition(clicked == region && click.completedWindow?.id == target.id && adjustments == 0,
+        guard results.count == 1, case .edit(let clicked) = results[0] else { preconditionFailure("Single magnet click opens inline editing") }
+        precondition(clicked == region && click.completedWindow?.id == target.id && adjustments == 1 && copies == 0,
                      "A magnet click retains the isolated-window identity and tolerates slight pointer jitter")
         click.mouseUp(jitter); precondition(results.count == 1,"Release is consumed exactly once")
         for event in [key(8,"c",command: true),key(36,"\r")] {
@@ -728,14 +770,14 @@ import AppKit
             precondition(keyboard.keyDown(event))
             guard results.count == 1, case .copy(let rect) = results[0] else { preconditionFailure("Keyboard copies magnet preview") }
             precondition(rect == clicked && keyboard.completedWindow?.id == target.id,
-                         "Click, Enter and Command-C use the same region and isolated window capture")
+                         "Click-to-edit, Enter and Command-C retain the same region and isolated window capture")
         }
         let edited = make(selected: true,editor: true)
         edited.mouseDown(inside); edited.mouseUp(inside)
-        precondition(copies == 1 && results.isEmpty && adjustments == 0,
-                     "Clicking an existing selection exports its annotated editor without starting an adjustment")
+        precondition(copies == 0 && results.isEmpty && adjustments == 0 && activations == 1,
+                     "Clicking an existing selection restores its editor without copying, recropping or losing annotations")
         _ = edited.keyDown(key(8,"c",command: true)); _ = edited.keyDown(key(36,"\r"))
-        precondition(copies == 3 && results.isEmpty,"Existing edited click and keyboard share the annotation export callback")
+        precondition(copies == 2 && results.isEmpty,"Keyboard copies independently of click-to-edit")
         edited.dismiss()
         for returnsToStart in [false,true] {
             let moved = make(selected: true,editor: true)
@@ -781,9 +823,9 @@ import AppKit
         changed.candidates = [region,other.frame]
         let another = CGPoint(x: other.frame.midX,y: other.frame.midY)
         changed.mouseDown(another); changed.mouseUp(another)
-        guard results.count == 1, case .copy(let newRect) = results[0] else { preconditionFailure("Another magnetized window copies directly") }
+        guard results.count == 1, case .edit(let newRect) = results[0] else { preconditionFailure("Another magnetized window opens its own editor") }
         precondition(newRect == other.frame && changed.completedWindow?.id == other.id && copies == 0,
-                     "A new window click cannot export the previous editor's crop")
+                     "A new window click cannot use the previous editor's crop")
         let locked = make(selected: true,editor: true); locked.acceptsInput = false
         locked.mouseDown(inside); locked.mouseUp(inside)
         precondition(results.isEmpty && copies == 0 && locked.selection == region,"Active annotation input cannot trigger selection copy")
@@ -793,7 +835,7 @@ import AppKit
         _ = recording.keyDown(key(36,"\r"))
         guard results.count == 1, case .edit(let recorded) = results[0] else { preconditionFailure("Recording Enter still confirms recording") }
         precondition(recorded == region)
-        print("PASS click confirmation: magnet click/Enter/Command-C, annotated export routing, jitter, eight resize edges, drag return, new-window identity, blank clicks and recording separation")
+        print("PASS click-to-edit: magnet identity, existing editor reuse, independent keyboard copy, jitter, eight resize edges, drag return, new-window identity and recording separation")
     }
     static func verifyHoverFixture(image: CGImage) {
         let oldCursor = NSCursor.current

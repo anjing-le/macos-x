@@ -156,7 +156,7 @@ final class NSSavePanel {
 }
 @MainActor final class CaptureSelection {
     enum Mode { case screenshot, recording }
-    var onEditorKey: ((AppKit.NSEvent) -> Bool)?, onEditorCopy: (() -> Void)?, onEditorCancel: (() -> Void)?, onAdjustmentStarted: (() -> Void)?
+    var onEditorKey: ((AppKit.NSEvent) -> Bool)?, onEditorCopy: (() -> Void)?, onEditorActivate: (() -> Void)?, onEditorCancel: (() -> Void)?, onAdjustmentStarted: (() -> Void)?
     func clearEditorCallbacks() {}
     func setEditing(_ editing: Bool) {}
     func editorDidBecomeReady() -> Bool { false }
@@ -175,7 +175,8 @@ final class NSSavePanel {
         Self.current = self; Self.presentations += 1; Self.lastCompletion = completion
     }
     func dismiss() { Self.dismissals += 1; Self.lastCompletion = nil }
-    func pinCurrentSelection() {}
+    static var pinRequests = 0
+    func pinCurrentSelection() { Self.pinRequests += 1 }
     static var shelfRequests = 0
     func shelveCurrentSelection() { Self.shelfRequests += 1 }
     func color(at point: CGPoint, rgb: Bool) -> String? { nil }
@@ -207,6 +208,7 @@ final class NSSavePanel {
     func replaceSelectionImage(_ image: CGImage, at region: CGRect) { selectionFrame = region; Self.replacements += 1 }
     func handleSelectionKey(_ event: AppKit.NSEvent) -> Bool { false }
     func copyCurrentImage() {}
+    func activateEditing() {}
     func beginRegionAdjustment() {}
     var onReselect: (() -> Void)?, colorAtPointer: ((Bool) -> String?)?
     static weak var current: CaptureEditor?
@@ -806,6 +808,19 @@ private struct CheckFailure: Error { let message: String }
             let actual = CapturePixelSampler(image: png)!, expected = CapturePixelSampler(image: frozen.cropping(to: CGRect(x: 40,y: 80,width: 160,height: 100))!)!
             try require((0..<100).allSatisfy { y in (0..<160).allSatisfy { x in actual.sample(x: x,y: y) == expected.sample(x: x,y: y) } },
                         "Every free-selection PNG pixel matches the frozen crop")
+            let pinsAfterCopy = CaptureSelection.pinRequests
+            direct.pin()
+            try require(CaptureSelection.pinRequests == pinsAfterCopy + 1,
+                        "Copy retains the active F1 session: F3 uses its range rather than pinning unrelated clipboard content")
+            let beforeRepeat = CaptureSelection.copySucceeded
+            CaptureSelection.lastCompletion?(.copy(crop))
+            try await wait({ CaptureSelection.copySucceeded == beforeRepeat + 1 },"repeat copy in the same F1 session")
+            try require(NSPasteboard.general.fixturePNG == bytes && MockCapture.pendingContent == 0 && MockCapture.pendingImage == 0,
+                        "Repeated copy keeps identical frozen pixels without a new display capture")
+            CaptureSelection.lastCompletion?(.edit(crop))
+            try await wait({ CaptureEditor.current != nil },"editing after copied range")
+            try require(CaptureEditor.current?.selectionFrame == crop && MockCapture.pendingContent == 0 && MockCapture.pendingImage == 0,
+                        "After copy the same frozen range can enter editing without another screen capture")
             direct.stop()
 
             // The frozen window was red over a green desktop. After F1 its

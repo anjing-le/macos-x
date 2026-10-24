@@ -45,6 +45,7 @@ import os
     private var completion: ((Result) -> Void)?
     var onEditorKey: ((NSEvent) -> Bool)?
     var onEditorCopy: (() -> Void)?
+    var onEditorActivate: (() -> Void)?
     var onEditorCancel: (() -> Void)?
     var onAdjustmentStarted: (() -> Void)?
     private var acceptsInput = false
@@ -105,7 +106,7 @@ import os
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             panel.isReleasedWhenClosed = false; panel.acceptsMouseMovedEvents = true
             let view = SelectionView(frame: CGRect(origin: .zero, size: frame.screen.frame.size), snapshot: frame)
-            view.hint = mode == .recording ? "Enter 开始 · Esc 取消" : "点击 / Enter / ⌘C 复制 · 拖动调整 · Esc 退出"
+            view.hint = mode == .recording ? "Enter 开始 · Esc 取消" : "点击编辑 · Enter / ⌘C 复制 · 拖动调整 · Esc 退出"
             view.region = { [weak self] in self?.visibleRegion ?? .null }
             view.pointer = { [weak self] in self?.pointer ?? .zero }
             view.magnifierVisible = { [weak self] in self?.magnifierVisible ?? false }
@@ -197,8 +198,8 @@ import os
         }
         if case .copy(let region) = result {
             copyingRange = true
-            // Retain both geometry and window identity for a failed-copy
-            // retry. A magnetized window must never become a desktop crop.
+            // Copy is an independent action: keep the frozen range and its
+            // window identity for further copies, adjustments and editing.
             selection = region; snappedWindow = completedWindow; retainBackdrop()
         } else if case .edit = result {
             awaitingEditor = true
@@ -218,7 +219,7 @@ import os
         redraw()
     }
     func clearEditorCallbacks() {
-        onEditorKey = nil; onEditorCopy = nil; onEditorCancel = nil; onAdjustmentStarted = nil
+        onEditorKey = nil; onEditorCopy = nil; onEditorActivate = nil; onEditorCancel = nil; onAdjustmentStarted = nil
         awaitingEditor = false; pendingCopy = false
     }
     func setEditing(_ editing: Bool) {
@@ -235,11 +236,9 @@ import os
     }
     func completeRangeCopy(error: String? = nil) {
         guard copyingRange else { return }
-        if let error {
-            copyingRange = false
-            views.forEach { $0.hint = error }
-            resume()
-        } else { dismiss() }
+        copyingRange = false
+        views.forEach { $0.hint = error ?? "点击编辑 · Enter / ⌘C 复制 · 拖动调整 · Esc 退出" }
+        resume()
     }
     func color(at point: CGPoint, rgb: Bool = false) -> String? {
         guard let frame = frames.first(where: { $0.screen.frame.contains(point) }),
@@ -255,7 +254,7 @@ import os
         guard acceptsInput else { return }
         pointer = point
         recordingControls?.orderOut(nil)
-        // A click confirms on release. Do not hide/lock the existing editor
+        // A click enters editing on release. Do not hide/lock the existing editor
         // until this gesture actually becomes a drag.
         dragMoved = false
         if !selection.isNull, let handle = SelectionView.resizeHandle(at: point, in: selection) {
@@ -310,10 +309,11 @@ import os
         if mode == .screenshot, !wasMoved {
             switch drag {
             case .create:
-                // A newly magnetized window may differ from the old editor's
-                // crop. Route it through capture, never copy the stale editor.
-                if let region = validRegion() { finish(.copy(region)) }
-            case .move: copyPressed()
+                // A new magnetized range needs its own crop, never the old editor.
+                beginInlineEditing()
+            case .move:
+                if let onEditorActivate { onEditorActivate() }
+                else { beginInlineEditing() }
             case .resize: redraw() // An edge click alone does not confirm.
             }
             return

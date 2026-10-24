@@ -192,7 +192,7 @@ final class CaptureModule: NSObject {
                 }
                 switch result {
                 case .copy:
-                    self.captureInProgress = false
+                    self.captureInProgress = true
                     guard let data else {
                         self.captureInProgress = true
                         self.selection.completeRangeCopy(error: "截图编码失败 · ⌘C 重试，Esc 退出")
@@ -208,7 +208,6 @@ final class CaptureModule: NSObject {
                     self.lastRegion = region
                     self.logger.info("range copy written png_bytes=\(data.count,privacy: .public)")
                     self.selection.completeRangeCopy()
-                    self.shelf.setSuspended(false)
                     self.setStatus("已复制截图。")
                 case .pin:
                     self.lastRegion = region
@@ -465,6 +464,7 @@ final class CaptureModule: NSObject {
         editor.onEditingChanged = { [weak self] editing in self?.selection.setEditing(editing) }
         selection.onEditorKey = { [weak editor] in editor?.handleSelectionKey($0) ?? false }
         selection.onEditorCopy = { [weak editor] in editor?.copyCurrentImage() }
+        selection.onEditorActivate = { [weak editor] in editor?.activateEditing() }
         selection.onEditorCancel = { [weak editor] in editor?.close() }
         selection.onAdjustmentStarted = { [weak editor] in editor?.beginRegionAdjustment() }
         self.editor = editor; editor.present()
