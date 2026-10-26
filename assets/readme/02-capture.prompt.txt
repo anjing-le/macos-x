@@ -1,0 +1,23 @@
+Tool: built-in image_gen
+Status: approved for README by user (2026-10-26)
+Output: exec-da6404f1-564b-49cb-be3f-a2f73aabfa14.png
+
+Use case: ads-marketing.
+Asset type: second image of the GitHub README product introduction series for the real native macOS utility "macos-x", following its approved paper-and-pencil product cover.
+Create one refined hand-drawn feature illustration, landscape 2:1 aspect ratio, high resolution, warm ivory fine paper filling edge to edge, gentle graphite pencil contours, soft blue/green/purple colored-pencil texture, restrained red only for annotations. No people, mascots, desks, computers, glossy UI, black heavy comic outlines or decorative objects.
+
+Exact two-line heading at the top, centered, charcoal gray handwriting matching the approved cover:
+"截图与编辑"
+"框住画面，标注、提字、复制。"
+First line medium-large, second line smaller. No extra explanatory captions, shortcut keycaps, numbered steps or feature lists.
+
+ONE coherent central scene occupies most of the image: a frozen region of an ordinary desktop document being edited with our screenshot tool. The selected screenshot is a broad horizontal rectangle with a clear BLUE DASHED selection border and EIGHT SMALL BLUE SQUARE resize handles (four corners, four edge midpoints). Keep corners square. Within the selected content is an attractive generic page: a calm blue lake/green mountain image on the left, and a paper-white short document on the right with a small Chinese heading "灵感记录" plus several graphite body-text lines. This is example content, not an app configuration panel.
+Demonstrate three of the real annotation features directly IN the selected image, not in separate callout panels:
+- one restrained red outline rectangle around a detail in the landscape with a short red hand-drawn arrow pointing at that detail;
+- one short BLUE text annotation "这里" directly on the image with a TRANSPARENT background and no textbox chrome;
+- a small circular brushed patch of genuinely blocky square mosaic pixels covering a small upper-right detail of the document. It must look like pixelation applied by a circular brush, not gray dots or a blur.
+The rest of the screenshot remains clear and unchanged.
+
+Attach our ONE compact thin pencil-outlined floating editing toolbar just beneath the screenshot, visually matching the screenshot-tool illustration in the cover. Exactly seven evenly-spaced simple tools from left to right: blue selected rectangle outline, diagonal arrow, pencil, upright letter T, square mosaic grid, letter T inside four recognition corner brackets, small multicolor painter palette. White/ivory toolbar interior, soft irregular gray pencil contour, no button boxes, no extra settings form, no duplicate toolbar. A subtle cursor near the bracketed-T recognition icon suggests OCR, without a tooltip or popup. Use only illustration and toolbar to communicate the actions.
+
+A little faint desaturated surrounding desktop paper at the screenshot margins can suggest the frozen selection, but no full-screen black overlay. The final scene should feel spacious, concise and readable at README width, closely aligned with the real product's hand-drawn native interaction. Do not invent AI chat, cloud processing, auto-paste, sharing links, recording controls, subscriptions or an OCR result window. Do not draw a laptop/monitor frame, a second screenshot window, a flowchart, pie chart or separate capability cards. No watermark.

@@ -1,0 +1,11 @@
+Tool: built-in image_gen
+Reuse: approved Resources/SettingsMenuBarBoard.png, copied byte-for-byte for README.
+
+Tool: built-in image_gen
+Final asset: exec-97243c5f-4f76-4fc7-b26b-1d9861df630c.png
+Reference: previous SettingsMenuBarBoard.png (paper/pencil/crayon style only)
+
+Create a MUCH SIMPLER replacement for the supplied illustrated menu-bar instructions. One single scene, ONE menu bar, ONE apple, ONE action arrow. Absolutely no steps, columns, panels, dividers, before/after repetitions, keycap vignette, secondary row of icons, list, buttons, dashboard, or app chrome. Landscape 2:1 sheet of warm ivory paper, subtle fine pencil texture, hand-drawn charcoal graphite with a single restrained blue crayon accent. Crisp enough as a 900x450 app settings body.
+Composition: generous balanced paper space, at center a SINGLE long thin pencil baseline suggesting the macOS native menu bar, spanning about 75% of canvas width. Our recognizable black apple sits at the middle of this row. To its LEFT: two small pale graphite headphones and chat icons indicating the collected side, and one blue dashed destination for a stacked-squares icon immediately beside the apple. To its RIGHT: one small stacked-squares utility icon (the drag source), then black Wi-Fi and battery icons which stay visible. Above this same row, one thin blue curved arrow arcs FROM the stacked-squares icon on the right TO the dashed landing slot on the left, crossing over the apple. A tiny pencil ⌘ keycap sits beside the arrow, with no separate big illustration. One cursor points at the apple with subtle blue hover rays; do not duplicate apple.
+Text: only ONE main sentence at the top in modest dark gray handwriting: "按住 ⌘，拖到苹果左侧收纳". Under the left end of the row a very small gray label "收纳", under the right end "常驻", and directly below the apple a small gray hint "悬停展开". These are the only four text strings. All text dark gray; blue only used for the action arrow/drop target/hover feedback.
+The entire page is this one intuitive metaphor, not an instruction manual. Clear left/right relationships and lots of calm breathing room. No extra title, no decorative frame, no large headings, no control panels, no hidden drawer below the bar, no additional explanatory text. Do not preserve the multi-step layout from the reference; preserve ONLY its paper/pencil/crayon visual style.
