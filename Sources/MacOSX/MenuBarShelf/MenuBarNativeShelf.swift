@@ -158,7 +158,12 @@ struct NativeMenuBarChoice {
     }
 
     /// Pinned expansion is an explicit user choice; hovering must not undo it.
-    func showAll() { guard active else { return }; wantsCollapsed = false; postDropPoint = nil; expose(); changed() }
+    func showAll() {
+        guard active else { return }
+        wantsCollapsed = false; postDropPoint = nil; commandDragStart = nil; commandDragMoved = false
+        inputGeneration &+= 1; pendingMove = nil; moveQueued = false
+        cancelReading(); expose(); changed()
+    }
     func collapse() {
         guard active else { return }
         wantsCollapsed = !order.isEmpty; cancelInteraction(); collapseWhenSafe()
@@ -343,14 +348,14 @@ struct NativeMenuBarChoice {
             guard !moveQueued else { return }; moveQueued = true
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.active, self.inputGeneration == expected else { return }
-                let phase: CommandDragPhase? = type == .leftMouseDown ? .began : type == .leftMouseDragged ? .moved : type == .leftMouseUp ? .ended : nil
-                if let phase, self.observeCommandDrag(phase, at: point, command: command) { return }
                 let latest = self.pendingMove; self.pendingMove = nil; self.moveQueued = false
                 if let latest { self.observe(.moved, at: latest) }
             }
         } else {
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.active, self.inputGeneration == expected else { return }
+                let phase: CommandDragPhase? = type == .leftMouseDown ? .began : type == .leftMouseDragged ? .moved : type == .leftMouseUp ? .ended : nil
+                if let phase, self.observeCommandDrag(phase, at: point, command: command) { return }
                 // AppKit owns our windows; never query them through remote AX.
                 if ownWindow, !self.inBar(point) { self.cancelInteraction() }
                 self.observe(activity, at: point)

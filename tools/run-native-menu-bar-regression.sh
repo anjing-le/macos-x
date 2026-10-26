@@ -6,12 +6,13 @@ trap 'rm -rf "$menu_temp"' EXIT
 cd "$menu_repo"
 swift build --disable-keychain --target MenuBarVisibilityBridge
 menu_bin="$(swift build --disable-keychain --show-bin-path)"
+cat Sources/MacOSX/MenuBarShelf/MenuBarNativeShelf.swift tools/native-menu-bar-regression.swift > "$menu_temp/NativeShelfAndFixture.swift"
 xcrun swiftc -parse-as-library -Xcc "-fmodule-map-file=$menu_bin/MenuBarVisibilityBridge.build/module.modulemap" \
  -I Sources/MenuBarVisibilityBridge/include "$menu_bin"/MenuBarVisibilityBridge.build/*.o \
  Sources/MacOSX/MenuBarShelf/MenuBarVisibility.swift \
  Sources/MacOSX/MenuBarShelf/MenuBarInventory.swift \
  Sources/MacOSX/MenuBarShelf/MenuBarBoundaryGrouping.swift \
- Sources/MacOSX/MenuBarShelf/MenuBarNativeShelf.swift tools/native-menu-bar-regression.swift \
+ "$menu_temp/NativeShelfAndFixture.swift" \
  -o "$menu_temp/regression"
 "$menu_temp/regression"
 python3 - <<'PY'

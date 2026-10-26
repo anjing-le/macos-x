@@ -20,6 +20,16 @@ import AppKit
     }
 }
 
+// In-process input fixture only. These events are never posted to macOS.
+extension MenuBarNativeShelf {
+    fileprivate func fixtureEvent(_ type: CGEventType, at point: CGPoint, command: Bool = false) {
+        let event = CGEvent(mouseEventSource: nil, mouseType: type,
+                            mouseCursorPosition: CGPoint(x: point.x, y: -point.y), mouseButton: .left)!
+        event.flags = command ? .maskCommand : []
+        observe(NSEvent(cgEvent: event)!)
+    }
+}
+
 @main struct NativeMenuBarRegression {
     @MainActor static func main() async {
         do { try await run() }
@@ -55,6 +65,41 @@ import AppKit
         let leftB = MenuBarEntry(bundle: b, frame: CGRect(x: 700, y: 0, width: 24, height: 24), pid: 102)
         let rightB = MenuBarEntry(bundle: b, frame: CGRect(x: 800, y: 0, width: 24, height: 24), pid: 102)
         func layout(_ entries: [MenuBarEntry], complete: Bool = true) -> MenuBarBoundaryLayout { .init(apple: apple, entries: entries, complete: complete) }
+        do {
+            let bridge = TestVisibility(), shelf = setup(bridge, saved: [])
+            shelf.appleFrame = { CGRect(x:750,y:940,width:30,height:24) }
+            shelf.pointer = { CGPoint(x:650,y:950) }
+            var reads = 0
+            shelf.boundaryReadOverride = { _, done in reads += 1; done(layout([leftA,rightB])) }
+            shelf.start()
+            shelf.fixtureEvent(.leftMouseDown, at: CGPoint(x:800,y:950))
+            shelf.fixtureEvent(.leftMouseDragged, at: CGPoint(x:650,y:950))
+            shelf.fixtureEvent(.leftMouseUp, at: CGPoint(x:650,y:950))
+            await pause()
+            try check(reads == 0 && shelf.order.isEmpty, "Ordinary drag through the event entry does not collect applications")
+            shelf.fixtureEvent(.leftMouseDown, at: CGPoint(x:800,y:950), command:true)
+            shelf.fixtureEvent(.leftMouseDragged, at: CGPoint(x:650,y:950), command:true)
+            shelf.fixtureEvent(.leftMouseUp, at: CGPoint(x:650,y:950))
+            await pause()
+            try check(reads == 1 && shelf.order == [a] && shelf.hidden, "Actual event routing delivers Command down/drag/up to boundary grouping")
+            shelf.showAll()
+            shelf.fixtureEvent(.leftMouseDown, at: CGPoint(x:800,y:950), command:true)
+            shelf.fixtureEvent(.leftMouseDragged, at: CGPoint(x:650,y:950), command:true)
+            shelf.fixtureEvent(.leftMouseUp, at: CGPoint(x:650,y:950))
+            shelf.showAll()
+            await pause()
+            try check(reads == 1 && !shelf.hidden && !shelf.wantsCollapsed, "Explicit show all also cancels already queued drag observations")
+            shelf.stop()
+        }
+        do {
+            let bridge = TestVisibility(), shelf = setup(bridge)
+            shelf.appleFrame = { CGRect(x:750,y:940,width:30,height:24) }
+            var pending: ((MenuBarBoundaryLayout?) -> Void)?
+            shelf.boundaryReadOverride = { _, done in pending = done }
+            shelf.start(); shelf.collectLeftOfApple(); shelf.showAll(); pending?(layout([leftA,rightB]))
+            try check(!shelf.hidden && !shelf.wantsCollapsed && !shelf.reading, "Show all cancels pending grouping and stays expanded after stale completion")
+            shelf.stop()
+        }
         try check(MenuBarBoundaryGrouping.order(layout([leftA, rightB]), previous: [b], running: [a,b]) == [a], "Left-side owners are collected; right-side owners are removed from collection")
         try check(MenuBarBoundaryGrouping.order(layout([leftA, leftB, rightB]), previous: [], running: [a,b]) == [a], "A right-side sibling prevents hiding the whole application")
         try check(MenuBarBoundaryGrouping.order(layout([leftA], complete: false), previous: [b], running: [a,b]) == nil, "Incomplete native geometry never replaces membership")
