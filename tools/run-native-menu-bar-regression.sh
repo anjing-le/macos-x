@@ -10,6 +10,7 @@ xcrun swiftc -parse-as-library -Xcc "-fmodule-map-file=$menu_bin/MenuBarVisibili
  -I Sources/MenuBarVisibilityBridge/include "$menu_bin"/MenuBarVisibilityBridge.build/*.o \
  Sources/MacOSX/MenuBarShelf/MenuBarVisibility.swift \
  Sources/MacOSX/MenuBarShelf/MenuBarInventory.swift \
+ Sources/MacOSX/MenuBarShelf/MenuBarBoundaryGrouping.swift \
  Sources/MacOSX/MenuBarShelf/MenuBarNativeShelf.swift tools/native-menu-bar-regression.swift \
  -o "$menu_temp/regression"
 "$menu_temp/regression"

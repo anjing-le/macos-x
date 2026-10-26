@@ -30,6 +30,10 @@ struct NativeMenuBarChoice {
     private let visibility: MenuVisibilityProviding
     private let inventory = MenuBarInventory()
     private let probe = NativeMenuBarActivityProbe()
+    private let boundaryReader = MenuBarBoundaryReader()
+    private var commandDragStart: CGPoint?
+    private var commandDragMoved = false
+    private var postDropPoint: CGPoint?
     private var restriction: MenuVisibilityHandle?
     private var transition: UInt64 = 0
     private var readGeneration: UInt64 = 0
@@ -84,6 +88,7 @@ struct NativeMenuBarChoice {
     var readOverride: ((MenuBarReadToken, @escaping ([MenuBarEntry]) -> Void) -> Void)?
     var beginInteractionOverride: ((MenuBarReadToken, @escaping (pid_t?) -> Void) -> Void)?
     var outsideInteractionOverride: ((MenuBarReadToken, @escaping (pid_t?) -> Void) -> Void)?
+    var boundaryReadOverride: ((MenuBarReadToken, @escaping (MenuBarBoundaryLayout?) -> Void) -> Void)?
     var hasInputMonitor: Bool { globalMonitor != nil || localMonitor != nil }
     var hasDismissal: Bool { dismissal != nil }
     func requestAccess() {
@@ -143,7 +148,7 @@ struct NativeMenuBarChoice {
 
     func stop() {
         guard active else { return }
-        active = false; wantsCollapsed = false; ownMenuDepth = 0
+        active = false; wantsCollapsed = false; ownMenuDepth = 0; commandDragStart = nil; postDropPoint = nil
         expose(); cancelReading(); cancelInteraction(); removeMonitors()
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)
@@ -153,7 +158,7 @@ struct NativeMenuBarChoice {
     }
 
     /// Pinned expansion is an explicit user choice; hovering must not undo it.
-    func showAll() { guard active else { return }; wantsCollapsed = false; expose(); changed() }
+    func showAll() { guard active else { return }; wantsCollapsed = false; postDropPoint = nil; expose(); changed() }
     func collapse() {
         guard active else { return }
         wantsCollapsed = !order.isEmpty; cancelInteraction(); collapseWhenSafe()
@@ -165,10 +170,12 @@ struct NativeMenuBarChoice {
     }
     func hover(inside: Bool) {
         guard active else { return }
+        if inside, suppressPostDropReveal(at: pointer()) { return }
         if inside { expandTemporarily() } else { scheduleCollapse() }
     }
     func expandTemporarily() {
         guard active else { return }
+        postDropPoint = nil
         let wasConcealed = hidden || busy
         expose()
         if wasConcealed { changed() }
@@ -181,6 +188,12 @@ struct NativeMenuBarChoice {
     }
     private func inBar(_ point: CGPoint) -> Bool { (cachedBands ?? menuBands()).contains { $0.contains(point) } }
     private var overBar: Bool { inBar(pointer()) }
+    private var mayCollapseAtDrop: Bool {
+        postDropPoint.map { hypot(pointer().x - $0.x, pointer().y - $0.y) <= 6 } ?? false
+    }
+    private func suppressPostDropReveal(at point: CGPoint) -> Bool {
+        postDropPoint.map { hypot(point.x - $0.x, point.y - $0.y) <= 6 } ?? false
+    }
     private func cancelDismissal() {
         dismissGeneration &+= 1; dismissal?.cancel(); dismissal = nil
     }
@@ -197,7 +210,7 @@ struct NativeMenuBarChoice {
     }
     private func collapseWhenSafe() {
         guard active, wantsCollapsed, !order.isEmpty else { return }
-        guard !interactionHeld, ownMenuDepth == 0, !overBar, pressedButtons() == 0 else { cancelDismissal(); return }
+        guard !reading, !interactionHeld, ownMenuDepth == 0, (!overBar || mayCollapseAtDrop), pressedButtons() == 0 else { cancelDismissal(); return }
         guard permission(), visibility.available else {
             expose(); issue = permission() ? "当前系统暂不能收纳，已保留原生图标。" : "需要辅助功能权限，原生图标保持显示。"
             changed(); return
@@ -217,7 +230,7 @@ struct NativeMenuBarChoice {
             self.transitionTimeout?.cancel(); self.transitionTimeout = nil
             // A hover/gesture may have arrived while the system was applying
             // the restriction. Never hide native controls under the pointer.
-            guard !self.interactionHeld, self.ownMenuDepth == 0, !self.overBar, self.pressedButtons() == 0 else {
+            guard !self.interactionHeld, self.ownMenuDepth == 0, (!self.overBar || self.mayCollapseAtDrop), self.pressedButtons() == 0 else {
                 handle?.invalidate(); self.expose(); self.changed(); self.scheduleCollapse(); return
             }
             let previous = self.restriction; self.restriction = handle
@@ -232,7 +245,12 @@ struct NativeMenuBarChoice {
     func observe(_ activity: Activity, at eventPoint: CGPoint? = nil) {
         guard active, !order.isEmpty else { return }
         let point = eventPoint ?? pointer()
-        if activity == .escape { cancelInteraction(); scheduleCollapse(); return }
+        if !inBar(point) { postDropPoint = nil }
+        if activity == .escape {
+            commandDragStart = nil; postDropPoint = nil; cancelReading(); cancelInteraction(); scheduleCollapse(); return
+        }
+        if activity == .moved, suppressPostDropReveal(at: point) { return }
+        if activity == .down { postDropPoint = nil }
         if inBar(point) {
             expandTemporarily()
             if activity == .down, !(appleFrame()?.contains(point) ?? false) { beginInteraction(at: point) }
@@ -291,11 +309,11 @@ struct NativeMenuBarChoice {
         interactionToken?.cancel(); interactionToken = nil; menuWatch?.cancel(); menuWatch = nil
     }
     private func updateMonitors() {
-        guard active, !order.isEmpty, inputEnabled, permission() else { removeMonitors(); return }
+        guard active, inputEnabled, permission() else { removeMonitors(); return }
         guard globalMonitor == nil, localMonitor == nil else { return }
         cachedBands = menuBands(); screenTop = NSScreen.screens.first?.frame.maxY ?? 0
         let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
-            .leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseUp, .rightMouseUp, .otherMouseUp, .keyDown]
+            .leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseUp, .rightMouseUp, .otherMouseUp, .keyDown, .flagsChanged]
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in
             MainActor.assumeIsolated { self?.observe(event) }
         }
@@ -304,21 +322,28 @@ struct NativeMenuBarChoice {
         }
     }
     private func observe(_ event: NSEvent) {
+        let command = event.modifierFlags.contains(.command)
+        let type = event.type
         let activity: Activity
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown: activity = .down
         case .leftMouseUp, .rightMouseUp, .otherMouseUp: activity = .up
         case .keyDown: guard event.keyCode == 53 else { return }; activity = .escape
+        case .flagsChanged: guard command else { return }; activity = .moved
         default: activity = .moved
         }
         let point = event.cgEvent.map { CGPoint(x: $0.location.x, y: screenTop - $0.location.y) } ?? pointer()
+        if activity == .moved, type != .leftMouseDragged, order.isEmpty,
+           commandDragStart == nil, !(command && inBar(point)) { return }
         let ownWindow = activity == .up && event.window.map { $0.styleMask.contains(.titled) && $0.level == .normal } == true
         let expected = inputGeneration
-        if activity == .moved {
+        if activity == .moved, type != .leftMouseDragged {
             pendingMove = point
             guard !moveQueued else { return }; moveQueued = true
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.active, self.inputGeneration == expected else { return }
+                let phase: CommandDragPhase? = type == .leftMouseDown ? .began : type == .leftMouseDragged ? .moved : type == .leftMouseUp ? .ended : nil
+                if let phase, self.observeCommandDrag(phase, at: point, command: command) { return }
                 let latest = self.pendingMove; self.pendingMove = nil; self.moveQueued = false
                 if let latest { self.observe(.moved, at: latest) }
             }
@@ -343,7 +368,7 @@ struct NativeMenuBarChoice {
         cancelReading()
         if reset {
             inputGeneration &+= 1; pendingMove = nil; moveQueued = false
-            ownMenuDepth = 0; cancelInteraction(); expose()
+            ownMenuDepth = 0; commandDragStart = nil; postDropPoint = nil; cancelInteraction(); expose()
         }
         updateMonitors()
         if hidden || busy { collapseWhenSafe() }
@@ -384,6 +409,73 @@ struct NativeMenuBarChoice {
     private func cancelReading() {
         readGeneration &+= 1; readToken?.cancel(); readToken = nil
         readTimeout?.cancel(); readTimeout = nil; reading = false
+    }
+    enum CommandDragPhase { case began, moved, ended }
+    /// Observations only: the original Command-drag is delivered by macOS.
+    /// Return value controls our bookkeeping, never native event delivery.
+    @discardableResult func observeCommandDrag(_ phase: CommandDragPhase, at point: CGPoint, command: Bool) -> Bool {
+        guard active else { return false }
+        let actualBar = (cachedBands ?? menuBands()).contains { CGRect(x: $0.minX, y: $0.minY + 16, width: $0.width, height: max(1, $0.height - 16)).contains(point) }
+        switch phase {
+        case .began:
+            guard command, actualBar else { return false }
+            commandDragStart = point; commandDragMoved = false
+            cancelReading(); expandTemporarily()
+            return false
+        case .moved:
+            guard let start = commandDragStart else { return false }
+            if hypot(start.x - point.x, start.y - point.y) > 4 {
+                commandDragMoved = true; cancelInteraction(); interactionHeld = true; cancelDismissal()
+            }
+            return commandDragMoved
+        case .ended:
+            guard commandDragStart != nil else { return false }
+            commandDragStart = nil
+            guard commandDragMoved else { return false }
+            commandDragMoved = false; cancelInteraction()
+            if actualBar { collectLeftOfApple(dropPoint: point) }
+            else { scheduleCollapse() }
+            return true
+        }
+    }
+    func collectLeftOfApple(dropPoint: CGPoint? = nil) {
+        guard active, permission(), visibility.available else {
+            issue = "请先授权辅助功能；原生图标保持显示。"; changed(); return
+        }
+        guard let apple = appleFrame(), apple.width > 0, apple.height > 0 else {
+            issue = "未确认苹果位置，已保留原设置；可点“按当前位置收纳”重试。"; changed(); return
+        }
+        cancelReading(); cancelInteraction(); expandTemporarily()
+        applications = runningApplications(); reading = true; readGeneration &+= 1
+        let expected = readGeneration, token = MenuBarReadToken(); readToken = token
+        let timeout = DispatchWorkItem { [weak self] in
+            guard let self, self.active, self.readGeneration == expected else { return }
+            self.cancelReading(); self.issue = "位置读取超时，已保留原设置。"; self.changed()
+        }
+        readTimeout = timeout; DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: timeout)
+        let receive: (MenuBarBoundaryLayout?) -> Void = { [weak self] layout in
+            guard let self, self.active, self.readGeneration == expected, !token.isCancelled else { return }
+            self.cancelReading()
+            let running = Set(self.applications.map(\.bundle))
+            guard let layout,
+                  Set(self.order).intersection(running).isSubset(of: Set(layout.entries.map(\.bundle))),
+                  let next = MenuBarBoundaryGrouping.order(layout, previous: self.order, running: running) else {
+                self.issue = "未读到稳定位置，已保留原设置；可点“按当前位置收纳”重试。"; self.changed(); return
+            }
+            self.order = next; self.defaults.set(next, forKey: "menuBarShelf.drawerBundles.v1")
+            self.entries = layout.entries; self.wantsCollapsed = !next.isEmpty
+            self.postDropPoint = dropPoint; self.issue = nil
+            self.updateMonitors(); self.collapseWhenSafe(); self.changed()
+        }
+        changed()
+        if let boundaryReadOverride { boundaryReadOverride(token, receive) }
+        else {
+            // Snapshot the own-app geometry on the main actor before querying
+            // the MenuBarAgent containers on the background worker.
+            screenTop = NSScreen.screens.first?.frame.maxY ?? 0
+            let quartz = CGRect(x: apple.minX, y: screenTop - apple.maxY, width: apple.width, height: apple.height)
+            boundaryReader.read(apple: quartz, applications: applications, token: token, completion: receive)
+        }
     }
     func setCollected(_ bundle: String, _ collected: Bool) {
         guard active, !bundle.isEmpty, bundle != Bundle.main.bundleIdentifier,

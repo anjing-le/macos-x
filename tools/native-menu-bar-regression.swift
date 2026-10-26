@@ -50,6 +50,58 @@ import AppKit
         }
         func pause() async { try? await Task.sleep(nanoseconds: 35_000_000) }
 
+        let apple = CGRect(x: 750, y: 0, width: 30, height: 24)
+        let leftA = MenuBarEntry(bundle: a, frame: CGRect(x: 650, y: 0, width: 24, height: 24), pid: 101)
+        let leftB = MenuBarEntry(bundle: b, frame: CGRect(x: 700, y: 0, width: 24, height: 24), pid: 102)
+        let rightB = MenuBarEntry(bundle: b, frame: CGRect(x: 800, y: 0, width: 24, height: 24), pid: 102)
+        func layout(_ entries: [MenuBarEntry], complete: Bool = true) -> MenuBarBoundaryLayout { .init(apple: apple, entries: entries, complete: complete) }
+        try check(MenuBarBoundaryGrouping.order(layout([leftA, rightB]), previous: [b], running: [a,b]) == [a], "Left-side owners are collected; right-side owners are removed from collection")
+        try check(MenuBarBoundaryGrouping.order(layout([leftA, leftB, rightB]), previous: [], running: [a,b]) == [a], "A right-side sibling prevents hiding the whole application")
+        try check(MenuBarBoundaryGrouping.order(layout([leftA], complete: false), previous: [b], running: [a,b]) == nil, "Incomplete native geometry never replaces membership")
+        let uncertain = MenuBarEntry(bundle: b, frame: leftB.frame, pid: 102, visible: false)
+        try check(MenuBarBoundaryGrouping.order(layout([leftA, leftB, uncertain]), previous: [], running: [a,b]) == [a], "Overflow or ambiguous siblings stay visible")
+        try check(MenuBarBoundaryGrouping.order(layout([leftA]), previous: ["offline.app"], running: [a,b]) == [a,"offline.app"], "Offline saved owners retain their intent")
+        let otherRow = MenuBarEntry(bundle: b, frame: CGRect(x: 700,y:100,width:24,height:24),pid:102)
+        try check(MenuBarBoundaryGrouping.order(layout([leftA,otherRow]), previous: [], running: [a,b]) == [a], "Another screen's bar row cannot become a hiding candidate")
+        do {
+            let bridge = TestVisibility(), shelf = setup(bridge, saved: [])
+            shelf.appleFrame = { CGRect(x: 750, y: 940, width: 30, height: 24) }
+            var reads = 0
+            shelf.boundaryReadOverride = { _, done in reads += 1; done(layout([leftA,rightB])) }
+            shelf.start()
+            shelf.observeCommandDrag(.began, at: CGPoint(x:800,y:950), command:false)
+            shelf.observeCommandDrag(.moved, at: CGPoint(x:650,y:950), command:false)
+            shelf.observeCommandDrag(.ended, at: CGPoint(x:650,y:950), command:false)
+            try check(reads == 0, "Ordinary native mouse gestures do not classify or hide icons")
+            shelf.pointer = { CGPoint(x:650,y:950) }
+            shelf.observeCommandDrag(.began, at: CGPoint(x:800,y:950), command:true)
+            shelf.observeCommandDrag(.moved, at: CGPoint(x:650,y:950), command:true)
+            shelf.observeCommandDrag(.ended, at: CGPoint(x:650,y:950), command:false)
+            try check(reads == 1 && shelf.order == [a] && shelf.hidden, "First Command-drag works from an empty collection and automatically hides the confirmed left side")
+            shelf.observe(.moved, at: CGPoint(x:650,y:950))
+            try check(shelf.hidden, "An unchanged drop pointer does not instantly reopen collection")
+            shelf.pointer = { CGPoint(x:100,y:100) }; shelf.observe(.moved)
+            shelf.pointer = { CGPoint(x:650,y:950) }; shelf.observe(.moved)
+            try check(!shelf.hidden, "Leaving and reentering re-arms native expansion")
+            shelf.stop()
+        }
+        do {
+            let bridge = TestVisibility(), shelf = setup(bridge)
+            shelf.appleFrame = { CGRect(x:750,y:940,width:30,height:24) }
+            var pending: ((MenuBarBoundaryLayout?) -> Void)?
+            shelf.boundaryReadOverride = { _, done in pending = done }
+            shelf.start(); shelf.collectLeftOfApple(); shelf.stop(); pending?(layout([leftB,rightB]))
+            try check(shelf.order == [a] && !shelf.hidden, "Cancelled boundary reads cannot modify collection or install a restriction")
+        }
+        do {
+            let bridge = TestVisibility(), shelf = setup(bridge)
+            shelf.appleFrame = { CGRect(x:750,y:940,width:30,height:24) }
+            shelf.boundaryReadOverride = { _, done in done(nil) }
+            shelf.start(); shelf.collectLeftOfApple()
+            try check(shelf.order == [a] && !shelf.hidden && shelf.issue != nil, "Unstable geometry preserves saved membership and reports failure")
+            shelf.stop()
+        }
+
         do {
             let bridge = TestVisibility()
             let shelf = setup(bridge, saved: [])

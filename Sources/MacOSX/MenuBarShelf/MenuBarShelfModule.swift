@@ -78,8 +78,7 @@ import MenuBarVisibilityBridge
     func makeDashboard() -> NSView {
         if native {
             let view = MenuBarNativeShelfDashboard(); nativeDashboard = view
-            view.onRead = { [weak self] in self?.shelf?.readChoices() }
-            view.onCollect = { [weak self] in self?.shelf?.setCollected($0, $1) }
+            view.onRead = { [weak self] in self?.shelf?.collectLeftOfApple() }
             view.onShow = { [weak self] in self?.shelf?.showAll() }
             view.onCollapse = { [weak self] in self?.shelf?.collapse() }
             view.onAccess = { [weak self] in self?.shelf?.requestAccess() }
