@@ -78,6 +78,8 @@ import AppKit
             shelf.observeCommandDrag(.moved, at: CGPoint(x:650,y:950), command:true)
             shelf.observeCommandDrag(.ended, at: CGPoint(x:650,y:950), command:false)
             try check(reads == 1 && shelf.order == [a] && shelf.hidden, "First Command-drag works from an empty collection and automatically hides the confirmed left side")
+            shelf.collectLeftOfApple(dropPoint: CGPoint(x:-100,y:-75))
+            try check(reads == 1 && shelf.order == [a], "A drag on an unconfirmed display cannot classify using another screen's apple")
             shelf.observe(.moved, at: CGPoint(x:650,y:950))
             try check(shelf.hidden, "An unchanged drop pointer does not instantly reopen collection")
             shelf.pointer = { CGPoint(x:100,y:100) }; shelf.observe(.moved)

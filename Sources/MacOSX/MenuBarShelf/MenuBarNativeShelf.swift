@@ -445,6 +445,12 @@ struct NativeMenuBarChoice {
         guard let apple = appleFrame(), apple.width > 0, apple.height > 0 else {
             issue = "未确认苹果位置，已保留原设置；可点“按当前位置收纳”重试。"; changed(); return
         }
+        if let dropPoint {
+            let appleCenter = CGPoint(x: apple.midX, y: apple.midY)
+            guard (cachedBands ?? menuBands()).contains(where: { $0.contains(dropPoint) && $0.contains(appleCenter) }) else {
+                issue = "未确认当前屏幕的苹果位置，已保留原设置。"; changed(); return
+            }
+        }
         cancelReading(); cancelInteraction(); expandTemporarily()
         applications = runningApplications(); reading = true; readGeneration &+= 1
         let expected = readGeneration, token = MenuBarReadToken(); readToken = token
