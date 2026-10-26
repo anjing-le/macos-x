@@ -177,8 +177,11 @@ final class MenuBarInventory {
             guard !token.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { complete = false; return [] }
             AXUIElementSetMessagingTimeout(element, 0.035)
             var value: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(element, key as CFString, &value) == .success,
-                  let values = value as? [AXUIElement] else { complete = false; return [] }
+            let status = AXUIElementCopyAttributeValue(element, key as CFString, &value)
+            // Empty AXChildren/AXWindows can be represented as noValue rather
+            // than an empty array. This is not an unreadable/partial inventory.
+            if status == .noValue { return [] }
+            guard status == .success, let values = value as? [AXUIElement] else { complete = false; return [] }
             if values.count >= 128 { complete = false }
             return Array(values.prefix(128))
         }

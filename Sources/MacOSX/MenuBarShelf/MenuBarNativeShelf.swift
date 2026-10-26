@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import os
 
 struct NativeMenuBarApplication {
     let bundle: String
@@ -31,6 +32,12 @@ struct NativeMenuBarChoice {
     private let inventory = MenuBarInventory()
     private let probe = NativeMenuBarActivityProbe()
     private let boundaryReader = MenuBarBoundaryReader()
+    private let concealmentGuard = MenuBarConcealmentGuard()
+    private let logger = Logger(subsystem: "cc.anjing.macos-x", category: "menu-bar-concealment")
+    private var concealmentToken: MenuBarReadToken?
+    private var appliedPlan: MenuBarConcealmentPlan?
+    var concealmentReadOverride: ((Set<String>, MenuBarConcealmentPlan?, MenuBarReadToken, @escaping (MenuBarConcealmentPlan?) -> Void) -> Void)?
+    var concealmentVerifyOverride: ((MenuBarConcealmentPlan, MenuBarReadToken, @escaping (Bool) -> Void) -> Void)?
     private var commandDragStart: CGPoint?
     private var commandDragMoved = false
     private var postDropPoint: CGPoint?
@@ -188,6 +195,7 @@ struct NativeMenuBarChoice {
     private func expose() {
         cancelDismissal(); transition &+= 1
         transitionTimeout?.cancel(); transitionTimeout = nil
+        concealmentToken?.cancel(); concealmentToken = nil; appliedPlan = nil
         let previous = restriction; restriction = nil; hidden = false; busy = false
         previous?.invalidate()
     }
@@ -221,28 +229,64 @@ struct NativeMenuBarChoice {
             changed(); return
         }
         cancelDismissal(); transition &+= 1; let expected = transition
+        concealmentToken?.cancel(); let token = MenuBarReadToken(); concealmentToken = token
         transitionTimeout?.cancel(); busy = true; issue = nil; changed()
-        let own = Bundle.main.bundleIdentifier ?? "cc.anjing.macos-x"
-        let allowed = Set(applications.map(\.bundle)).union(MenuBarSections.systemOwners).union([own]).subtracting(order)
         let timeout = DispatchWorkItem { [weak self] in
             guard let self, self.active, self.transition == expected else { return }
-            self.expose(); self.issue = "收纳响应超时，原生图标保持显示。"; self.changed()
+            self.failConcealment("收纳核验超时，原生图标保持显示。")
         }
         transitionTimeout = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + activationTimeout, execute: timeout)
-        visibility.activate(allowing: Array(allowed).sorted()) { [weak self] handle in
-            guard let self, self.active, self.transition == expected, self.busy else { handle?.invalidate(); return }
-            self.transitionTimeout?.cancel(); self.transitionTimeout = nil
-            // A hover/gesture may have arrived while the system was applying
-            // the restriction. Never hide native controls under the pointer.
-            guard !self.interactionHeld, self.ownMenuDepth == 0, (!self.overBar || self.mayCollapseAtDrop), self.pressedButtons() == 0 else {
-                handle?.invalidate(); self.expose(); self.changed(); self.scheduleCollapse(); return
+        let receive: (MenuBarConcealmentPlan?) -> Void = { [weak self] plan in
+            guard let self, self.active, self.transition == expected, !token.isCancelled else { return }
+            guard let plan else { self.failConcealment("未确认全部菜单栏位置，原生图标保持显示。请重试。"); return }
+            // The restriction applies globally. A right-side icon on ANY
+            // display protects its entire app/helper family, including stale
+            // membership restored at launch or a missed Command-drag event.
+            let next = self.order.filter { !plan.rightAliases.contains($0) }
+            if next != self.order {
+                self.order = next; self.defaults.set(next, forKey: "menuBarShelf.drawerBundles.v1")
+                self.wantsCollapsed = !next.isEmpty
             }
-            let previous = self.restriction; self.restriction = handle
-            self.busy = false; self.hidden = handle != nil; previous?.invalidate()
-            self.issue = handle == nil ? "系统未能收纳，原生图标保持显示。" : nil
-            self.changed()
+            guard !plan.hidden.isEmpty else { self.expose(); self.changed(); return }
+            guard !self.interactionHeld, self.ownMenuDepth == 0, (!self.overBar || self.mayCollapseAtDrop), self.pressedButtons() == 0 else {
+                self.expose(); self.changed(); self.scheduleCollapse(); return
+            }
+            self.logger.info("preflight desired=\(self.order.count) hidden=\(plan.hidden.count) protected=\(plan.protected.count)")
+            self.visibility.activate(allowing: Array(plan.allowing).sorted()) { [weak self] handle in
+                guard let self, self.active, self.transition == expected, self.busy, !token.isCancelled else { handle?.invalidate(); return }
+                guard let handle else { self.failConcealment("系统未能收纳，原生图标保持显示。"); return }
+                guard !self.interactionHeld, self.ownMenuDepth == 0, (!self.overBar || self.mayCollapseAtDrop), self.pressedButtons() == 0 else {
+                    handle.invalidate(); self.expose(); self.changed(); self.scheduleCollapse(); return
+                }
+                let previous = self.restriction; self.restriction = handle; previous?.invalidate()
+                let verified: (Bool) -> Void = { [weak self] valid in
+                    guard let self, self.active, self.transition == expected, !token.isCancelled else { return }
+                    guard valid else {
+                        self.logger.error("postflight failed; restoring native icons")
+                        self.failConcealment("系统收纳影响了保留图标，已恢复全部显示。请重试。"); return
+                    }
+                    self.transitionTimeout?.cancel(); self.transitionTimeout = nil
+                    self.appliedPlan = plan; self.busy = false; self.hidden = true; self.issue = nil
+                    self.logger.info("postflight passed protected=\(plan.protected.count)")
+                    self.changed()
+                }
+                if let verify = self.concealmentVerifyOverride { verify(plan, token, verified) }
+                else { self.concealmentGuard.verify(plan, token: token, completion: verified) }
+            }
         }
+        if let read = concealmentReadOverride { read(Set(order), appliedPlan, token, receive) }
+        else {
+            let top = NSScreen.screens.first?.frame.maxY ?? 0
+            let apple = appleFrame().map { CGRect(x:$0.minX,y:top-$0.maxY,width:$0.width,height:$0.height) }
+            concealmentGuard.prepare(desired: Set(order), previous: appliedPlan, apple: apple,
+                                     applications: applications, token: token, completion: receive)
+        }
+    }
+    private func failConcealment(_ message: String) {
+        wantsCollapsed = false; expose(); issue = message
+        logger.error("concealment stopped; preserving native controls")
+        changed()
     }
 
     /// Passive observations only. Local monitors ALWAYS return the same event.

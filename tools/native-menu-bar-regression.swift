@@ -59,6 +59,11 @@ extension MenuBarNativeShelf {
             shelf.pointer = { CGPoint(x: 100, y: 100) }; shelf.pressedButtons = { 0 }
             shelf.menuBands = { [CGRect(x: 0, y: 900, width: 1500, height: 80), CGRect(x: -1200, y: -100, width: 1200, height: 50)] }
             shelf.inputEnabled = false; shelf.environmentEnabled = false; shelf.collapseDelay = 0.01
+            shelf.concealmentReadOverride = { [weak shelf] desired,_,_,done in
+                let families = Dictionary(uniqueKeysWithValues: desired.map { ($0,MenuBarHiddenFamily(aliases:[$0],pids:[])) })
+                done(.init(families:families,allowing:Set(shelf?.runningApplications().map(\.bundle) ?? [a,b]).subtracting(desired),rightAliases:[],protected:[]))
+            }
+            shelf.concealmentVerifyOverride = { _,_,done in done(true) }
             shelf.beginInteractionOverride = { _, receive in receive(101) }
             shelf.outsideInteractionOverride = { _, receive in receive(102) }
             shelf.readOverride = { _, done in done([.init(bundle: a, frame: .zero), .init(bundle: b, frame: .zero)]) }
@@ -79,6 +84,84 @@ extension MenuBarNativeShelf {
             return .init(apple:apple.offsetBy(dx:0,dy:offset), entries:entries.map {
                 .init(bundle:$0.bundle,frame:$0.frame.offsetBy(dx:0,dy:offset),pid:$0.pid,visible:$0.visible)
             },complete:true)
+        }
+        let ownPID: pid_t = 999
+        let bar1 = CGRect(x:0,y:0,width:1500,height:24), bar2 = CGRect(x:1500,y:-240,width:2500,height:30)
+        func container(_ pid: pid_t, _ x: CGFloat, second: Bool = false, id: CGWindowID? = nil) -> MenuBarContainer {
+            .init(pid:pid,frame:CGRect(x:x,y:second ? -240 : 0,width:24,height:second ? 30 : 24),
+                  surface:second ? bar2 : bar1,surfaceID:id ?? (second ? 2 : 1))
+        }
+        let identities: [pid_t:MenuBarOwnerIdentity] = [
+            ownPID:.init(bundle:"fixture.own",aliases:["fixture.own"]),
+            101:.init(bundle:a,aliases:[a]),102:.init(bundle:b,aliases:[b]),
+            201:.init(bundle:"right.helper",aliases:["right.helper","right.parent"])]
+        var expanded = MenuBarContainerSnapshot(entries:[container(ownPID,750),container(101,650),container(102,850)],complete:true)
+        func concealment(_ snapshot:MenuBarContainerSnapshot, desired:Set<String> = [a,b], previous:MenuBarConcealmentPlan? = nil) -> MenuBarConcealmentPlan? {
+            MenuBarConcealmentGuard.plan(snapshot:snapshot,own:ownPID,expectedApple:nil,identities:identities,
+                runningBundles:["fixture.own",a,b],desired:desired,previous:previous)
+        }
+        let guarded = concealment(expanded)!
+        try check(guarded.hidden == [a] && guarded.allowing.contains(b), "A fresh preflight corrects saved right-side membership without a drag event")
+        let crossDisplay = MenuBarContainerSnapshot(entries:expanded.entries+[container(ownPID,3700,second:true),container(101,3800,second:true)],complete:true)
+        try check(concealment(crossDisplay)?.hidden.isEmpty == true, "A right-side owner on any display overrides a left-side owner under a global restriction")
+        let helperLayout = MenuBarContainerSnapshot(entries:expanded.entries+[container(201,900)],complete:true)
+        let helperPlan = concealment(helperLayout,desired:[a,"right.parent"])!
+        try check(helperPlan.hidden == [a] && helperPlan.allowing.isSuperset(of:["right.helper","right.parent"]), "Unlisted status helpers and enclosing app identities enter the right-side allowlist")
+        let leftHelper = MenuBarContainerSnapshot(entries:[container(ownPID,750),container(201,650),container(102,850)],complete:true)
+        let leftHelperPlan = concealment(leftHelper,desired:["right.parent"])!
+        try check(leftHelperPlan.hidden == ["right.parent"] && !leftHelperPlan.allowing.contains("right.helper") && !leftHelperPlan.allowing.contains("right.parent"), "Hiding a selected helper family removes both helper and parent aliases instead of leaving a conflicting parent allowance")
+        var sharedIdentities = identities
+        sharedIdentities[202] = .init(bundle:"right.parent",aliases:["right.parent"])
+        let shared = MenuBarContainerSnapshot(entries:leftHelper.entries+[container(202,900)],complete:true)
+        let sharedPlan = MenuBarConcealmentGuard.plan(snapshot:shared,own:ownPID,expectedApple:nil,identities:sharedIdentities,
+            runningBundles:["right.parent"],desired:["right.parent"],previous:nil)
+        try check(sharedPlan?.hidden.isEmpty == true && sharedPlan?.allowing.contains("right.helper") == true, "A right-side main app protects its left-side helper even when their primary bundle identifiers differ")
+        let unreadable = MenuBarContainerSnapshot(entries:expanded.entries+[container(333,900)],complete:true)
+        try check(concealment(unreadable) == nil, "An unresolved visible owner cancels concealment rather than omitting it from the whitelist")
+        let withoutApple = MenuBarContainerSnapshot(entries:expanded.entries+[container(101,3600,second:true)],complete:true)
+        try check(concealment(withoutApple)?.hidden.isEmpty == true, "Another bar without a confirmed apple is protected rather than classified by a foreign boundary")
+        try check(concealment(withoutApple)?.rightAliases.contains(a) == false, "Unconfirmed bar geometry cannot erase saved membership as if it were a confirmed right-side move")
+        let verified = MenuBarContainerSnapshot(entries:[container(ownPID,750,id:42),container(102,800,id:42)],complete:true)
+        try check(MenuBarConcealmentGuard.preserves(guarded,snapshot:verified), "Actual visibility verification tolerates compositor window-ID rebuilds")
+        try check(!MenuBarConcealmentGuard.preserves(guarded,snapshot:.init(entries:[container(ownPID,750)],complete:true)), "A disappeared right-side icon fails postflight even if activation reported success")
+        try check(!MenuBarConcealmentGuard.preserves(guarded,snapshot:expanded), "A supposedly hidden left owner remaining visible also fails postflight")
+        try check(!MenuBarConcealmentGuard.preserves(guarded,snapshot:.init(entries:verified.entries,complete:false)), "Partial postflight data cannot confirm successful concealment")
+        try check(concealment(verified,previous:guarded)?.hidden == [a], "A verified hidden family survives harmless app changes without exposing the whole bar")
+        do {
+            let bridge=TestVisibility(), shelf=setup(bridge,saved:[a,b])
+            shelf.concealmentReadOverride = { desired,previous,_,done in done(concealment(expanded,desired:desired,previous:previous)) }
+            shelf.start()
+            try check(shelf.order == [a] && shelf.hidden && bridge.lists.last?.contains(b) == true, "Startup repairs stale right-side membership before the first real restriction")
+            shelf.hover(inside:true)
+            expanded = .init(entries:[container(ownPID,750),container(101,850),container(102,650)],complete:true)
+            shelf.observe(.moved); await pause()
+            try check(!shelf.hidden && shelf.order.isEmpty, "Every collapse rereads positions even when the native drag observation was missed")
+            shelf.stop()
+            expanded = .init(entries:[container(ownPID,750),container(101,650),container(102,850)],complete:true)
+        }
+        do {
+            let bridge=TestVisibility(), shelf=setup(bridge)
+            shelf.concealmentVerifyOverride = { _,_,done in done(false) }
+            shelf.start()
+            try check(!shelf.hidden && !shelf.wantsCollapsed && shelf.issue != nil && bridge.handles.first?.invalidations == 1, "A failed actual-visibility check immediately releases the restriction and disables stale automatic retries")
+            shelf.observe(.moved); await pause()
+            try check(bridge.lists.count == 1, "Postflight failure does not repeatedly flash icons on ordinary pointer movement")
+            shelf.stop()
+        }
+        do {
+            let bridge=TestVisibility(), shelf=setup(bridge)
+            var pending:((MenuBarConcealmentPlan?)->Void)?
+            shelf.concealmentReadOverride = { _,_,_,done in pending=done }
+            shelf.start(); shelf.stop(); pending?(guarded)
+            try check(bridge.lists.isEmpty && !shelf.busy, "A late preflight after stop cannot apply a restriction")
+        }
+        do {
+            let bridge=TestVisibility(), shelf=setup(bridge)
+            var pending:((Bool)->Void)?
+            shelf.concealmentVerifyOverride = { _,_,done in pending=done }
+            shelf.start(); shelf.hover(inside:true); pending?(true)
+            try check(!shelf.hidden && !shelf.busy && bridge.handles.first?.invalidations == 1, "Hover cancels and invalidates the handle during pending postflight")
+            shelf.stop()
         }
         do {
             let bridge = TestVisibility(), shelf = setup(bridge, saved: [])
