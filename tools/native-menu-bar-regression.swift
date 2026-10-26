@@ -71,12 +71,21 @@ extension MenuBarNativeShelf {
         let leftB = MenuBarEntry(bundle: b, frame: CGRect(x: 700, y: 0, width: 24, height: 24), pid: 102)
         let rightB = MenuBarEntry(bundle: b, frame: CGRect(x: 800, y: 0, width: 24, height: 24), pid: 102)
         func layout(_ entries: [MenuBarEntry], complete: Bool = true) -> MenuBarBoundaryLayout { .init(apple: apple, entries: entries, complete: complete) }
+        // Runtime mocks live in the fixture's AppKit bar at y=940...964.
+        // Convert into Quartz using the executing machine's real primary top;
+        // CI and laptops do not have the same primary display dimensions.
+        func nativeLayout(_ entries: [MenuBarEntry]) -> MenuBarBoundaryLayout {
+            let offset = (NSScreen.screens.first?.frame.maxY ?? 0) - 964
+            return .init(apple:apple.offsetBy(dx:0,dy:offset), entries:entries.map {
+                .init(bundle:$0.bundle,frame:$0.frame.offsetBy(dx:0,dy:offset),pid:$0.pid,visible:$0.visible)
+            },complete:true)
+        }
         do {
             let bridge = TestVisibility(), shelf = setup(bridge, saved: [])
             shelf.appleFrame = { CGRect(x:750,y:940,width:30,height:24) }
             shelf.pointer = { CGPoint(x:650,y:950) }
             var reads = 0
-            shelf.boundaryReadOverride = { _, done in reads += 1; done(layout([leftA,rightB])) }
+            shelf.boundaryReadOverride = { _, done in reads += 1; done(nativeLayout([leftA,rightB])) }
             shelf.start()
             shelf.fixtureEvent(.leftMouseDown, at: CGPoint(x:800,y:950))
             shelf.fixtureEvent(.leftMouseDragged, at: CGPoint(x:650,y:950))
@@ -102,7 +111,7 @@ extension MenuBarNativeShelf {
             shelf.appleFrame = { CGRect(x:750,y:940,width:30,height:24) }
             var pending: ((MenuBarBoundaryLayout?) -> Void)?
             shelf.boundaryReadOverride = { _, done in pending = done }
-            shelf.start(); shelf.collectLeftOfApple(); shelf.showAll(); pending?(layout([leftA,rightB]))
+            shelf.start(); shelf.collectLeftOfApple(); shelf.showAll(); pending?(nativeLayout([leftA,rightB]))
             try check(!shelf.hidden && !shelf.wantsCollapsed && !shelf.reading, "Show all cancels pending grouping and stays expanded after stale completion")
             shelf.stop()
         }
@@ -146,7 +155,7 @@ extension MenuBarNativeShelf {
             shelf.appleFrame = { CGRect(x:750,y:940,width:30,height:24) }
             shelf.pointer = { CGPoint(x:850,y:950) }
             var reads = 0
-            shelf.boundaryReadOverride = { _,done in reads += 1; done(layout([leftA,rightB])) }
+            shelf.boundaryReadOverride = { _,done in reads += 1; done(nativeLayout([leftA,rightB])) }
             shelf.start()
             shelf.fixtureEvent(.leftMouseDown,at:CGPoint(x:650,y:950),command:true)
             shelf.fixtureEvent(.leftMouseDragged,at:CGPoint(x:850,y:950),command:true)
@@ -171,7 +180,7 @@ extension MenuBarNativeShelf {
             let bridge = TestVisibility(), shelf = setup(bridge, saved: [])
             shelf.appleFrame = { CGRect(x: 750, y: 940, width: 30, height: 24) }
             var reads = 0
-            shelf.boundaryReadOverride = { _, done in reads += 1; done(layout([leftA,rightB])) }
+            shelf.boundaryReadOverride = { _, done in reads += 1; done(nativeLayout([leftA,rightB])) }
             shelf.start()
             shelf.observeCommandDrag(.began, at: CGPoint(x:800,y:950), command:false)
             shelf.observeCommandDrag(.moved, at: CGPoint(x:650,y:950), command:false)
@@ -196,7 +205,7 @@ extension MenuBarNativeShelf {
             shelf.appleFrame = { CGRect(x:750,y:940,width:30,height:24) }
             var pending: ((MenuBarBoundaryLayout?) -> Void)?
             shelf.boundaryReadOverride = { _, done in pending = done }
-            shelf.start(); shelf.collectLeftOfApple(); shelf.stop(); pending?(layout([leftB,rightB]))
+            shelf.start(); shelf.collectLeftOfApple(); shelf.stop(); pending?(nativeLayout([leftB,rightB]))
             try check(shelf.order == [a] && !shelf.hidden, "Cancelled boundary reads cannot modify collection or install a restriction")
         }
         do {
@@ -214,7 +223,7 @@ extension MenuBarNativeShelf {
             shelf.appleFrame = { CGRect(x:750,y:940,width:30,height:24) }
             var pending: ((MenuBarBoundaryLayout?) -> Void)?
             shelf.boundaryReadOverride = { _, done in pending = done }
-            shelf.start(); shelf.collectLeftOfApple(); shelf.observe(.escape); pending?(layout([leftA,rightB]))
+            shelf.start(); shelf.collectLeftOfApple(); shelf.observe(.escape); pending?(nativeLayout([leftA,rightB]))
             try check(shelf.order.isEmpty && !shelf.reading && !shelf.hidden, "Escape cancels the first empty-to-collected pending position read")
             shelf.stop()
         }
