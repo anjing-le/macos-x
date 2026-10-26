@@ -243,12 +243,13 @@ struct NativeMenuBarChoice {
     /// Passive observations only. Local monitors ALWAYS return the same event.
     enum Activity { case moved, down, up, escape }
     func observe(_ activity: Activity, at eventPoint: CGPoint? = nil) {
-        guard active, !order.isEmpty else { return }
+        guard active else { return }
         let point = eventPoint ?? pointer()
         if !inBar(point) { postDropPoint = nil }
         if activity == .escape {
             commandDragStart = nil; postDropPoint = nil; cancelReading(); cancelInteraction(); scheduleCollapse(); return
         }
+        guard !order.isEmpty else { return }
         if activity == .moved, suppressPostDropReveal(at: point) { return }
         if activity == .down { postDropPoint = nil }
         if inBar(point) {

@@ -103,6 +103,15 @@ import AppKit
             try check(shelf.order == [a] && !shelf.hidden && shelf.issue != nil, "Unstable geometry preserves saved membership and reports failure")
             shelf.stop()
         }
+        do {
+            let bridge = TestVisibility(), shelf = setup(bridge, saved: [])
+            shelf.appleFrame = { CGRect(x:750,y:940,width:30,height:24) }
+            var pending: ((MenuBarBoundaryLayout?) -> Void)?
+            shelf.boundaryReadOverride = { _, done in pending = done }
+            shelf.start(); shelf.collectLeftOfApple(); shelf.observe(.escape); pending?(layout([leftA,rightB]))
+            try check(shelf.order.isEmpty && !shelf.reading && !shelf.hidden, "Escape cancels the first empty-to-collected pending position read")
+            shelf.stop()
+        }
 
         do {
             let bridge = TestVisibility()
