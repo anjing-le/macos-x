@@ -440,6 +440,8 @@ import MacOSXCore
                 let shortcutRows=board.subviews.compactMap { $0 as? ShortcutSettingsRow }
                 if kind == "capture" {
                     try require(board.usesBackdrop,"capture backdrop resource loaded")
+                    let ocrHint = board.subviews.compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "capture-recognition-shortcut" }!
+                    try require(!ocrHint.isHidden && ocrHint.stringValue.contains("⌘T") && board.bounds.contains(ocrHint.frame),"Capture settings expose Command-T OCR in a visible native label")
                     for (index,row) in shortcutRows.enumerated() {
                         try require(row.frame == board.slot(SettingsBoardView.captureKeySlots[index]),"native keycap follows the image slot")
                         try require(row.control.subviews.count > 0,"real shortcut recorder remains installed")
@@ -514,6 +516,8 @@ import MacOSXCore
                     try require(!board.usesBackdrop,"narrow layout uses native sections")
                     let shelfCard = board.subviews.compactMap { $0 as? CaptureShelfSettingsCard }.first!
                     try require(shelfCard.frame.maxY <= settings.frame.minY && board.bounds.contains(shelfCard.frame), "Narrow layout retains the complete shelf section")
+                    let ocrHint = board.subviews.compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "capture-recognition-shortcut" }!
+                    try require(!ocrHint.isHidden && board.bounds.contains(ocrHint.frame) && !ocrHint.frame.intersects(shelfCard.frame),"Narrow capture settings retain a visible, separate OCR shortcut")
                     try require(board.subviews.filter { !$0.isHidden }.allSatisfy { board.bounds.contains($0.frame) },"narrow capture controls stay within board")
                 }
                 settings.removeFromSuperview()

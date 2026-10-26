@@ -1,7 +1,7 @@
 import AppKit
 
 // Compiled alongside the real editor/pin source; these helpers only exist in
-// this isolated executable, with no Vision execution or clipboard writes.
+// this isolated executable, with injected OCR and no general clipboard writes.
 @MainActor private extension CaptureEditor {
     func beginPendingRecognitionFixture() {
         toolbarVisible = false
@@ -165,6 +165,43 @@ import AppKit
         } else {
             precondition(closed && closes == 1 && localMonitor == nil && !toolbar.isVisible && !canvas.pointerActive,
                          "Screenshot copy releases the editor, tools and listeners after PNG acknowledgement")
+        }
+    }
+    func verifyRecognitionFixture(board: NSPasteboard, result: Result<String, Error>, keyboard: Bool, cancel: Bool = false) {
+        board.clearContents(); board.setString("KEEP",forType: .string)
+        let previous = board.changeCount
+        var closes = 0
+        onClose = { closes += 1 }
+        let input = beginTextFixture(point: CGPoint(x: 20,y: 120),width: 2,ink: .red)
+        input.insertText("Pending annotation",replacementRange: NSRange(location: 0,length: 0))
+        let gate = DispatchSemaphore(value: 0)
+        queue.async { _ = gate.wait(timeout: .now()+3) }
+        if keyboard {
+            let event = NSEvent.keyEvent(with: .keyDown,location: .zero,modifierFlags: .command,timestamp: 0,
+                windowNumber: window.windowNumber,context: nil,characters: "t",charactersIgnoringModifiers: "t",isARepeat: false,keyCode: 17)!
+            precondition(handleSelectionKey(event),"Command-T extracts even while entering an annotation")
+        } else { recognitionButton.performClick(nil) }
+        precondition(textInput == nil && annotations.last?.text == "Pending annotation" && recognition != nil && !recognitionButton.isEnabled,
+                     "Keyboard/button OCR commits text and starts one bounded recognition")
+        if cancel {
+            close(); gate.signal()
+            let drained = DispatchSemaphore(value: 0); queue.async { drained.signal() }
+            precondition(drained.wait(timeout: .now()+3) == .success)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+            precondition(board.changeCount == previous && closes == 1,"Cancelled OCR cannot overwrite the clipboard")
+            return
+        }
+        gate.signal()
+        let deadline = Date().addingTimeInterval(3)
+        while recognition != nil && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+        precondition(recognition == nil && recognitionButton.isEnabled)
+        if case .success(let text) = result, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            precondition(closed && closes == 1 && board.string(forType: .string) == text && board.data(forType: .png) == nil,
+                         "Nonempty OCR writes plain text, then closes F1 exactly once")
+        } else {
+            precondition(!closed && closes == 0 && board.changeCount == previous && board.string(forType: .string) == "KEEP",
+                         "Empty/failed OCR preserves the screenshot and clipboard for retry")
+            close()
         }
     }
     func verifyCopyWithTextFocusFixture() {
@@ -440,7 +477,16 @@ import AppKit
         }
         let pinCopy = CaptureEditor(image: image,selectionFrame: region,editingPin: true,defaults: defaults,clipboard: copyBoard)
         pinCopy.verifyCopyExitFixture(board: copyBoard,action: 1)
+        for keyboard in [true,false] {
+            for result: Result<String, Error> in [.success("OCR TEXT"),.success("  \n"),.failure(CaptureFailure.unavailable)] {
+                let ocr = CaptureEditor(image: image,selectionFrame: region,defaults: defaults,clipboard: copyBoard,textRecognizer: { _,_ in try result.get() })
+                ocr.verifyRecognitionFixture(board: copyBoard,result: result,keyboard: keyboard)
+            }
+        }
+        let cancelledOCR = CaptureEditor(image: image,selectionFrame: region,defaults: defaults,clipboard: copyBoard,textRecognizer: { _,_ in "LATE" })
+        cancelledOCR.verifyRecognitionFixture(board: copyBoard,result: .success("LATE"),keyboard: true,cancel: true)
         copyBoard.releaseGlobally()
+        print("PASS OCR lifecycle: Command-T/button, pending text, plain clipboard text, close after success, empty/error retry and cancellation")
         print("PASS copy acknowledgement: screenshot Command-C, Enter, canvas/panel copy and selection callback exit after PNG write; pin copy stays open")
         let editor = CaptureEditor(image: image, selectionFrame: region, defaults: defaults)
         var states = [Bool]()
@@ -735,6 +781,34 @@ import AppKit
         precondition(cancelledCopy.copyingRange && cancelledCopy.keyDown(key(53,"",flags: [])))
         guard results.count == 2, case .cancel = results.last else { preconditionFailure("Esc can cancel while a direct copy is pending") }
         precondition(!cancelledCopy.copyingRange && cancelledCopy.frames.isEmpty)
+        let recognition = make(selected: false); recognition.installCopyMonitor()
+        let ocrKey = key(17,"t")
+        NSApp.sendEvent(ocrKey); NSApp.sendEvent(ocrKey)
+        guard results.count == 1, case .edit(let ocrRegion) = results[0] else { preconditionFailure("Command-T prepares the frozen hover range for OCR, never pinning") }
+        precondition(ocrRegion == region && recognition.pendingRecognition && recognition.awaitingEditor)
+        var recognized = 0
+        recognition.onEditorRecognize = { recognized += 1 }
+        precondition(recognition.editorDidBecomeReady() && recognized == 1 && !recognition.pendingRecognition)
+        precondition(!recognition.editorDidBecomeReady() && recognized == 1,"Pending OCR is coalesced and drains only once")
+        recognition.acceptsInput = false; NSApp.sendEvent(ocrKey)
+        precondition(recognized == 2,"Annotation focus cannot divert Command-T into a native font panel")
+        recognition.dismiss(); NSApp.sendEvent(ocrKey)
+        precondition(recognized == 2 && recognition.onEditorRecognize == nil,"Closing releases OCR interception and callbacks")
+        let staleRecognition = make(selected: false)
+        _ = staleRecognition.keyDown(ocrKey); staleRecognition.dismiss()
+        precondition(!staleRecognition.editorDidBecomeReady() && !staleRecognition.pendingRecognition,"Late crop readiness cannot restart cancelled OCR")
+        let replacement = make(selected: false)
+        _ = replacement.keyDown(ocrKey); _ = replacement.keyDown(key())
+        precondition(replacement.pendingCopy && !replacement.pendingRecognition,"A later image copy replaces pending OCR")
+        replacement.onEditorCopy = { copies += 1 }
+        precondition(replacement.editorDidBecomeReady() && copies == 1)
+        replacement.dismiss()
+        let draggedOCR = make()
+        draggedOCR.mouseDown(start); draggedOCR.mouseDragged(end); _ = draggedOCR.keyDown(ocrKey)
+        guard results.count == 1, case .edit(let latestOCRRegion) = results[0] else { preconditionFailure("OCR finalizes a live drag before recognition") }
+        precondition(latestOCRRegion == region.offsetBy(dx: 10,dy: 5) && draggedOCR.pendingRecognition && draggedOCR.awaitingEditor,
+                     "Command-T uses the newly dragged range rather than the old crop")
+        draggedOCR.dismiss()
         let recording = make(); recording.mode = .recording; recording.installCopyMonitor()
         precondition(recording.copyMonitor == nil && !recording.handleCopyShortcut(key()),"Recording does not acquire F1's copy interception")
         recording.dismiss()

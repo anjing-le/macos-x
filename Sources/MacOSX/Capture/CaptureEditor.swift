@@ -118,6 +118,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
     private let editingPin: Bool
     private let defaults: UserDefaults
     private let clipboard: NSPasteboard
+    private let textRecognizer: (CGImage, VNRecognizeTextRequest) throws -> String
     private var colorIndex: Int
     var onApply: ((CGImage) -> Void)?
     private var annotations: [CaptureAnnotation] = []
@@ -145,10 +146,11 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
     var onReselect: (() -> Void)?
     var colorAtPointer: ((Bool) -> String?)?
 
-    init(image: CGImage, selectionFrame: CGRect? = nil, editingPin: Bool = false, defaults: UserDefaults = .standard, clipboard: NSPasteboard = .general) {
+    init(image: CGImage, selectionFrame: CGRect? = nil, editingPin: Bool = false, defaults: UserDefaults = .standard, clipboard: NSPasteboard = .general, textRecognizer: @escaping (CGImage, VNRecognizeTextRequest) throws -> String = CaptureTextRecognition.recognize) {
         self.editingPin = editingPin
         self.defaults = defaults
         self.clipboard = clipboard
+        self.textRecognizer = textRecognizer
         let savedColor = (defaults.object(forKey: "capture.editor.color") as? NSNumber)?.intValue ?? 1
         colorIndex = Self.colors.indices.contains(savedColor) ? savedColor : 1
         canvas = CaptureCanvas(image: image)
@@ -189,7 +191,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
             button.tag = tool.rawValue; button.setButtonType(.toggle)
             row.addArrangedSubview(button); toolButtons.append(button)
         }
-        recognitionButton = CaptureToolButton(.recognition, title: "提取文字 · 6 / ⇧⌘C", target: self, action: #selector(copyRecognizedText))
+        recognitionButton = CaptureToolButton(.recognition, title: editingPin ? "提取文字 · 6 / ⇧⌘C" : "提取文字 · ⌘T", target: self, action: #selector(copyRecognizedText))
         row.addArrangedSubview(recognitionButton)
         colorButton = CaptureToolButton(.color, title: "共用颜色 · 7", target: self, action: #selector(showColors))
         applyColor(colorIndex); row.addArrangedSubview(colorButton)
@@ -244,7 +246,9 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         guard !closed, !adjustingRegion, window.attachedSheet == nil else { return false }
         let screenshotCopy = !editingPin && event.keyCode == 8 &&
             event.modifierFlags.intersection([.command,.control,.option,.shift]) == .command
-        if textInput != nil && !screenshotCopy { return false }
+        let screenshotRecognition = !editingPin && event.keyCode == 17 &&
+            event.modifierFlags.intersection([.command,.control,.option,.shift]) == .command
+        if textInput != nil && !screenshotCopy && !screenshotRecognition { return false }
         let command = event.modifierFlags.contains(.command)
         switch event.keyCode {
         case 8 where command && event.modifierFlags.contains(.shift): copyRecognizedText()
@@ -255,7 +259,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
                 close()
             }
         case 1 where command: saveImage()
-        case 17 where command: editingPin ? confirm() : pinImage()
+        case 17 where command: editingPin ? confirm() : copyRecognizedText()
         case 6 where command:
             if !annotationEditingSuspended { event.modifierFlags.contains(.shift) ? redoAction() : undoAction() }
         case 13 where command: close()
@@ -476,11 +480,11 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
             }
         } else { copyImage(closeAfter: true) }
     }
-    @objc private func copyRecognizedText() {
+    @objc func copyRecognizedText() {
         guard !closed, !exporting, recognition == nil else { return }
         finishText(commit: true)
         canvas.commitDraft()
-        let request = CaptureTextRecognition.request(), base = canvas.base, marks = annotations, lifetime = lifetime
+        let request = CaptureTextRecognition.request(), base = canvas.base, marks = annotations, lifetime = lifetime, recognize = textRecognizer
         recognition = request; recognitionButton.isEnabled = false
         showStatus("正在提取文字…")
         queue.async { [weak self] in
@@ -491,16 +495,18 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
                         throw CaptureFailure.cancelled
                     }
                     guard lifetime.valid else { throw CaptureFailure.cancelled }
-                    return try CaptureTextRecognition.recognize(image, request: request)
+                    return try recognize(image, request)
                 }
             }
             DispatchQueue.main.async { [weak self] in
                 guard let self, !self.closed, lifetime.valid, self.recognition === request else { return }
                 self.recognition = nil; self.recognitionButton.isEnabled = true
                 switch result {
-                case .success(let text) where !text.isEmpty:
-                    NSPasteboard.general.clearContents()
-                    self.showStatus(NSPasteboard.general.setString(text, forType: .string) ? "文字已复制" : "复制失败")
+                case .success(let text) where !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty:
+                    self.clipboard.clearContents()
+                    guard self.clipboard.setString(text, forType: .string) else { self.showStatus("复制失败"); return }
+                    self.showStatus("文字已复制")
+                    if !self.editingPin { self.close() }
                 case .success: self.showStatus("未识别到文字")
                 case .failure: self.showStatus("文字提取失败，请重试")
                 }

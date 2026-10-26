@@ -236,7 +236,7 @@ import AppKit
     private var sourceAudio: [NSButton] = []
     private var audioChoices: [MinimalToggle] = []
     private let backdrop: NSImage?
-    private let captureHints = [NSTextField(labelWithString:"按上方快捷键开始截图"),NSTextField(labelWithString:"框选后 Enter 开始录屏")]
+    private let captureHints = [NSTextField(labelWithString:"⌘T 提取文字"),NSTextField(labelWithString:"框选后 Enter 开始录屏")]
     private let shortcutIssue = NSTextField(wrappingLabelWithString: "")
     private var shortcutIssues: [Int:String] = [:]
     private var issueHeight: CGFloat {
@@ -256,7 +256,7 @@ import AppKit
         if hostsShortcut { return max(0, settings.intrinsicContentSize.height) }
         if kind == "windowLayout" { return layoutFooterY + settings.fittingSize.height }
         if usesBackdrop { return kind == "capture" ? max(backdropHeight,backdropHeight*0.838+settings.fittingSize.height) : backdropHeight }
-        return kind == "kaomoji" ? max(compact ? 848 : 490,50+settings.fittingSize.height) : (kind == "capture" ? max(compact ? 864 : 440,(compact ? (shelfCard == nil ? 664 : 804) : 352)+settings.fittingSize.height) : (compact ? 550 : 410))
+        return kind == "kaomoji" ? max(compact ? 848 : 490,50+settings.fittingSize.height) : (kind == "capture" ? max(compact ? 892 : 440,(compact ? (shelfCard == nil ? 692 : 832) : 352)+settings.fittingSize.height) : (compact ? 550 : 410))
     }
     override var intrinsicContentSize: NSSize { NSSize(width:840,height:bodyHeight+issueHeight) }
     init(kind: String, settings: NSView, shortcuts: [NSView]) {
@@ -306,6 +306,7 @@ import AppKit
                 layoutCaptions.append(caption); addSubview(caption)
             }
         }
+        captureHints[0].identifier = .init("capture-recognition-shortcut")
         for hint in captureHints { hint.font = .systemFont(ofSize:13); hint.textColor=SketchPalette.ink; hint.alignment = .center; hint.isHidden=true; addSubview(hint) }
         if kind == "capture", let stack=settings as? NSStackView, stack.arrangedSubviews.count >= 4 {
             if let row = stack.arrangedSubviews.first(where: { $0.identifier?.rawValue == "capture-recording-audio" }) as? NSStackView {
@@ -424,7 +425,7 @@ import AppKit
             shelfCard?.frame = slot(CGRect(x: 0.028, y: 0.665, width: 0.31, height: 0.165))
             shelfCard?.layoutSubtreeIfNeeded()
             for (i,view) in selectors.enumerated() { view.frame=slot(Self.captureOutlineSlots[i]) }
-            for (i,hint) in captureHints.enumerated() { hint.isHidden=i == 0 && shelfCard != nil; hint.frame=slot(CGRect(x:i == 0 ? 0.03 : 0.68,y:0.68,width:0.29,height:0.07)) }
+            for (i,hint) in captureHints.enumerated() { hint.isHidden=false; hint.frame=slot(i == 0 ? CGRect(x:0.13,y:0.235,width:0.17,height:0.045) : CGRect(x:0.68,y:0.68,width:0.29,height:0.06)) }
             let audioSlot = slot(CGRect(x: 0.695, y: 0.758, width: 0.275, height: 0.065))
             layoutAudio(in: audioSlot)
             settings.frame=slot(CGRect(x:0,y:0.838,width:1,height:0.162))
@@ -487,19 +488,20 @@ import AppKit
         for choice in selectors { choice.backdropOnly=false }
         for hint in captureHints { hint.isHidden=true }
         if compact && kind == "capture" {
-            let artY: [CGFloat] = [0, 168, 484]
+            captureHints[0].isHidden=false; captureHints[0].frame=CGRect(x:0,y:166,width:w,height:26)
+            let artY: [CGFloat] = [0, 196, 512]
             for (i, view) in art.enumerated() {
                 view.frame = CGRect(x: 0, y: artY[i], width: w, height: 118)
             }
-            let shortcutY: [CGFloat] = [120, 288, 334, 604]
+            let shortcutY: [CGFloat] = [120, 316, 362, 632]
             for (i, view) in shortcuts.prefix(4).enumerated() {
                 view.frame = CGRect(x: 0, y: shortcutY[i], width: w, height: 46)
             }
             for (i, view) in selectors.enumerated() {
-                view.frame = CGRect(x: CGFloat(i)*w/2, y: 382, width: w/2-4, height: 88)
+                view.frame = CGRect(x: CGFloat(i)*w/2, y: 410, width: w/2-4, height: 88)
             }
-            layoutAudio(in: CGRect(x: 0, y: 654, width: w, height: 32))
-            let footerY: CGFloat = audioChoices.isEmpty ? 664 : 700
+            layoutAudio(in: CGRect(x: 0, y: 682, width: w, height: 32))
+            let footerY: CGFloat = audioChoices.isEmpty ? 692 : 728
             shelfCard?.keySize = CGSize(width: 64, height: 41)
             shelfCard?.frame = CGRect(x: 0, y: footerY, width: w, height: 80)
             shelfCard?.layoutSubtreeIfNeeded()
@@ -510,6 +512,7 @@ import AppKit
             settings.frame=CGRect(x:0,y:398,width:w,height:settings.fittingSize.height)
         } else if kind == "capture" {
             let col=(w-24)/3
+            captureHints[0].isHidden=false; captureHints[0].frame=CGRect(x:0,y:214,width:col,height:26)
             for (i,view) in art.enumerated() { view.frame=CGRect(x:CGFloat(i)*(col+12),y:0,width:col,height:150) }
             let xs=[CGFloat(0),col+12,col+12,2*(col+12)]
             let ys=[CGFloat(154),154,202,154]

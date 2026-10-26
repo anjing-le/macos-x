@@ -444,6 +444,7 @@ final class CaptureModule: NSObject {
         selection.onEditorKey = { [weak editor] in editor?.handleSelectionKey($0) ?? false }
         selection.onEditorCopy = { [weak editor] in editor?.copyCurrentImage() }
         selection.onEditorActivate = { [weak editor] in editor?.activateEditing() }
+        selection.onEditorRecognize = { [weak editor] in editor?.copyRecognizedText() }
         selection.onEditorCancel = { [weak editor] in editor?.close() }
         selection.onAdjustmentStarted = { [weak editor] in editor?.beginRegionAdjustment() }
         self.editor = editor; editor.present()

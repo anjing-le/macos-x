@@ -46,6 +46,7 @@ import os
     var onEditorKey: ((NSEvent) -> Bool)?
     var onEditorCopy: (() -> Void)?
     var onEditorActivate: (() -> Void)?
+    var onEditorRecognize: (() -> Void)?
     var onEditorCancel: (() -> Void)?
     var onAdjustmentStarted: (() -> Void)?
     private var acceptsInput = false
@@ -54,15 +55,16 @@ import os
     private var copyMonitor: Any?
     private var awaitingEditor = false
     private var pendingCopy = false
+    private var pendingRecognition = false
     private var copyingRange = false
     private static let copyLog = Logger(subsystem: "cc.anjing.macos-x",category: "capture-copy")
 
     private func installCopyMonitor() {
         guard mode == .screenshot, copyMonitor == nil else { return }
-        // F1 owns Command-C for this session, before menu key equivalents or
+        // F1 owns Command-C/T for this session, before menu key equivalents or
         // a text field can consume it. No global listener or idle polling.
         copyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            let handled = MainActor.assumeIsolated { self?.handleCopyShortcut(event) ?? false }
+            let handled = MainActor.assumeIsolated { (self?.handleRecognitionShortcut(event) ?? false) || (self?.handleCopyShortcut(event) ?? false) }
             return handled ? nil : event
         }
     }
@@ -77,6 +79,11 @@ import os
     }
     @discardableResult func editorDidBecomeReady() -> Bool {
         awaitingEditor = false
+        if pendingRecognition {
+            pendingRecognition = false
+            recognizePressed()
+            return true
+        }
         guard pendingCopy else { return false }
         pendingCopy = false
         copyPressed()
@@ -219,8 +226,8 @@ import os
         redraw()
     }
     func clearEditorCallbacks() {
-        onEditorKey = nil; onEditorCopy = nil; onEditorActivate = nil; onEditorCancel = nil; onAdjustmentStarted = nil
-        awaitingEditor = false; pendingCopy = false
+        onEditorKey = nil; onEditorCopy = nil; onEditorActivate = nil; onEditorRecognize = nil; onEditorCancel = nil; onAdjustmentStarted = nil
+        awaitingEditor = false; pendingCopy = false; pendingRecognition = false
     }
     func setEditing(_ editing: Bool) {
         if editing { retainBackdrop() } else { resume() }
@@ -361,7 +368,7 @@ import os
         shiftDown = nextShift; redraw()
     }
     private func keyDown(_ event: NSEvent) -> Bool {
-        if handleCopyShortcut(event) { return true }
+        if handleRecognitionShortcut(event) || handleCopyShortcut(event) { return true }
         if copyingRange, event.keyCode == 53 {
             let callback = completion
             dismiss(); callback?(.cancel); return true
@@ -454,8 +461,33 @@ import os
         panel.setFrame(CGRect(origin: CGPoint(x: x, y: y), size: size), display: true)
         panel.makeKeyAndOrderFront(nil)
     }
+    private func handleRecognitionShortcut(_ event: NSEvent) -> Bool {
+        guard mode == .screenshot, completion != nil, !frames.isEmpty, event.keyCode == 17,
+              event.modifierFlags.intersection([.command,.control,.option,.shift]) == .command else { return false }
+        if !event.isARepeat { recognizePressed() }
+        return true
+    }
+    private func recognizePressed() {
+        guard mode == .screenshot, !copyingRange, completion != nil, let region = validRegion() else { return }
+        pendingCopy = false
+        if drag != nil {
+            pendingRecognition = true
+            mouseUp(pointer)
+            if pendingRecognition, !awaitingEditor { recognizePressed() }
+            return
+        }
+        if awaitingEditor { pendingRecognition = true; return }
+        pendingRecognition = false
+        if let onEditorRecognize { onEditorRecognize() }
+        else {
+            pendingRecognition = true
+            if selection.isNull { selection = region; snappedWindow = targetWindow(for: region) }
+            finish(.edit(region))
+        }
+    }
     private func copyPressed() {
         guard mode == .screenshot, !copyingRange, completion != nil, let region = validRegion() else { return }
+        pendingRecognition = false
         if drag != nil {
             pendingCopy = true
             mouseUp(pointer)
@@ -463,7 +495,7 @@ import os
             return
         }
         if awaitingEditor { pendingCopy = true; return }
-        pendingCopy = false
+        pendingCopy = false; pendingRecognition = false
         if let onEditorCopy { onEditorCopy() } else { finish(.copy(region)) }
     }
 }
