@@ -2,27 +2,7 @@ import AppKit
 import ApplicationServices
 import MenuBarVisibilityBridge
 
-@MainActor protocol MenuVisibilityHandle: AnyObject { func invalidate() }
-@MainActor protocol MenuVisibilityProviding {
-    var available: Bool { get }
-    func activate(allowing: [String], completion: @escaping (MenuVisibilityHandle?) -> Void)
-}
-@MainActor final class NativeMenuVisibility: MenuVisibilityProviding {
-    var available: Bool { MXMenuVisibilityAvailable() }
-    func activate(allowing: [String], completion: @escaping (MenuVisibilityHandle?) -> Void) {
-        MXMenuVisibilityActivate((0..<64).map { NSNumber(value: $0) }, allowing) { raw, _ in
-            MainActor.assumeIsolated { completion(raw.map { Handle($0) }) }
-        }
-    }
-    private final class Handle: MenuVisibilityHandle {
-        private var raw: AnyObject?
-        init(_ raw: Any) { self.raw = raw as AnyObject }
-        func invalidate() { guard let raw else { return }; self.raw = nil; MXMenuVisibilityInvalidate(raw) }
-        deinit { if let raw { MXMenuVisibilityInvalidate(raw) } }
-    }
-}
-
-/// The apple owns the new drawer entry. Older systems retain the geometric
+/// The apple expands the original native menu bar; it never hosts proxy icons. Older systems retain the geometric
 /// boundary implementation; stopping either path restores all real icons.
 @MainActor final class MenuBarShelfModule: NSObject {
     enum State { case expanded, reading, collapsed }
@@ -33,7 +13,7 @@ import MenuBarVisibilityBridge
     private(set) var state: State = .expanded
     private(set) var issue: String?
     private(set) var hiddenCount = 0
-    private(set) var drawer: MenuBarDrawer?
+    private(set) var shelf: MenuBarNativeShelf?
     private let defaults: UserDefaults
     private let native: Bool
     private let visibility: MenuVisibilityProviding
@@ -42,7 +22,8 @@ import MenuBarVisibilityBridge
     private var timer: Timer?
     private var observers: [NSObjectProtocol] = []
     private weak var dashboard: MenuBarShelfDashboard?
-    var configureDrawer: ((MenuBarDrawer) -> Void)?
+    private weak var nativeDashboard: MenuBarNativeShelfDashboard?
+    var configureShelf: ((MenuBarNativeShelf) -> Void)?
     var autoCollapse: Bool {
         get { defaults.bool(forKey: "menuBarShelf.autoCollapse") }
         set {
@@ -59,20 +40,16 @@ import MenuBarVisibilityBridge
     func start() {
         guard !active else { return }; active = true; issue = nil; state = .expanded
         if native {
-            let drawer = MenuBarDrawer(defaults: defaults, visibility: visibility); self.drawer = drawer
-            drawer.anchorProvider = { [weak self] in self?.anchorProvider?() }
-            drawer.onAppleEvent = { [weak self] in self?.onAppleEvent?($0) }
-            drawer.onPixelsChange = { [weak self, weak drawer] in
-                guard let self, let drawer, self.dashboard?.window?.isVisible == true else { return }
-                self.dashboard?.setItems(drawer: drawer.drawerItems, visible: drawer.visibleItems)
+            let shelf = MenuBarNativeShelf(defaults: defaults, visibility: visibility); self.shelf = shelf
+            shelf.appleFrame = { [weak self] in self?.anchorProvider?() }
+            configureShelf?(shelf)
+            shelf.onChange = { [weak self, weak shelf] in
+                guard let self, let shelf else { return }
+                self.state = shelf.busy ? .reading : shelf.hidden ? .collapsed : .expanded
+                self.hiddenCount = shelf.hidden ? shelf.order.count : 0
+                self.issue = shelf.issue; self.refresh()
             }
-            configureDrawer?(drawer)
-            drawer.onChange = { [weak self, weak drawer] in
-                guard let self, let drawer else { return }
-                self.state = drawer.busy ? .reading : drawer.hidden ? .collapsed : .expanded
-                self.hiddenCount = drawer.hidden ? drawer.order.count : 0; self.issue = drawer.issue; self.refresh()
-            }
-            drawer.start(); refresh(); return
+            shelf.start(); refresh(); return
         }
         let boundary = NSStatusBar.system.statusItem(withLength: 28)
         boundary.autosaveName = "macos-x.menu-bar-boundary"; boundary.button?.target = self
@@ -89,40 +66,39 @@ import MenuBarVisibilityBridge
     }
     func stop() {
         guard active else { return }; active = false
-        drawer?.stop(); drawer = nil; expand(allowAutoCollapse: false)
+        shelf?.stop(); shelf = nil; expand(allowAutoCollapse: false)
         for observer in observers { NotificationCenter.default.removeObserver(observer); NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         observers.removeAll()
         if let boundary { NSStatusBar.system.removeStatusItem(boundary) }; boundary = nil
         if let spacer { NSStatusBar.system.removeStatusItem(spacer) }; spacer = nil
         issue = nil; refresh()
     }
-    func appleHover(_ frame: CGRect, inside: Bool) { drawer?.hover(frame, inside: inside) }
-    func appleClick() { drawer?.toggle() }
-    func makeDashboard() -> MenuBarShelfDashboard {
+    func appleHover(_ frame: CGRect, inside: Bool) { shelf?.hover(inside: inside) }
+    func appleClick() { shelf?.toggle() }
+    func makeDashboard() -> NSView {
+        if native {
+            let view = MenuBarNativeShelfDashboard(); nativeDashboard = view
+            view.onRead = { [weak self] in self?.shelf?.readChoices() }
+            view.onCollect = { [weak self] in self?.shelf?.setCollected($0, $1) }
+            view.onShow = { [weak self] in self?.shelf?.showAll() }
+            view.onCollapse = { [weak self] in self?.shelf?.collapse() }
+            view.onAccess = { [weak self] in self?.shelf?.requestAccess() }
+            refresh(); return view
+        }
         let view = MenuBarShelfDashboard(); dashboard = view
         view.onExpand = { [weak self] in self?.expand() }
         view.onCollapse = { [weak self] in self?.collapse() }
         view.onAutoCollapse = { [weak self] in self?.autoCollapse = $0 }
-        view.onRefresh = { [weak self] in self?.drawer?.requestIconAccess() }
-        view.onAdd = { [weak self] in self?.drawer?.add($0) }
-        view.onMove = { [weak self] in self?.drawer?.move($0, to: $1) }
-        view.onRestore = { [weak self] in self?.drawer?.restore($0, at: $1) }
-        view.onOpen = { [weak self] in self?.drawer?.openMenu($0) }
-        for strip in [view.drawer, view.visible] {
-            strip.onDragImage = { [weak self] item, point in self?.drawer?.showDragImage(item, at: point) }
-            strip.onDragFinished = { [weak self] in self?.drawer?.settleDragImage() }
-        }
-        view.onPreview = { [weak self] in self?.drawer?.toggle() }
         refresh(); return view
     }
     @objc private func clicked() { if state == .expanded { collapse() } else { expand() } }
     func expand(allowAutoCollapse: Bool = true) {
-        if let drawer { drawer.showAll(); return }
+        if let shelf { shelf.showAll(); return }
         cancelTimer(); spacer?.length = 8; state = .expanded; issue = nil
         if active, allowAutoCollapse, autoCollapse { scheduleCollapse(after: 10) }; refresh()
     }
     func collapse() {
-        if let drawer { drawer.apply(); return }
+        if let shelf { shelf.collapse(); return }
         guard active, state == .expanded else { return }; cancelTimer()
         if let left = spacer?.button?.window?.frame, let right = boundary?.button?.window?.frame, left.midX >= right.midX {
             issue = "按住 ⌘，把竖线放在收纳箭头左侧，再试一次。"; refresh(); return
@@ -147,7 +123,9 @@ import MenuBarVisibilityBridge
         boundary?.button?.image = NSImage(systemSymbolName: state == .collapsed ? "chevron.right" : "chevron.left", accessibilityDescription: "菜单栏收纳")
         boundary?.button?.image?.isTemplate = true
         boundary?.button?.toolTip = "点击收起／展开 · 按住 ⌘ 拖动图标分组"
-        dashboard?.setItems(drawer: drawer?.drawerItems ?? [], visible: drawer?.visibleItems ?? [])
+        nativeDashboard?.update(active: active, hidden: shelf?.hidden ?? false, busy: shelf?.busy ?? false,
+                                reading: shelf?.reading ?? false, issue: issue, choices: shelf?.choices ?? [], permitted: shelf?.permission() ?? false)
+        dashboard?.setItems(drawer: [], visible: [])
         dashboard?.update(active: active, state: state, auto: autoCollapse, issue: issue, count: hiddenCount, native: native)
         onStatusChange?()
     }

@@ -6,7 +6,10 @@ import os
     private var item: NSStatusItem?
     var onHover: ((CGRect, Bool) -> Void)?
     var onSingleClick: (() -> Void)?
-    var screenFrame: CGRect? { item?.button?.window?.frame }
+    var screenFrame: CGRect? {
+        guard let button = item?.button, let window = button.window else { return nil }
+        return window.convertToScreen(button.convert(button.bounds, to: nil))
+    }
     private var lastLeftClick: TimeInterval?
     private let logger = Logger(subsystem: "cc.anjing.macos-x", category: "menu-bar")
     private let onOpen: () -> Void

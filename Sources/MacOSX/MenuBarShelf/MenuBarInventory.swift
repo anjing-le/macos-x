@@ -238,6 +238,7 @@ final class MenuBarMenuWatch {
     private let app: AXUIElement
     private let item: AXUIElement
     private let onClosed: () -> Void
+    private let requireConfirmedDeselection: Bool
     private var notifications: [String] = []
     private var localMonitor: Any?, globalMonitor: Any?
     private var attached = false
@@ -245,8 +246,9 @@ final class MenuBarMenuWatch {
     private var cancelled = false, notified = false, checking = false, closePending = false, selectionPending = false
     private var selection = MenuBarMenuSelection()
     private static let cleanup = DispatchQueue(label: "cc.anjing.macos-x.menu-watch-cleanup")
-    init?(pid: pid_t, item: AXUIElement, onClosed: @escaping () -> Void) {
+    init?(pid: pid_t, item: AXUIElement, requireConfirmedDeselection: Bool = false, onClosed: @escaping () -> Void) {
         guard pid > 0 else { return nil }
+        self.requireConfirmedDeselection = requireConfirmedDeselection
         app = AXUIElementCreateApplication(pid); self.item = item; self.onClosed = onClosed
         AXUIElementSetMessagingTimeout(app, 0.1); AXUIElementSetMessagingTimeout(item, 0.1)
         var raw: AXObserver?
@@ -286,7 +288,7 @@ final class MenuBarMenuWatch {
             let selected: Bool? = canRead && AXUIElementCopyAttributeValue(item, kAXSelectedAttribute as CFString, &value) == .success
                 ? (value as? NSNumber)?.boolValue : nil
             lock.lock(); checking = false
-            let closed = !cancelled && selection.receive(selected, closedNotification: closeEvent)
+            let closed = !cancelled && selection.receive(selected, closedNotification: closeEvent && !requireConfirmedDeselection)
             let repeatSelection = !cancelled && !notified && (closePending || selectionPending)
             let observedMenu = !cancelled && !notified && selection.sawSelected
             lock.unlock()

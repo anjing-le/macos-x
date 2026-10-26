@@ -13,6 +13,8 @@ jobs:
         run: zsh tools/run-menu-bar-regression.sh
       - name: Check menu-bar shelf cancellation, restoration and dashboard
         run: zsh tools/run-menu-bar-shelf-regression.sh
+      - name: Check native menu-bar visibility lifecycle without proxy input
+        run: zsh tools/run-native-menu-bar-regression.sh
       - name: Test core
         run: swift test --disable-keychain
       - name: Check shortcut radar search, lifecycle and native interactions

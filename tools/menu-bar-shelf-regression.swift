@@ -610,11 +610,11 @@ import AppKit
         // Existing native UI is rendered using fixture app identities, not the
         // user's live inventory or preferences. Wide and narrow bounds are checked.
         let module = MenuBarShelfModule(defaults: defaults, visibility: bridge, native: true)
-        module.configureDrawer = { $0.permissionOverride = false; $0.testSkipInput = true; $0.testSkipEnvironment = true; $0.testNoPresentation = true }
-        module.start(); let owned = module.drawer
+        module.configureShelf = { $0.permission = { false }; $0.inputEnabled = false; $0.environmentEnabled = false; $0.runningApplications = { [] } }
+        module.start(); let owned = module.shelf
         try require(owned?.active == true, "Native module owns exactly one apple drawer")
         module.stop()
-        try require(owned?.active == false && module.drawer == nil, "Module disable releases the drawer and its event resources")
+        try require(owned?.active == false && module.shelf == nil, "Module disable releases the drawer and its event resources")
         for _ in 0..<20 {
             weak var releasedOwner: MenuBarDrawer?
             weak var releasedView: MenuBarDrawerView?
@@ -626,7 +626,7 @@ import AppKit
             }
             try require(releasedOwner == nil && releasedView == nil, "Repeated enable/disable must release drawer, accessibility children and view")
         }
-        let view = module.makeDashboard()
+        let view = MenuBarShelfDashboard()
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 840, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = view
         var previewIcons: [String: MenuBarIconPixels] = [:]
