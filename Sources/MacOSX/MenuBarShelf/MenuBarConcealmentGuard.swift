@@ -1,5 +1,6 @@
 import AppKit
 import Darwin
+import os
 
 struct MenuBarOwnerIdentity {
     let bundle: String
@@ -18,6 +19,9 @@ struct MenuBarConcealmentPlan {
     let allowing: Set<String>
     let rightAliases: Set<String>
     let protected: [MenuBarProtectedOwner]
+    // Only these owners were actually hit-testable before the transition.
+    // AXChildren also contains overflow/hidden logical nodes.
+    var renderedProtected: [MenuBarProtectedOwner] = []
     var hidden: Set<String> { Set(families.keys) }
     var hiddenPIDs: Set<pid_t> { Set(families.values.flatMap { $0.pids }) }
 }
@@ -27,6 +31,7 @@ struct MenuBarConcealmentPlan {
 /// The guard is event-driven, serial and bounded; no capture or idle polling.
 final class MenuBarConcealmentGuard {
     private let queue = DispatchQueue(label: "cc.anjing.macos-x.menu-bar-concealment", qos: .userInitiated)
+    private let logger = Logger(subsystem: "cc.anjing.macos-x", category: "menu-bar-concealment")
 
     static func plan(snapshot: MenuBarContainerSnapshot, own: pid_t, expectedApple: CGRect?,
                      identities: [pid_t: MenuBarOwnerIdentity], runningBundles: Set<String>,
@@ -91,16 +96,57 @@ final class MenuBarConcealmentGuard {
         return .init(families: families, allowing: allAliases.subtracting(hiddenAliases), rightAliases: right, protected: protected)
     }
 
-    static func preserves(_ plan: MenuBarConcealmentPlan, snapshot: MenuBarContainerSnapshot) -> Bool {
+    private static func matches(_ item: MenuBarContainer, _ before: MenuBarProtectedOwner) -> Bool {
+        guard item.pid == before.pid, let surface = item.surface else { return false }
+        return abs(surface.midY - before.surface.midY) <= 4
+            && surface.intersection(before.surface).width >= min(surface.width, before.surface.width) * 0.5
+    }
+
+    static func confirmingRenderedProtection(_ plan: MenuBarConcealmentPlan, snapshot: MenuBarContainerSnapshot,
+                                            hitOwner: (MenuBarContainer) -> pid_t?) -> MenuBarConcealmentPlan {
+        var result = plan
+        result.renderedProtected = plan.protected.filter { before in
+            snapshot.entries.contains { matches($0, before) && hitOwner($0) == before.pid }
+        }
+        return result
+    }
+
+    static func preserves(_ plan: MenuBarConcealmentPlan, snapshot: MenuBarContainerSnapshot,
+                          hitOwner: ((MenuBarContainer) -> pid_t?)? = nil) -> Bool {
         guard snapshot.complete else { return false }
-        if snapshot.entries.contains(where: { plan.hiddenPIDs.contains($0.pid) }) { return false }
-        return plan.protected.allSatisfy { before in
-            snapshot.entries.contains { after in
-                guard after.pid == before.pid, let surface = after.surface else { return false }
-                // The compositor may rebuild its window ID during reflow.
-                return abs(surface.midY - before.surface.midY) <= 4
-                    && surface.intersection(before.surface).width >= min(surface.width, before.surface.width) * 0.5
+        // Concealment does not promise to remove the app's logical AX nodes.
+        // Their continued existence is not evidence that an icon is visible.
+        guard plan.protected.allSatisfy({ before in
+            snapshot.entries.contains { matches($0, before) }
+        }) else { return false }
+        guard let hitOwner else { return true }
+        return plan.renderedProtected.allSatisfy { before in
+            snapshot.entries.contains { matches($0, before) && hitOwner($0) == before.pid }
+        }
+    }
+
+    /// Read-only z-order hit testing. Never moves the pointer or sends input.
+    /// Only previously confirmed visible owners become hard hit-test requirements;
+    /// unsupported/overflow entries remain protected by aliases and AX geometry.
+    private func hitReader(_ snapshot: MenuBarContainerSnapshot, token: MenuBarReadToken,
+                           deadline: TimeInterval) -> (MenuBarContainer) -> pid_t? {
+        let root = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(root, 0.025)
+        let own = ProcessInfo.processInfo.processIdentifier
+        var cache: [String: pid_t] = [:]
+        return { item in
+            guard !token.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { return nil }
+            let point = CGPoint(x:item.frame.midX,y:item.frame.midY)
+            // Avoid dispatching a background AX request into our own AppKit.
+            if snapshot.entries.contains(where: { $0.pid == own && $0.frame.contains(point) }) { return own }
+            let key = NSStringFromPoint(point)
+            if let cached = cache[key] { return cached > 0 ? cached : nil }
+            var element: AXUIElement?, pid: pid_t = 0
+            if AXUIElementCopyElementAtPosition(root, Float(point.x), Float(point.y), &element) == .success,
+               let element, AXUIElementGetPid(element, &pid) == .success, pid > 0 {
+                cache[key] = pid; return pid
             }
+            cache[key] = 0; return nil
         }
     }
 
@@ -143,21 +189,31 @@ final class MenuBarConcealmentGuard {
                 let deadline = ProcessInfo.processInfo.systemUptime + 0.8
                 let second = MenuBarInventory.snapshot(token: token, deadline: deadline)
                 let identities = self.identities(second, applications: applications, token: token, deadline: deadline)
-                let plan = first.complete && second.complete && self.signature(first) == self.signature(second)
+                var plan = first.complete && second.complete && self.signature(first) == self.signature(second)
                     ? identities.flatMap { Self.plan(snapshot: second, own: own, expectedApple: apple, identities: $0,
                           runningBundles: Set(applications.map(\.bundle)), desired: desired, previous: previous) } : nil
+                if let pending = plan {
+                    let hit = self.hitReader(second, token:token, deadline:ProcessInfo.processInfo.systemUptime + 0.4)
+                    plan = Self.confirmingRenderedProtection(pending, snapshot:second, hitOwner:hit)
+                }
                 DispatchQueue.main.async { if !token.isCancelled { completion(plan) } }
             }
         }
     }
     func verify(_ plan: MenuBarConcealmentPlan, token: MenuBarReadToken, completion: @escaping (Bool) -> Void) {
+        let deadline = ProcessInfo.processInfo.systemUptime + 1.8
         func check(_ previous: Bool, attempt: Int) {
             guard !token.isCancelled else { return }
-            let snapshot = MenuBarInventory.snapshot(token: token, deadline: ProcessInfo.processInfo.systemUptime + 0.65)
-            let valid = Self.preserves(plan, snapshot: snapshot)
+            let readDeadline = min(deadline, ProcessInfo.processInfo.systemUptime + 0.5)
+            let snapshot = MenuBarInventory.snapshot(token: token, deadline: readDeadline)
+            let hit = self.hitReader(snapshot, token:token, deadline:readDeadline)
+            let valid = Self.preserves(plan, snapshot:snapshot, hitOwner:hit)
             if valid && previous { DispatchQueue.main.async { if !token.isCancelled { completion(true) } }; return }
-            guard attempt < 2 else { DispatchQueue.main.async { if !token.isCancelled { completion(false) } }; return }
-            self.queue.asyncAfter(deadline: .now() + 0.12) { check(valid, attempt: attempt + 1) }
+            guard attempt < 5, ProcessInfo.processInfo.systemUptime + 0.18 < deadline else {
+                self.logger.error("postflight rejected: complete=\(snapshot.complete) protected=\(plan.protected.count) rendered=\(plan.renderedProtected.count)")
+                DispatchQueue.main.async { if !token.isCancelled { completion(false) } }; return
+            }
+            self.queue.asyncAfter(deadline: .now() + 0.18) { check(valid, attempt: attempt + 1) }
         }
         queue.asyncAfter(deadline: .now() + 0.12) { check(false, attempt: 0) }
     }

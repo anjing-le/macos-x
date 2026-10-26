@@ -91,7 +91,7 @@ struct NativeMenuBarChoice {
     var inputEnabled = true
     var environmentEnabled = true
     var collapseDelay: TimeInterval = 5
-    var activationTimeout: TimeInterval = 3
+    var activationTimeout: TimeInterval = 5
     var readOverride: ((MenuBarReadToken, @escaping ([MenuBarEntry]) -> Void) -> Void)?
     var beginInteractionOverride: ((MenuBarReadToken, @escaping (pid_t?) -> Void) -> Void)?
     var outsideInteractionOverride: ((MenuBarReadToken, @escaping (pid_t?) -> Void) -> Void)?
@@ -252,7 +252,7 @@ struct NativeMenuBarChoice {
             guard !self.interactionHeld, self.ownMenuDepth == 0, (!self.overBar || self.mayCollapseAtDrop), self.pressedButtons() == 0 else {
                 self.expose(); self.changed(); self.scheduleCollapse(); return
             }
-            self.logger.info("preflight desired=\(self.order.count) hidden=\(plan.hidden.count) protected=\(plan.protected.count)")
+            self.logger.info("preflight desired=\(self.order.count) hidden=\(plan.hidden.count) protected=\(plan.protected.count) rendered=\(plan.renderedProtected.count)")
             self.visibility.activate(allowing: Array(plan.allowing).sorted()) { [weak self] handle in
                 guard let self, self.active, self.transition == expected, self.busy, !token.isCancelled else { handle?.invalidate(); return }
                 guard let handle else { self.failConcealment("系统未能收纳，原生图标保持显示。"); return }
@@ -268,7 +268,7 @@ struct NativeMenuBarChoice {
                     }
                     self.transitionTimeout?.cancel(); self.transitionTimeout = nil
                     self.appliedPlan = plan; self.busy = false; self.hidden = true; self.issue = nil
-                    self.logger.info("postflight passed protected=\(plan.protected.count)")
+                    self.logger.info("postflight passed protected=\(plan.protected.count) rendered=\(plan.renderedProtected.count)")
                     self.changed()
                 }
                 if let verify = self.concealmentVerifyOverride { verify(plan, token, verified) }
