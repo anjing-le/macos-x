@@ -335,7 +335,17 @@ struct NativeMenuBarChoice {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown: activity = .down
         case .leftMouseUp, .rightMouseUp, .otherMouseUp: activity = .up
         case .keyDown: guard event.keyCode == 53 else { return }; activity = .escape
-        case .flagsChanged: guard command else { return }; activity = .moved
+        case .flagsChanged:
+            if command { activity = .moved }
+            else {
+                guard commandDragStart != nil, pressedButtons() == 0 else { return }
+                let expected = inputGeneration, releasePoint = pointer()
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.active, self.inputGeneration == expected else { return }
+                    self.observeCommandDrag(.ended, at: releasePoint, command: false)
+                }
+                return
+            }
         default: activity = .moved
         }
         let point = event.cgEvent.map { CGPoint(x: $0.location.x, y: screenTop - $0.location.y) } ?? pointer()
@@ -445,24 +455,27 @@ struct NativeMenuBarChoice {
         }
     }
     func collectLeftOfApple(dropPoint: CGPoint? = nil) {
-        guard active, permission(), visibility.available else {
+        guard active else { return }
+        // Once the user has rearranged native icons, the old membership is no
+        // longer safe to reapply. Unconfirmed reads stay expanded until retry.
+        cancelReading(); cancelInteraction(); wantsCollapsed = false; expandTemporarily()
+        guard permission(), visibility.available else {
             issue = "请先授权辅助功能；原生图标保持显示。"; changed(); return
         }
-        guard let apple = appleFrame(), apple.width > 0, apple.height > 0 else {
-            issue = "未确认苹果位置，已保留原设置；可点“按当前位置收纳”重试。"; changed(); return
+        let apple = appleFrame()
+        guard dropPoint != nil || apple.map({ $0.width > 0 && $0.height > 0 }) == true else {
+            issue = "未确认苹果位置，原生图标保持显示；请重试。"; changed(); return
         }
-        if let dropPoint {
-            let appleCenter = CGPoint(x: apple.midX, y: apple.midY)
-            guard (cachedBands ?? menuBands()).contains(where: { $0.contains(dropPoint) && $0.contains(appleCenter) }) else {
-                issue = "未确认当前屏幕的苹果位置，已保留原设置。"; changed(); return
-            }
+        if let dropPoint, !inBar(dropPoint) {
+            issue = "未确认当前屏幕的菜单栏，原生图标保持显示。"; changed(); return
         }
-        cancelReading(); cancelInteraction(); expandTemporarily()
+        screenTop = NSScreen.screens.first?.frame.maxY ?? 0
+        let top = screenTop
         applications = runningApplications(); reading = true; readGeneration &+= 1
         let expected = readGeneration, token = MenuBarReadToken(); readToken = token
         let timeout = DispatchWorkItem { [weak self] in
             guard let self, self.active, self.readGeneration == expected else { return }
-            self.cancelReading(); self.issue = "位置读取超时，已保留原设置。"; self.changed()
+            self.cancelReading(); self.issue = "位置读取超时，原生图标保持显示；请重试。"; self.changed()
         }
         readTimeout = timeout; DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: timeout)
         let receive: (MenuBarBoundaryLayout?) -> Void = { [weak self] layout in
@@ -470,9 +483,13 @@ struct NativeMenuBarChoice {
             self.cancelReading()
             let running = Set(self.applications.map(\.bundle))
             guard let layout,
+                  dropPoint.map({ point in
+                      let anchor = CGPoint(x: layout.apple.midX, y: top - layout.apple.midY)
+                      return (self.cachedBands ?? self.menuBands()).contains { $0.contains(point) && $0.contains(anchor) }
+                  }) ?? true,
                   Set(self.order).intersection(running).isSubset(of: Set(layout.entries.map(\.bundle))),
                   let next = MenuBarBoundaryGrouping.order(layout, previous: self.order, running: running) else {
-                self.issue = "未读到稳定位置，已保留原设置；可点“按当前位置收纳”重试。"; self.changed(); return
+                self.issue = "未读到稳定位置，原生图标保持显示；请重试。"; self.changed(); return
             }
             self.order = next; self.defaults.set(next, forKey: "menuBarShelf.drawerBundles.v1")
             self.entries = layout.entries; self.wantsCollapsed = !next.isEmpty
@@ -484,9 +501,9 @@ struct NativeMenuBarChoice {
         else {
             // Snapshot the own-app geometry on the main actor before querying
             // the MenuBarAgent containers on the background worker.
-            screenTop = NSScreen.screens.first?.frame.maxY ?? 0
-            let quartz = CGRect(x: apple.minX, y: screenTop - apple.maxY, width: apple.width, height: apple.height)
-            boundaryReader.read(apple: quartz, applications: applications, token: token, completion: receive)
+            let quartz = apple.map { CGRect(x: $0.minX, y: top - $0.maxY, width: $0.width, height: $0.height) }
+            let location = dropPoint.map { CGPoint(x: $0.x, y: top - $0.y) }
+            boundaryReader.read(apple: quartz, at: location, applications: applications, token: token, completion: receive)
         }
     }
     func setCollected(_ bundle: String, _ collected: Bool) {

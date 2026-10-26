@@ -23,8 +23,14 @@ import AppKit
 // In-process input fixture only. These events are never posted to macOS.
 extension MenuBarNativeShelf {
     fileprivate func fixtureEvent(_ type: CGEventType, at point: CGPoint, command: Bool = false) {
-        let event = CGEvent(mouseEventSource: nil, mouseType: type,
-                            mouseCursorPosition: CGPoint(x: point.x, y: -point.y), mouseButton: .left)!
+        let event: CGEvent
+        if type == .flagsChanged {
+            event = CGEvent(keyboardEventSource:nil,virtualKey:55,keyDown:command)!
+            event.type = .flagsChanged; event.location = CGPoint(x:point.x,y:-point.y)
+        } else {
+            event = CGEvent(mouseEventSource:nil,mouseType:type,
+                            mouseCursorPosition:CGPoint(x:point.x,y:-point.y),mouseButton:.left)!
+        }
         event.flags = command ? .maskCommand : []
         observe(NSEvent(cgEvent: event)!)
     }
@@ -100,6 +106,59 @@ extension MenuBarNativeShelf {
             try check(!shelf.hidden && !shelf.wantsCollapsed && !shelf.reading, "Show all cancels pending grouping and stays expanded after stale completion")
             shelf.stop()
         }
+        // The same process owns a native apple on each display. AppKit may
+        // still expose only the primary one while the user drags on secondary.
+        let own: pid_t = 999
+        let primary = CGRect(x:0,y:0,width:1500,height:24)
+        let secondary = CGRect(x:1500,y:-240,width:2500,height:30)
+        let primaryApple = MenuBarContainer(pid:own,frame:apple,surface:primary,surfaceID:10)
+        let secondaryApple = MenuBarContainer(pid:own,frame:CGRect(x:3700,y:-240,width:30,height:30),surface:secondary,surfaceID:20)
+        let wechat: pid_t = 103, wechat2: pid_t = 104
+        let names: [pid_t:String] = [101:a,102:b,103:"com.tencent.xinWeChat",104:"com.tencent.xinWeChat2"]
+        let containers = [primaryApple, secondaryApple,
+            MenuBarContainer(pid:wechat,frame:CGRect(x:3780,y:-240,width:24,height:30),surface:secondary,surfaceID:20),
+            MenuBarContainer(pid:wechat2,frame:CGRect(x:3650,y:-240,width:24,height:30),surface:secondary,surfaceID:20),
+            MenuBarContainer(pid:wechat,frame:CGRect(x:650,y:0,width:24,height:24),surface:primary,surfaceID:10)]
+        let snapshot = MenuBarContainerSnapshot(entries:containers,complete:true)
+        let secondaryLayout = MenuBarBoundaryReader.layout(snapshot,own:own,names:names,expectedApple:apple,dropPoint:CGPoint(x:3780,y:-225))
+        try check(secondaryLayout?.apple == secondaryApple.frame, "Drop display selects its real apple even when AppKit reports the primary apple")
+        try check(secondaryLayout.flatMap { MenuBarBoundaryGrouping.order($0,previous:["com.tencent.xinWeChat","com.tencent.xinWeChat2"],running:Set(names.values)) } == ["com.tencent.xinWeChat2"], "WeChat right of the secondary apple stays visible while the other WeChat left stays collected")
+        let ambiguous = MenuBarContainerSnapshot(entries:containers+[MenuBarContainer(pid:own,frame:CGRect(x:3600,y:-240,width:30,height:30),surface:secondary,surfaceID:20)],complete:true)
+        try check(MenuBarBoundaryReader.layout(ambiguous,own:own,names:names,expectedApple:apple,dropPoint:CGPoint(x:3780,y:-225)) == nil, "Multiple unconfirmed own controls on a secondary display cannot be guessed into an apple boundary")
+        try check(MenuBarBoundaryReader.layout(snapshot,own:own,names:names,expectedApple:apple,dropPoint:CGPoint(x:800,y:200)) == nil, "A drop outside confirmed native surfaces cannot classify")
+        do {
+            let bridge = TestVisibility(), shelf = setup(bridge,saved:[a,b])
+            let top = NSScreen.screens.first?.frame.maxY ?? 0
+            let mainExpected = CGRect(x:750,y:top-24,width:30,height:24)
+            let secondaryTop = top + 240
+            shelf.menuBands = { [CGRect(x:0,y:top-40,width:1500,height:40),CGRect(x:1500,y:secondaryTop-46,width:2500,height:46)] }
+            shelf.appleFrame = { mainExpected }
+            shelf.pointer = { CGPoint(x:3780,y:secondaryTop-15) }
+            let right = MenuBarEntry(bundle:b,frame:CGRect(x:3780,y:-240,width:24,height:30),pid:102)
+            let left = MenuBarEntry(bundle:a,frame:CGRect(x:3650,y:-240,width:24,height:30),pid:101)
+            shelf.boundaryReadOverride = { _,done in done(.init(apple:secondaryApple.frame,entries:[left,right],complete:true)) }
+            shelf.start(); shelf.collectLeftOfApple(dropPoint:shelf.pointer())
+            try check(shelf.order == [a] && bridge.lists.last?.contains(b) == true && bridge.lists.last?.contains(a) == false, "Committed allow-list restores the previously collected right-side owner on the actual drop display")
+            shelf.stop()
+        }
+        do {
+            let bridge = TestVisibility(), shelf = setup(bridge,saved:[a,b])
+            shelf.appleFrame = { CGRect(x:750,y:940,width:30,height:24) }
+            shelf.pointer = { CGPoint(x:850,y:950) }
+            var reads = 0
+            shelf.boundaryReadOverride = { _,done in reads += 1; done(layout([leftA,rightB])) }
+            shelf.start()
+            shelf.fixtureEvent(.leftMouseDown,at:CGPoint(x:650,y:950),command:true)
+            shelf.fixtureEvent(.leftMouseDragged,at:CGPoint(x:850,y:950),command:true)
+            await pause()
+            shelf.fixtureEvent(.flagsChanged,at:CGPoint(x:850,y:950))
+            await pause()
+            try check(reads == 1 && shelf.order == [a] && bridge.lists.last?.contains(b) == true, "Command release completes a witnessed native drag even if system tracking omitted mouse-up")
+            shelf.fixtureEvent(.leftMouseUp,at:CGPoint(x:850,y:950))
+            await pause()
+            try check(reads == 1, "Late mouse-up after Command release does not commit a second classification")
+            shelf.stop()
+        }
         try check(MenuBarBoundaryGrouping.order(layout([leftA, rightB]), previous: [b], running: [a,b]) == [a], "Left-side owners are collected; right-side owners are removed from collection")
         try check(MenuBarBoundaryGrouping.order(layout([leftA, leftB, rightB]), previous: [], running: [a,b]) == [a], "A right-side sibling prevents hiding the whole application")
         try check(MenuBarBoundaryGrouping.order(layout([leftA], complete: false), previous: [b], running: [a,b]) == nil, "Incomplete native geometry never replaces membership")
@@ -123,13 +182,13 @@ extension MenuBarNativeShelf {
             shelf.observeCommandDrag(.moved, at: CGPoint(x:650,y:950), command:true)
             shelf.observeCommandDrag(.ended, at: CGPoint(x:650,y:950), command:false)
             try check(reads == 1 && shelf.order == [a] && shelf.hidden, "First Command-drag works from an empty collection and automatically hides the confirmed left side")
-            shelf.collectLeftOfApple(dropPoint: CGPoint(x:-100,y:-75))
-            try check(reads == 1 && shelf.order == [a], "A drag on an unconfirmed display cannot classify using another screen's apple")
             shelf.observe(.moved, at: CGPoint(x:650,y:950))
             try check(shelf.hidden, "An unchanged drop pointer does not instantly reopen collection")
             shelf.pointer = { CGPoint(x:100,y:100) }; shelf.observe(.moved)
             shelf.pointer = { CGPoint(x:650,y:950) }; shelf.observe(.moved)
             try check(!shelf.hidden, "Leaving and reentering re-arms native expansion")
+            shelf.collectLeftOfApple(dropPoint: CGPoint(x:-100,y:-75))
+            try check(reads == 2 && shelf.order == [a] && !shelf.wantsCollapsed, "A response from another display cannot classify or reapply old hiding")
             shelf.stop()
         }
         do {
@@ -146,6 +205,8 @@ extension MenuBarNativeShelf {
             shelf.boundaryReadOverride = { _, done in done(nil) }
             shelf.start(); shelf.collectLeftOfApple()
             try check(shelf.order == [a] && !shelf.hidden && shelf.issue != nil, "Unstable geometry preserves saved membership and reports failure")
+            shelf.observe(.moved); await pause(); shelf.environmentChanged(); await pause()
+            try check(!shelf.hidden && !shelf.wantsCollapsed && !shelf.hasDismissal, "Failed reclassification never reapplies stale hiding after pointer or application changes")
             shelf.stop()
         }
         do {

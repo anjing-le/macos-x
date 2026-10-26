@@ -29,28 +29,48 @@ enum MenuBarBoundaryGrouping {
 /// input. Two matching reads (at most three attempts) protect against reflow.
 final class MenuBarBoundaryReader {
     private let queue = DispatchQueue(label: "cc.anjing.macos-x.menu-bar-boundary", qos: .userInitiated)
-    func read(apple expected: CGRect, applications: [NativeMenuBarApplication], token: MenuBarReadToken,
+    /// Resolve the apple on the actual drop surface, not the one AppKit's
+    /// single status-item window happened to report. Multiple own items without
+    /// a matching AppKit anchor remain ambiguous and must stay visible.
+    static func layout(_ snapshot: MenuBarContainerSnapshot, own: pid_t, names: [pid_t: String],
+                       expectedApple: CGRect?, dropPoint: CGPoint?) -> MenuBarBoundaryLayout? {
+        guard snapshot.complete else { return nil }
+        var anchors = snapshot.entries.filter { item in
+            item.pid == own && item.frame.width > 0 && item.frame.height > 0
+                && (dropPoint.map { item.surface?.contains($0) == true } ?? true)
+        }
+        if let expectedApple {
+            let center = CGPoint(x: expectedApple.midX, y: expectedApple.midY)
+            let matching = anchors.filter { $0.frame.contains(center) }
+            if !matching.isEmpty { anchors = matching }
+            else if dropPoint == nil { return nil }
+        } else if dropPoint == nil { return nil }
+        // Duplicate AX nodes with identical surface/geometry are one anchor.
+        var unique: [MenuBarContainer] = []
+        for item in anchors where !unique.contains(where: {
+            $0.frame == item.frame && $0.surface == item.surface && $0.surfaceID == item.surfaceID
+        }) { unique.append(item) }
+        guard unique.count == 1, let anchor = unique.first else { return nil }
+        let local = snapshot.entries.filter { $0.surfaceID == anchor.surfaceID && $0.surface == anchor.surface }
+        var entries: [MenuBarEntry] = []
+        for item in local where item.pid != own {
+            guard let bundle = names[item.pid], !MenuBarSections.systemOwners.contains(bundle) else { continue }
+            let overlap = local.contains { other in
+                other.pid != item.pid && other.frame.intersection(item.frame).width > 0.5
+                    && other.frame.intersection(item.frame).height > 0.5
+            }
+            entries.append(.init(bundle: bundle, frame: item.frame, pid: item.pid, visible: !overlap))
+        }
+        return .init(apple: anchor.frame, entries: entries, complete: true)
+    }
+    func read(apple expected: CGRect?, at dropPoint: CGPoint?, applications: [NativeMenuBarApplication], token: MenuBarReadToken,
               completion: @escaping (MenuBarBoundaryLayout?) -> Void) {
         let own = ProcessInfo.processInfo.processIdentifier
         let names = Dictionary(applications.map { ($0.pid, $0.bundle) }, uniquingKeysWith: { a, _ in a })
         func sample() -> MenuBarBoundaryLayout? {
             guard !token.isCancelled else { return nil }
             let snapshot = MenuBarInventory.snapshot(token: token, deadline: ProcessInfo.processInfo.systemUptime + 0.65)
-            guard snapshot.complete else { return nil }
-            let center = CGPoint(x: expected.midX, y: expected.midY)
-            let anchors = snapshot.entries.filter { $0.pid == own && $0.frame.contains(center) }
-            guard let anchor = anchors.first, Set(anchors.map { NSValue(rect: $0.frame) }).count == 1 else { return nil }
-            let local = snapshot.entries.filter { $0.surfaceID == anchor.surfaceID && $0.surface == anchor.surface }
-            var entries: [MenuBarEntry] = []
-            for item in local where item.pid != own {
-                guard let bundle = names[item.pid], !MenuBarSections.systemOwners.contains(bundle) else { continue }
-                let overlap = local.contains { other in
-                    other.pid != item.pid && other.frame.intersection(item.frame).width > 0.5
-                        && other.frame.intersection(item.frame).height > 0.5
-                }
-                entries.append(.init(bundle: bundle, frame: item.frame, pid: item.pid, visible: !overlap))
-            }
-            return .init(apple: anchor.frame, entries: entries, complete: true)
+            return Self.layout(snapshot, own: own, names: names, expectedApple: expected, dropPoint: dropPoint)
         }
         func signature(_ layout: MenuBarBoundaryLayout?) -> [String]? {
             layout.map { value in
