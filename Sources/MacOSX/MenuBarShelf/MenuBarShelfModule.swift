@@ -79,8 +79,6 @@ import MenuBarVisibilityBridge
         if native {
             let view = MenuBarNativeShelfDashboard(); nativeDashboard = view
             view.onRead = { [weak self] in self?.shelf?.collectLeftOfApple() }
-            view.onShow = { [weak self] in self?.shelf?.showAll() }
-            view.onCollapse = { [weak self] in self?.shelf?.collapse() }
             view.onAccess = { [weak self] in self?.shelf?.requestAccess() }
             refresh(); return view
         }
@@ -122,8 +120,8 @@ import MenuBarVisibilityBridge
         boundary?.button?.image = NSImage(systemSymbolName: state == .collapsed ? "chevron.right" : "chevron.left", accessibilityDescription: "菜单栏收纳")
         boundary?.button?.image?.isTemplate = true
         boundary?.button?.toolTip = "点击收起／展开 · 按住 ⌘ 拖动图标分组"
-        nativeDashboard?.update(active: active, hidden: shelf?.hidden ?? false, busy: shelf?.busy ?? false,
-                                reading: shelf?.reading ?? false, issue: issue, choices: shelf?.choices ?? [], permitted: shelf?.permission() ?? false)
+        nativeDashboard?.update(active: active, busy: shelf?.busy ?? false,
+                                reading: shelf?.reading ?? false, issue: issue, permitted: shelf?.permission() ?? false)
         dashboard?.setItems(drawer: [], visible: [])
         dashboard?.update(active: active, state: state, auto: autoCollapse, issue: issue, count: hiddenCount, native: native)
         onStatusChange?()

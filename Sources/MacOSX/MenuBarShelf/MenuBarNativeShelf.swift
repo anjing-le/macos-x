@@ -94,7 +94,7 @@ struct NativeMenuBarChoice {
     func requestAccess() {
         guard active else { return }
         if requestPermission() { issue = nil; readChoices() }
-        else { issue = "授权后返回，点“读取应用”继续。"; changed() }
+        else { issue = "请在系统设置中授权辅助功能，返回后重试。"; changed() }
     }
 
     init(defaults: UserDefaults, visibility: MenuVisibilityProviding) {
