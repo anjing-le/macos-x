@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/macos-x-cover.png" alt="macos-x：可插拔的个人 macOS 工具箱" width="100%" />
+  <img src="assets/readme/01-cover.png" alt="macos-x：让 Mac 上的常用操作，顺手一点。" width="100%" />
 </p>
 
 
