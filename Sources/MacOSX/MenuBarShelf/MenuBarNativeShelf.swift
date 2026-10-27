@@ -154,7 +154,7 @@ struct NativeMenuBarChoice {
                 }
             })
         }
-        wantsCollapsed = !order.isEmpty
+        wantsCollapsed = true
         updateMonitors()
         if wantsCollapsed { collapseWhenSafe() }
         changed()
@@ -180,7 +180,7 @@ struct NativeMenuBarChoice {
     }
     func collapse() {
         guard active else { return }
-        wantsCollapsed = !order.isEmpty; awaitingRecoveryVisit = false; cancelInteraction(); collapseWhenSafe()
+        wantsCollapsed = true; awaitingRecoveryVisit = false; cancelInteraction(); collapseWhenSafe()
     }
     func toggle() {
         guard active else { return }
@@ -220,7 +220,7 @@ struct NativeMenuBarChoice {
         dismissGeneration &+= 1; dismissal?.cancel(); dismissal = nil
     }
     private func scheduleCollapse() {
-        guard active, wantsCollapsed, !awaitingRecoveryVisit, !order.isEmpty, !hidden, !busy, !interactionHeld, ownMenuDepth == 0,
+        guard active, wantsCollapsed, !awaitingRecoveryVisit, !hidden, !busy, !interactionHeld, ownMenuDepth == 0,
               !overBar, pressedButtons() == 0, dismissal == nil else { return }
         let expected = dismissGeneration
         let work = DispatchWorkItem { [weak self] in
@@ -231,7 +231,7 @@ struct NativeMenuBarChoice {
         DispatchQueue.main.asyncAfter(deadline: .now() + collapseDelay, execute: work)
     }
     private func collapseWhenSafe() {
-        guard active, wantsCollapsed, !awaitingRecoveryVisit, !order.isEmpty else { return }
+        guard active, wantsCollapsed, !awaitingRecoveryVisit else { return }
         guard !reading, !interactionHeld, ownMenuDepth == 0, (!overBar || mayCollapseAtDrop), pressedButtons() == 0 else { cancelDismissal(); return }
         guard permission(), visibility.available else {
             expose(); issue = permission() ? "当前系统暂不能收纳，已保留原生图标。" : "需要辅助功能权限，原生图标保持显示。"
@@ -253,12 +253,12 @@ struct NativeMenuBarChoice {
             // The restriction applies globally. A right-side icon on ANY
             // display protects its entire app/helper family, including stale
             // membership restored at launch or a missed Command-drag event.
-            let next = self.order.filter { !plan.rightAliases.contains($0) }
+            let retained = self.order.filter { !plan.rightAliases.contains($0) }
+            let next = Array((retained + plan.hidden.subtracting(retained).sorted()).prefix(40))
             if next != self.order {
                 self.order = next; self.defaults.set(next, forKey: "menuBarShelf.drawerBundles.v1")
-                self.wantsCollapsed = !next.isEmpty
             }
-            guard !plan.hidden.isEmpty else { self.expose(); self.changed(); return }
+            guard !plan.hidden.isEmpty else { self.awaitingRecoveryVisit = true; self.expose(); self.changed(); return }
             guard !self.interactionHeld, self.ownMenuDepth == 0, (!self.overBar || self.mayCollapseAtDrop), self.pressedButtons() == 0 else {
                 self.expose(); self.changed(); self.scheduleCollapse(); return
             }
@@ -316,7 +316,7 @@ struct NativeMenuBarChoice {
         if activity == .escape {
             commandDragStart = nil; postDropPoint = nil; cancelReading(); cancelInteraction(); scheduleCollapse(); return
         }
-        guard !order.isEmpty else { return }
+        guard !order.isEmpty || wantsCollapsed else { return }
         if activity == .moved, suppressPostDropReveal(at: point) { return }
         if activity == .down { postDropPoint = nil }
         if inBar(point) {
@@ -527,8 +527,10 @@ struct NativeMenuBarChoice {
     func collectLeftOfApple(dropPoint: CGPoint? = nil) {
         guard active else { return }
         // Once the user has rearranged native icons, the old membership is no
-        // longer safe to reapply. Unconfirmed reads stay expanded until retry.
-        cancelReading(); cancelInteraction(); wantsCollapsed = false; expandTemporarily()
+        // longer safe to reapply. Keep the user intent but park discovery until
+        // a fresh complete position plan can be read after an unconfirmed drop.
+        cancelReading(); cancelInteraction(); wantsCollapsed = true; expandTemporarily()
+        awaitingRecoveryVisit = true
         guard permission(), visibility.available else {
             issue = "请先授权辅助功能；原生图标保持显示。"; changed(); return
         }
@@ -562,7 +564,7 @@ struct NativeMenuBarChoice {
                 self.issue = "未读到稳定位置，原生图标保持显示；请重试。"; self.changed(); return
             }
             self.order = next; self.defaults.set(next, forKey: "menuBarShelf.drawerBundles.v1")
-            self.entries = layout.entries; self.wantsCollapsed = !next.isEmpty
+            self.entries = layout.entries; self.wantsCollapsed = true; self.awaitingRecoveryVisit = false
             self.postDropPoint = dropPoint; self.issue = nil
             self.updateMonitors(); self.collapseWhenSafe(); self.changed()
         }

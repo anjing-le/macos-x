@@ -152,7 +152,7 @@ extension MenuBarNativeShelf {
             shelf.hover(inside:true)
             expanded = .init(entries:[container(ownPID,750),container(101,850),container(102,650)],complete:true)
             shelf.observe(.moved); await pause()
-            try check(!shelf.hidden && shelf.order.isEmpty, "Every collapse rereads positions even when the native drag observation was missed")
+            try check(shelf.hidden && shelf.order == [b] && bridge.lists.last?.contains(a) == true, "Fresh positions collect the new left owner and retain the moved-right owner even when drag observation was missed")
             shelf.stop()
             expanded = .init(entries:[container(ownPID,750),container(101,650),container(102,850)],complete:true)
         }
@@ -354,6 +354,36 @@ extension MenuBarNativeShelf {
                 try check(!identity.aliases.contains("com.apple.sleep"),"An unrelated executable signing identifier is not added as a visibility alias")
             } else { try check(false,"Unregistered packaged helper must resolve") }
         }
+        try check(concealment(expanded,desired:[b])?.hidden == [a],"Confirmed left-side applications are collected even when absent from stale saved membership")
+        let shiftedGhost=MenuBarContainerSnapshot(entries:[container(ownPID,600),container(101,650),container(102,850)],complete:true)
+        let retainedGhost=concealment(shiftedGhost,desired:[a],previous:guarded)
+        try check(retainedGhost?.hidden == [a] && retainedGhost?.rightAliases.contains(a) == false,"Old coordinates of already-concealed AX nodes cannot erase saved intent as a new right drag")
+        let mixed=MenuBarContainerSnapshot(entries:[container(ownPID,750),container(101,900),container(201,650),container(102,1000)],complete:true)
+        try check(concealment(mixed,desired:[a],previous:guarded)?.hidden == [a,"right.helper"],"In-place updates retain concealed owners and add newly observed left owners without oscillating between partial groups")
+        let freshRight=concealment(shiftedGhost,desired:[a],previous:nil)
+        try check(freshRight?.hidden.isEmpty == true && freshRight?.rightAliases.contains(a) == true,"After reveal a genuinely right-side owner still wins over saved intent")
+        do {
+            let bridge=TestVisibility(),shelf=setup(bridge,saved:[b])
+            shelf.concealmentReadOverride = { desired,previous,_,done in done(concealment(expanded,desired:desired,previous:previous)) }
+            shelf.start()
+            try check(shelf.order == [a] && shelf.hidden,"Every successful fresh plan repairs partial membership from actual positions")
+            shelf.stop()
+        }
+        do {
+            let bridge=TestVisibility(),shelf=setup(bridge,saved:[])
+            shelf.concealmentReadOverride = { desired,previous,_,done in done(concealment(expanded,desired:desired,previous:previous)) }
+            shelf.start()
+            try check(shelf.order == [a] && shelf.hidden,"An empty or corrupted saved list does not disable position-based startup discovery")
+            shelf.stop()
+        }
+        do {
+            let bridge=TestVisibility(),shelf=setup(bridge,saved:[])
+            var reads=0
+            shelf.concealmentReadOverride = { _,_,_,done in reads += 1;done(.init(families:[:],allowing:[a,b],rightAliases:[a,b],protected:[])) }
+            shelf.start();shelf.observe(.moved);await pause();shelf.observe(.moved);await pause()
+            try check(reads == 1 && shelf.wantsCollapsed && !shelf.hasDismissal && bridge.lists.isEmpty,"An empty left region parks discovery until a fresh event rather than scanning every five seconds")
+            shelf.stop()
+        }
         let own: pid_t = 999
         let primary = CGRect(x:0,y:0,width:1500,height:24)
         let secondary = CGRect(x:1500,y:-240,width:2500,height:30)
@@ -434,7 +464,7 @@ extension MenuBarNativeShelf {
             shelf.pointer = { CGPoint(x:650,y:950) }; shelf.observe(.moved)
             try check(!shelf.hidden, "Leaving and reentering re-arms native expansion")
             shelf.collectLeftOfApple(dropPoint: CGPoint(x:-100,y:-75))
-            try check(reads == 2 && shelf.order == [a] && !shelf.wantsCollapsed, "A response from another display cannot classify or reapply old hiding")
+            try check(reads == 2 && shelf.order == [a] && shelf.wantsCollapsed && !shelf.hasDismissal, "A response from another display cannot classify or reapply old hiding")
             shelf.stop()
         }
         do {
@@ -451,8 +481,9 @@ extension MenuBarNativeShelf {
             shelf.boundaryReadOverride = { _, done in done(nil) }
             shelf.start(); shelf.collectLeftOfApple()
             try check(shelf.order == [a] && !shelf.hidden && shelf.issue != nil, "Unstable geometry preserves saved membership and reports failure")
+            shelf.concealmentReadOverride = { _,_,_,done in done(nil) }
             shelf.observe(.moved); await pause(); shelf.environmentChanged(); await pause()
-            try check(!shelf.hidden && !shelf.wantsCollapsed && !shelf.hasDismissal, "Failed reclassification never reapplies stale hiding after pointer or application changes")
+            try check(!shelf.hidden && shelf.wantsCollapsed && !shelf.hasDismissal, "A failed drag cannot apply stale membership while fresh position discovery remains unreadable")
             shelf.stop()
         }
         do {

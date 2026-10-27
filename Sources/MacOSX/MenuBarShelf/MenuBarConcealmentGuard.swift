@@ -66,8 +66,19 @@ final class MenuBarConcealmentGuard {
             for item in items where item.pid != own {
                 guard let identity = identities[item.pid], !identity.bundle.isEmpty,
                       !identity.aliases.isEmpty, identity.aliases.contains(identity.bundle) else { return nil }
-                allAliases.formUnion(identity.aliases); identified.append((item, identity))
-                let wanted = desired.filter { identity.aliases.contains($0) || families[$0]?.aliases.isDisjoint(with: identity.aliases) == false }
+                allAliases.formUnion(identity.aliases)
+                let concealed = previous?.families.filter {
+                    desired.contains($0.key) && $0.value.pids.contains(item.pid)
+                        && !$0.value.aliases.isDisjoint(with:identity.aliases)
+                } ?? [:]
+                if apple != nil, !concealed.isEmpty {
+                    // A held assertion may leave hidden AX nodes at old screen
+                    // coordinates. User dragging always exposes first and clears
+                    // `previous`, so these nodes cannot prove a new right move.
+                    for bundle in concealed.keys { families[bundle]?.aliases.formUnion(identity.aliases) }
+                    continue
+                }
+                identified.append((item,identity))
                 let left = apple.map { boundary in
                     item.frame.width > 0 && item.frame.height > 0 && item.frame.maxX <= boundary.minX + 0.5
                         && abs(item.frame.midY - boundary.midY) <= 8
@@ -75,6 +86,10 @@ final class MenuBarConcealmentGuard {
                 let confirmedRight = apple.map { boundary in
                     item.frame.minX >= boundary.maxX - 0.5 && abs(item.frame.midY - boundary.midY) <= 8
                 } ?? false
+                var wanted = desired.filter { identity.aliases.contains($0) || families[$0]?.aliases.isDisjoint(with:identity.aliases) == false }
+                // Position is the product rule. A stale/missed saved membership
+                // must not leave a confirmed left-side application outside.
+                if left, wanted.isEmpty { wanted.insert(identity.bundle) }
                 if confirmedRight { right.formUnion(identity.aliases) }
                 if !left || wanted.isEmpty { protectedAliases.formUnion(identity.aliases) }
                 if left {
