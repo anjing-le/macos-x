@@ -26,4 +26,3 @@ struct PinSnapshot {
     let thumbnail: Bool
     let opacity: CGFloat
 }
-
