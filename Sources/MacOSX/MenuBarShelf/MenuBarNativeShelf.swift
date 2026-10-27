@@ -127,6 +127,9 @@ struct NativeMenuBarChoice {
                     MainActor.assumeIsolated { self?.environmentChanged() }
                 })
             }
+            observers.append(center.addObserver(forName:NSWorkspace.didActivateApplicationNotification,object:nil,queue:.main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.applicationActivated() }
+            })
             observers.append(center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.environmentChanged(reset: true) }
             })
@@ -186,6 +189,7 @@ struct NativeMenuBarChoice {
     }
     func hover(inside: Bool) {
         guard active else { return }
+        if issue != nil { logger.notice("recovery hover: inside=\(inside) wanted=\(self.wantsCollapsed) interaction=\(self.interactionHeld) own_menus=\(self.ownMenuDepth)") }
         if inside, suppressPostDropReveal(at: pointer()) { return }
         if inside { expandTemporarily() } else { scheduleCollapse() }
     }
@@ -449,6 +453,13 @@ struct NativeMenuBarChoice {
         if hidden || busy { collapseWhenSafe() }
         else { scheduleCollapse() }
         changed()
+    }
+    func applicationActivated() {
+        // Focus changes are a fresh recovery opportunity, not a reason to scan
+        // healthy hidden bars on every Command-Tab.
+        guard active, wantsCollapsed, issue != nil else { return }
+        logger.notice("activation recovery: waiting=\(self.awaitingRecoveryVisit) interaction=\(self.interactionHeld) own_menus=\(self.ownMenuDepth) pointer_inside=\(self.overBar)")
+        environmentChanged()
     }
 
     var choices: [NativeMenuBarChoice] {

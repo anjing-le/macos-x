@@ -150,29 +150,24 @@ final class MenuBarConcealmentGuard {
         }
     }
 
-    private func identities(_ snapshot: MenuBarContainerSnapshot, applications: [NativeMenuBarApplication],
-                            token: MenuBarReadToken, deadline: TimeInterval) -> [pid_t: MenuBarOwnerIdentity]? {
-        let names = Dictionary(applications.map { ($0.pid, $0.bundle) }, uniquingKeysWith: { a, _ in a })
-        var result: [pid_t: MenuBarOwnerIdentity] = [:]
+    private func identities(_ snapshot:MenuBarContainerSnapshot, applications:[NativeMenuBarApplication],
+                            token:MenuBarReadToken, deadline:TimeInterval) -> MenuBarResolvedOwners? {
+        let names = Dictionary(applications.map { ($0.pid,$0.bundle) },uniquingKeysWith:{ a,_ in a })
+        var result:[pid_t:MenuBarOwnerIdentity] = [:], exited = Set<pid_t>()
         for pid in Set(snapshot.entries.map(\.pid)) {
-            guard !token.isCancelled, ProcessInfo.processInfo.systemUptime < deadline else { return nil }
-            var aliases = Set<String>()
-            if let name = names[pid], !name.isEmpty { aliases.insert(name) }
-            // Native menu owners can be LSUIElement helpers missing from the
-            // NSWorkspace list. Resolve their own and enclosing app identities.
-            var bytes = [CChar](repeating: 0, count: 4096)
-            let size = proc_pidpath(pid, &bytes, UInt32(bytes.count))
-            if size > 0 {
-                var path = URL(fileURLWithPath: String(cString: bytes)).deletingLastPathComponent()
-                for _ in 0..<32 {
-                    if path.pathExtension == "app", let id = Bundle(url: path)?.bundleIdentifier, !id.isEmpty { aliases.insert(id) }
-                    let parent = path.deletingLastPathComponent(); if parent == path { break }; path = parent
-                }
+            guard !token.isCancelled else { return nil }
+            guard ProcessInfo.processInfo.systemUptime < deadline else {
+                logger.error("owner metadata deadline exceeded at pid=\(pid)"); return nil
             }
-            guard let bundle = names[pid] ?? aliases.sorted().first else { return nil }
-            result[pid] = .init(bundle: bundle, aliases: aliases)
+            switch MenuBarOwnerResolver.resolve(pid,workspaceBundle:names[pid]) {
+            case .identified(let identity): result[pid] = identity
+            case .exited: exited.insert(pid)
+            case .unreadable:
+                logger.error("live owner unresolved pid=\(pid) registered=\(names[pid] != nil)")
+                return nil
+            }
         }
-        return result
+        return .init(identities:result,exited:exited)
     }
     static func stablePlan(first:MenuBarContainerSnapshot, second:MenuBarContainerSnapshot, own:pid_t,
                            expectedApple:CGRect?, identities:[pid_t:MenuBarOwnerIdentity],
@@ -195,17 +190,20 @@ final class MenuBarConcealmentGuard {
         func sample(_ prior:MenuBarContainerSnapshot?, attempt:Int) {
             guard !token.isCancelled else { return }
             let current = MenuBarInventory.snapshot(token:token,deadline:min(deadline,ProcessInfo.processInfo.systemUptime+0.45))
-            let ids = self.identities(current,applications:applications,token:token,deadline:min(deadline,ProcessInfo.processInfo.systemUptime+0.35))
-            if let prior, let ids,
-               let pending = Self.stablePlan(first:prior,second:current,own:own,expectedApple:apple,
-                    identities:ids,runningBundles:Set(applications.map(\.bundle)),desired:desired,previous:previous) {
-                let hit = self.hitReader(current,token:token,deadline:ProcessInfo.processInfo.systemUptime+0.4)
-                let plan = Self.confirmingRenderedProtection(pending,snapshot:current,hitOwner:hit)
-                DispatchQueue.main.async { if !token.isCancelled { completion(plan) } }
-                return
+            let identityInput = MenuBarContainerSnapshot(entries:current.entries + (prior?.entries ?? []),complete:current.complete)
+            let owners = self.identities(identityInput,applications:applications,token:token,deadline:min(deadline,ProcessInfo.processInfo.systemUptime+0.35))
+            if let prior, let owners {
+                let currentLive = owners.removingExited(from:current), priorLive = owners.removingExited(from:prior)
+                if let pending = Self.stablePlan(first:priorLive,second:currentLive,own:own,expectedApple:apple,
+                    identities:owners.identities,runningBundles:Set(applications.map(\.bundle)),desired:desired,previous:previous) {
+                    let hit = self.hitReader(currentLive,token:token,deadline:ProcessInfo.processInfo.systemUptime+0.4)
+                    let plan = Self.confirmingRenderedProtection(pending,snapshot:currentLive,hitOwner:hit)
+                    DispatchQueue.main.async { if !token.isCancelled { completion(plan) } }
+                    return
+                }
             }
             guard attempt < 3, ProcessInfo.processInfo.systemUptime+0.12 < deadline else {
-                self.logger.error("preflight incomplete: attempt=\(attempt+1) complete=\(current.complete) entries=\(current.entries.count) identities=\(ids != nil)")
+                self.logger.error("preflight incomplete: attempt=\(attempt+1) complete=\(current.complete) entries=\(current.entries.count) identities=\(owners != nil)")
                 DispatchQueue.main.async { if !token.isCancelled { completion(nil) } }; return
             }
             self.queue.asyncAfter(deadline:.now()+0.12) { sample(current,attempt:attempt+1) }

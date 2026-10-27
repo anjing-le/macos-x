@@ -297,6 +297,63 @@ extension MenuBarNativeShelf {
             try check(shelf.hidden && bridge.lists.count == 2,"A fresh bar visit may recover a postflight failure only through a new plan and successful verification")
             shelf.stop()
         }
+        do {
+            let helper=Process();helper.executableURL=URL(fileURLWithPath:"/bin/sleep");helper.arguments=["5"]
+            try helper.run()
+            let pid=helper.processIdentifier
+            try check(MenuBarOwnerResolver.signingIdentifier(pid)?.isEmpty == false,"A real signed helper without an app bundle exposes a code identity without UI or permission prompts")
+            if case .identified(let owner) = MenuBarOwnerResolver.resolve(pid,workspaceBundle:nil) {
+                try check(owner.bundle == NSRunningApplication(processIdentifier:pid)?.bundleIdentifier,"Only a genuine registered bundle, not an unrelated signing identifier, may identify a bare process")
+            } else if case .unreadable = MenuBarOwnerResolver.resolve(pid,workspaceBundle:nil) {
+                try check(true,"A bare signing identifier cannot be invented into a native bundle allowance")
+            } else { try check(false,"Live process must not be called exited") }
+            if case .identified(let cached) = MenuBarOwnerResolver.resolve(pid,workspaceBundle:"unrelated.cached.bundle") {
+                try check(!cached.aliases.contains("unrelated.cached.bundle"),"A live PID cannot inherit an unverified cached bundle name")
+            } else { try check(true,"Unregistered live owners stay unresolved rather than inheriting cached names") }
+            helper.terminate();helper.waitUntilExit()
+            if case .exited = MenuBarOwnerResolver.resolve(pid,workspaceBundle:"stale.bundle") {
+                try check(true,"A terminated PID is not revived by cached workspace metadata")
+            } else { try check(false,"Exited process state") }
+            let stale=MenuBarContainerSnapshot(entries:expanded.entries+[container(333,900)],complete:false)
+            let owners=MenuBarResolvedOwners(identities:identities,exited:[333])
+            let filtered=owners.removingExited(from:stale)
+            try check(!filtered.complete && filtered.entries.count==expanded.entries.count,"Dropping confirmed dead owners never turns a partial snapshot into a complete one")
+            try check(MenuBarResolvedOwners(identities:identities,exited:[]).removingExited(from:stale).entries.count==stale.entries.count,"Unresolved live nodes cannot be silently discarded")
+        }
+        do {
+            let bridge=TestVisibility(),shelf=setup(bridge)
+            let normal=shelf.concealmentReadOverride!
+            var ready=false,reads=0
+            shelf.concealmentReadOverride = { d,p,t,done in reads += 1;if ready { normal(d,p,t,done) } else {done(nil)} }
+            shelf.start();ready=true;shelf.applicationActivated();await pause()
+            try check(shelf.hidden && reads==2,"A genuine application activation recovers when transient ownership metadata becomes readable")
+            shelf.applicationActivated();await pause()
+            try check(reads==2,"Healthy hidden bars are not scanned on every application activation")
+            shelf.stop()
+        }
+        do {
+            let bridge=TestVisibility(),shelf=setup(bridge)
+            shelf.concealmentReadOverride = { _,_,_,done in done(nil) }
+            shelf.start();shelf.showAll();shelf.applicationActivated();await pause()
+            try check(!shelf.wantsCollapsed && bridge.lists.isEmpty,"Application activation never overrides explicit show-all")
+            shelf.stop()
+        }
+        do {
+            let root=FileManager.default.temporaryDirectory.appendingPathComponent("native-helper-"+UUID().uuidString)
+            let binary=root.appendingPathComponent("Fixture.xpc/Contents/MacOS/Helper")
+            try FileManager.default.createDirectory(at:binary.deletingLastPathComponent(),withIntermediateDirectories:true)
+            defer { try? FileManager.default.removeItem(at:root) }
+            try FileManager.default.copyItem(at:URL(fileURLWithPath:"/bin/sleep"),to:binary)
+            let plist=try PropertyListSerialization.data(fromPropertyList:["CFBundleIdentifier":"fixture.native-helper","CFBundleExecutable":"Helper","CFBundlePackageType":"XPC!"],format:.xml,options:0)
+            try plist.write(to:root.appendingPathComponent("Fixture.xpc/Contents/Info.plist"))
+            let child=Process();child.executableURL=binary;child.arguments=["5"];try child.run()
+            let resolution=MenuBarOwnerResolver.resolve(child.processIdentifier,workspaceBundle:nil)
+            child.terminate();child.waitUntilExit()
+            if case .identified(let identity) = resolution {
+                try check(identity.aliases.contains("fixture.native-helper"),"A real .xpc helper resolves its bundle identity without app registration")
+                try check(!identity.aliases.contains("com.apple.sleep"),"An unrelated executable signing identifier is not added as a visibility alias")
+            } else { try check(false,"Unregistered packaged helper must resolve") }
+        }
         let own: pid_t = 999
         let primary = CGRect(x:0,y:0,width:1500,height:24)
         let secondary = CGRect(x:1500,y:-240,width:2500,height:30)
