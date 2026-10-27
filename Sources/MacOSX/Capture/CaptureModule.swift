@@ -253,31 +253,35 @@ final class CaptureModule: NSObject {
         let placement = copiedRegion.flatMap { $0.changeCount == board.changeCount ? $0.frame : nil }
         let formats: [NSPasteboard.PasteboardType] = [.png,.tiff,.init("public.jpeg"),.init("public.heic")]
         var candidates = [Data](), bytes = 0
-        for format in formats {
+        let ownDocument = !toShelf && board.data(forType:.init("cc.anjing.macos-x.text-document")) == Data([1])
+        for format in ownDocument ? [] : formats {
             guard let data = board.data(forType:format), !data.isEmpty,
                   data.count <= 64_000_000 - bytes else { continue }
             candidates.append(data); bytes += data.count
         }
         let text = toShelf ? nil : board.string(forType:.string)
         let rich = toShelf ? nil : board.data(forType:.rtf).flatMap { $0.count <= 4_000_000 ? $0 : nil }
-        logger.info("clipboard candidates=\(candidates.count) image_bytes=\(bytes) text_characters=\(text?.count ?? 0) rtf_bytes=\(rich?.count ?? 0)")
-        guard !candidates.isEmpty || text?.isEmpty == false || rich != nil else {
+        let html = toShelf ? nil : board.data(forType:.html).flatMap { $0.count <= CaptureTextDocument.maximumRichBytes ? $0 : nil }
+        logger.info("clipboard candidates=\(candidates.count) image_bytes=\(bytes) text_characters=\(text?.count ?? 0) rtf_bytes=\(rich?.count ?? 0) html_bytes=\(html?.count ?? 0)")
+        guard !candidates.isEmpty || text?.isEmpty == false || rich != nil || html != nil else {
             if toShelf { if !shelf.showForKeyboard() { shelf.showMessage("剪贴板里没有可收纳的图片。") } }
             else { handle(CaptureFailure.emptyClipboard) }; return
         }
         clipboardInFlight = true
         work.async { [weak self] in
-            let decoded = autoreleasepool { CaptureClipboard.decode(images:candidates,text:text,rtf:rich) }
+            let decoded = autoreleasepool { CaptureClipboardContent.decode(images:candidates,text:text,rtf:rich,html:html) }
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.clipboardInFlight = false
                 guard self.running, self.generation == expected, self.captureRevision == revision else { return }
-                if let decoded {
-                    let image = decoded.image
-                    self.logger.info("clipboard decoded width=\(image.width) height=\(image.height) text=\(decoded.isText)")
+                if case .document(let document) = decoded {
+                    self.logger.info("clipboard document characters=\(document.attributed.length)")
+                    self.pins.add(document)
+                } else if case let .image(image,isText) = decoded {
+                    self.logger.info("clipboard decoded width=\(image.width) height=\(image.height) text=\(isText)")
                     var frame = placement
                     // Text cards need readable point sizes, rather than the 480-point image thumbnail cap.
-                    if decoded.isText {
+                    if isText {
                         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
                         let available = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1000, height: 700)
                         let scale = min(1, min((available.width - 64) / CGFloat(image.width),

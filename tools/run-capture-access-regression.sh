@@ -23,6 +23,7 @@ xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macos14.0" \
   "$access_repo/Sources/MacOSX/Capture/CaptureRecordingRegion.swift" \
   "$access_check_dir/CaptureModule.swift" \
   "$access_repo/Sources/MacOSX/Capture/CaptureSampling.swift" \
+  "$access_repo/Sources/MacOSX/Capture/CaptureTextDocument.swift" \
   "$access_repo/tools/capture-access-regression.swift" \
   -o "$access_check_dir/capture-access-regression"
 "$access_check_dir/capture-access-regression"

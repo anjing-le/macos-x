@@ -4,10 +4,10 @@ import UniformTypeIdentifiers
 @MainActor
 final class CapturePins {
     private struct Request { let image: CGImage; let frame: CGRect?; let onPresent: ((Bool) -> Void)? }
-    private var entries: [PinEntry] = []
+    private var entries: [any CapturePinnedItem] = []
     private var pending: [Request] = []
     private var adding = false
-    private var recovered: (PinSnapshot, Int)?
+    private var recovered: (CapturePinRecovery, Int)?
     private let queue = DispatchQueue(label: "cc.anjing.macos-x.capture.pins", qos: .userInitiated)
     private var generation: UInt64 = 0
     private var ticket = CaptureImageService.Ticket()
@@ -27,6 +27,11 @@ final class CapturePins {
         pending.append(Request(image: image, frame: frame, onPresent: onPresent))
         addNext()
     }
+    func add(_ document: CaptureTextDocument) {
+        guard canAdd else { onStatus?("最多 8 张贴图，请先关闭一张。"); return }
+        recovered = nil
+        insert(CaptureTextPin(document:document))
+    }
     private func addNext() {
         guard !adding, !pending.isEmpty else { return }
         adding = true
@@ -44,17 +49,17 @@ final class CapturePins {
             }
         }
     }
-    private func insert(_ entry: PinEntry) {
+    private func insert(_ entry: any CapturePinnedItem) {
         guard entries.count < 8 else { return }
         entry.onClose = { [weak self, weak entry] in
             guard let self, let entry, self.entries.contains(where: { $0 === entry }) else { return }
-            self.recovered = (entry.snapshot, NSPasteboard.general.changeCount)
+            self.recovered = (entry.recovery, NSPasteboard.general.changeCount)
             self.entries.removeAll { $0 === entry }
             self.onStatus?("贴图 \(self.entries.count)/8")
         }
         entry.onStatus = { [weak self] in self?.onStatus?($0) }
         entry.setOutline(showsOutline)
-        entries.append(entry); entry.present()
+        entries.append(entry); entry.present(focus:true)
         onStatus?("贴图 \(entries.count)/8 · ⌘C 复制 · ⌘W 关闭")
     }
     func restoreLastClosed() -> Bool {
@@ -62,7 +67,10 @@ final class CapturePins {
         guard changeCount == NSPasteboard.general.changeCount else { recovered = nil; return false }
         guard canAdd else { return false }
         recovered = nil
-        insert(PinEntry(snapshot: snapshot, queue: queue))
+        switch snapshot {
+        case .image(let image): insert(PinEntry(snapshot:image,queue:queue))
+        case let .text(document,frame,position): insert(CaptureTextPin(document:document,frame:frame,position:position))
+        }
         return true
     }
     func shelveActive(_ save: @escaping (CGImage, @escaping (Bool) -> Void) -> Void) -> Bool {
@@ -91,20 +99,11 @@ final class CapturePins {
     }
 }
 
-private struct PinSnapshot {
-    let image: CGImage
-    let baseSize: CGSize
-    let frame: CGRect
-    let transform: CapturePinTransform
-    let zoom: CGFloat
-    let thumbnail: Bool
-    let opacity: CGFloat
-}
 
 private enum PinCommand { case copy, save, edit, close, hide, zoom(CGFloat), opacity(CGFloat), rotate(Bool), horizontal, vertical, thumbnail }
 
 @MainActor
-private final class PinEntry: NSObject, NSWindowDelegate {
+private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
     private final class Panel: NSPanel {
         override var canBecomeKey: Bool { true }
         override var canBecomeMain: Bool { false }
@@ -132,6 +131,7 @@ private final class PinEntry: NSObject, NSWindowDelegate {
         PinSnapshot(image: image, baseSize: baseSize, frame: window.frame, transform: transform,
                     zoom: zoom, thumbnail: thumbnail, opacity: window.alphaValue)
     }
+    var recovery: CapturePinRecovery { .image(snapshot) }
 
     init(image: CGImage, frame: CGRect?, queue: DispatchQueue) {
         self.image = image; view = PinView(image: image); self.queue = queue

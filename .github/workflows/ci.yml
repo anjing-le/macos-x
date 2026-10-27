@@ -33,6 +33,8 @@ jobs:
         run: zsh tools/run-recording-audio-regression.sh
       - name: Check pinned-image transforms and clipboard color cards
         run: zsh tools/run-pin-regression.sh
+      - name: Check formatted long text and offline tables without presenting windows
+        run: zsh tools/run-text-pin-regression.sh
       - name: Check screenshot shelf persistence and native drag interactions
         run: zsh tools/run-capture-shelf-regression.sh
       - name: Check window thumbnail cancellation and cache bounds

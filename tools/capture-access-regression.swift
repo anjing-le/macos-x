@@ -193,6 +193,8 @@ final class NSSavePanel {
     static var pending: [(Bool) -> Void] = []
     static var frames: [CGRect?] = []
     static var images: [CGImage] = []
+    static var documents: [CaptureTextDocument] = []
+    func add(_ document:CaptureTextDocument) { Self.documents.append(document) }
     func add(_ image: CGImage, at frame: CGRect? = nil, onPresent: ((Bool) -> Void)? = nil) {
         Self.frames.append(frame)
         Self.images.append(image)
@@ -246,15 +248,16 @@ enum NSPasteboard {
     struct Kind:Equatable {
         let rawValue:String
         init(_ value:String) { rawValue = value }
-        static let png=Kind("public.png"), tiff=Kind("public.tiff"), string=Kind("public.utf8-plain-text"), rtf=Kind("public.rtf")
+        static let png=Kind("public.png"), tiff=Kind("public.tiff"), string=Kind("public.utf8-plain-text"), rtf=Kind("public.rtf"), html=Kind("public.html")
     }
     typealias PasteboardType = Kind
     final class Board {
         var changeCount = 0
         var fixturePNG: Data?
+        var fixtureText: String?
         var acceptsFixtureWrites = false
         func data(forType: Kind) -> Data? { forType == .png ? fixturePNG : nil }
-        func string(forType: Kind) -> String? { nil }
+        func string(forType: Kind) -> String? { fixtureText }
         func clearContents() {
             precondition(acceptsFixtureWrites,"Test must not write clipboard")
             fixturePNG = nil; changeCount += 1
@@ -767,6 +770,13 @@ private struct CheckFailure: Error { let message: String }
             placementModule.pin()
             try await wait({ CapturePins.frames.count == copiedPins + 2 }, "external clipboard pin")
             try require(CapturePins.frames.last! == nil, "changed clipboard must not reuse unrelated screenshot placement")
+            NSPasteboard.general.fixturePNG = nil; CaptureClipboard.fixtureImage = nil
+            NSPasteboard.general.fixtureText = "**长文标题**\n" + String(repeating:"格式与末尾必须保留。\n",count:500) + "DOCUMENT-END"
+            let priorDocuments = CapturePins.documents.count
+            placementModule.pin()
+            try await wait({ CapturePins.documents.count == priorDocuments + 1 },"long Markdown clipboard document")
+            try require(CapturePins.documents.last?.attributed.string.contains("DOCUMENT-END") == true,"actual F3 routing retains long text through the document path")
+            NSPasteboard.general.fixtureText = nil
             placementModule.stop(); NSPasteboard.general.fixturePNG = nil; CaptureClipboard.fixtureImage = nil
             let clickModule = CaptureModule(images: CaptureImageService(reuseDisplayMetadata: false)); clickModule.start(); clickModule.capture()
             try await succeedImage(image)
@@ -906,6 +916,8 @@ private struct CheckFailure: Error { let message: String }
     func focusIfAlreadyOpen() -> Bool { false }
     func showForKeyboard() -> Bool { false }
     static var images: [CGImage] = []
+    static var documents: [CaptureTextDocument] = []
+    func add(_ document:CaptureTextDocument) { Self.documents.append(document) }
     static var held = false
     static var pending: [(Bool) -> Void] = []
     func showMessage(_ text: String) { onStatus?(text) }
