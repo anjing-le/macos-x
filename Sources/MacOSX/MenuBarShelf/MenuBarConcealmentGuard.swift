@@ -174,31 +174,43 @@ final class MenuBarConcealmentGuard {
         }
         return result
     }
-    private func signature(_ snapshot: MenuBarContainerSnapshot) -> [String] {
-        snapshot.entries.map { "\($0.pid)|\(NSStringFromRect($0.frame))|\(NSStringFromRect($0.surface ?? .zero))" }.sorted()
+    static func stablePlan(first:MenuBarContainerSnapshot, second:MenuBarContainerSnapshot, own:pid_t,
+                           expectedApple:CGRect?, identities:[pid_t:MenuBarOwnerIdentity],
+                           runningBundles:Set<String>, desired:Set<String>, previous:MenuBarConcealmentPlan?) -> MenuBarConcealmentPlan? {
+        guard let a = plan(snapshot:first,own:own,expectedApple:expectedApple,identities:identities,runningBundles:runningBundles,desired:desired,previous:previous),
+              let b = plan(snapshot:second,own:own,expectedApple:expectedApple,identities:identities,runningBundles:runningBundles,desired:desired,previous:previous) else { return nil }
+        func protection(_ value:MenuBarConcealmentPlan) -> [String] {
+            value.protected.map { "\($0.pid)|\(NSStringFromRect($0.surface))" }.sorted()
+        }
+        // Traffic labels may change width without changing safe ownership.
+        guard a.hidden == b.hidden, a.allowing == b.allowing, a.rightAliases == b.rightAliases,
+              protection(a) == protection(b) else { return nil }
+        return b
     }
     func prepare(desired: Set<String>, previous: MenuBarConcealmentPlan?, apple: CGRect?,
                  applications: [NativeMenuBarApplication], token: MenuBarReadToken,
                  completion: @escaping (MenuBarConcealmentPlan?) -> Void) {
         let own = ProcessInfo.processInfo.processIdentifier
-        queue.async {
+        let deadline = ProcessInfo.processInfo.systemUptime + 2.4
+        func sample(_ prior:MenuBarContainerSnapshot?, attempt:Int) {
             guard !token.isCancelled else { return }
-            let first = MenuBarInventory.snapshot(token: token, deadline: ProcessInfo.processInfo.systemUptime + 0.65)
-            self.queue.asyncAfter(deadline: .now() + 0.12) {
-                guard !token.isCancelled else { return }
-                let deadline = ProcessInfo.processInfo.systemUptime + 0.8
-                let second = MenuBarInventory.snapshot(token: token, deadline: deadline)
-                let identities = self.identities(second, applications: applications, token: token, deadline: deadline)
-                var plan = first.complete && second.complete && self.signature(first) == self.signature(second)
-                    ? identities.flatMap { Self.plan(snapshot: second, own: own, expectedApple: apple, identities: $0,
-                          runningBundles: Set(applications.map(\.bundle)), desired: desired, previous: previous) } : nil
-                if let pending = plan {
-                    let hit = self.hitReader(second, token:token, deadline:ProcessInfo.processInfo.systemUptime + 0.4)
-                    plan = Self.confirmingRenderedProtection(pending, snapshot:second, hitOwner:hit)
-                }
+            let current = MenuBarInventory.snapshot(token:token,deadline:min(deadline,ProcessInfo.processInfo.systemUptime+0.45))
+            let ids = self.identities(current,applications:applications,token:token,deadline:min(deadline,ProcessInfo.processInfo.systemUptime+0.35))
+            if let prior, let ids,
+               let pending = Self.stablePlan(first:prior,second:current,own:own,expectedApple:apple,
+                    identities:ids,runningBundles:Set(applications.map(\.bundle)),desired:desired,previous:previous) {
+                let hit = self.hitReader(current,token:token,deadline:ProcessInfo.processInfo.systemUptime+0.4)
+                let plan = Self.confirmingRenderedProtection(pending,snapshot:current,hitOwner:hit)
                 DispatchQueue.main.async { if !token.isCancelled { completion(plan) } }
+                return
             }
+            guard attempt < 3, ProcessInfo.processInfo.systemUptime+0.12 < deadline else {
+                self.logger.error("preflight incomplete: attempt=\(attempt+1) complete=\(current.complete) entries=\(current.entries.count) identities=\(ids != nil)")
+                DispatchQueue.main.async { if !token.isCancelled { completion(nil) } }; return
+            }
+            self.queue.asyncAfter(deadline:.now()+0.12) { sample(current,attempt:attempt+1) }
         }
+        queue.async { sample(nil,attempt:0) }
     }
     func verify(_ plan: MenuBarConcealmentPlan, token: MenuBarReadToken, completion: @escaping (Bool) -> Void) {
         let deadline = ProcessInfo.processInfo.systemUptime + 1.8

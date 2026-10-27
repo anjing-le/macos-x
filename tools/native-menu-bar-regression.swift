@@ -58,7 +58,7 @@ extension MenuBarNativeShelf {
             shelf.runningApplications = { [.init(bundle: a, name: "VPN", pid: 101), .init(bundle: b, name: "Chat", pid: 102)] }
             shelf.pointer = { CGPoint(x: 100, y: 100) }; shelf.pressedButtons = { 0 }
             shelf.menuBands = { [CGRect(x: 0, y: 900, width: 1500, height: 80), CGRect(x: -1200, y: -100, width: 1200, height: 50)] }
-            shelf.inputEnabled = false; shelf.environmentEnabled = false; shelf.collapseDelay = 0.01
+            shelf.inputEnabled = false; shelf.environmentEnabled = false; shelf.collapseDelay = 0.01; shelf.startupRetryLimit = 0
             shelf.concealmentReadOverride = { [weak shelf] desired,_,_,done in
                 let families = Dictionary(uniqueKeysWithValues: desired.map { ($0,MenuBarHiddenFamily(aliases:[$0],pids:[])) })
                 done(.init(families:families,allowing:Set(shelf?.runningApplications().map(\.bundle) ?? [a,b]).subtracting(desired),rightAliases:[],protected:[]))
@@ -121,6 +121,14 @@ extension MenuBarNativeShelf {
         let withoutApple = MenuBarContainerSnapshot(entries:expanded.entries+[container(101,3600,second:true)],complete:true)
         try check(concealment(withoutApple)?.hidden.isEmpty == true, "Another bar without a confirmed apple is protected rather than classified by a foreign boundary")
         try check(concealment(withoutApple)?.rightAliases.contains(a) == false, "Unconfirmed bar geometry cannot erase saved membership as if it were a confirmed right-side move")
+        var resized = expanded
+        resized = .init(entries:[container(ownPID,750),.init(pid:101,frame:CGRect(x:620,y:0,width:100,height:24),surface:bar1,surfaceID:1),container(102,850)],complete:true)
+        func stable(_ second:MenuBarContainerSnapshot) -> MenuBarConcealmentPlan? {
+            MenuBarConcealmentGuard.stablePlan(first:expanded,second:second,own:ownPID,expectedApple:nil,identities:identities,runningBundles:[a,b,"fixture.own"],desired:[a,b],previous:nil)
+        }
+        try check(stable(resized)?.hidden == [a],"Changing live-label width on the same side is not an unstable hiding decision")
+        try check(stable(.init(entries:[container(ownPID,750),container(101,850),container(102,900)],complete:true)) == nil,"Crossing the apple between samples still rejects concealment")
+        try check(stable(.init(entries:resized.entries,complete:false)) == nil,"Incomplete startup reads never become an accepted plan")
         let verified = MenuBarContainerSnapshot(entries:[container(ownPID,750,id:42),container(102,800,id:42)],complete:true)
         try check(MenuBarConcealmentGuard.preserves(guarded,snapshot:verified), "Actual visibility verification tolerates compositor window-ID rebuilds")
         try check(!MenuBarConcealmentGuard.preserves(guarded,snapshot:.init(entries:[container(ownPID,750)],complete:true)), "A disappeared right-side icon fails postflight even if activation reported success")
@@ -152,7 +160,7 @@ extension MenuBarNativeShelf {
             let bridge=TestVisibility(), shelf=setup(bridge)
             shelf.concealmentVerifyOverride = { _,_,done in done(false) }
             shelf.start()
-            try check(!shelf.hidden && !shelf.wantsCollapsed && shelf.issue != nil && bridge.handles.first?.invalidations == 1, "A failed actual-visibility check immediately releases the restriction and disables stale automatic retries")
+            try check(!shelf.hidden && shelf.wantsCollapsed && shelf.issue != nil && bridge.handles.first?.invalidations == 1, "A failed actual-visibility check immediately releases the restriction and suspends stale automatic retries without erasing user intent")
             shelf.observe(.moved); await pause()
             try check(bridge.lists.count == 1, "Postflight failure does not repeatedly flash icons on ordinary pointer movement")
             shelf.stop()
@@ -209,6 +217,86 @@ extension MenuBarNativeShelf {
         }
         // The same process owns a native apple on each display. AppKit may
         // still expose only the primary one while the user drags on secondary.
+        do {
+            let bridge=TestVisibility(), shelf=setup(bridge)
+            let normal=shelf.concealmentReadOverride!
+            var ready=false, reads=0
+            shelf.concealmentReadOverride = { desired,previous,token,done in
+                reads += 1
+                if ready { normal(desired,previous,token,done) } else { done(nil) }
+            }
+            shelf.start()
+            try check(shelf.wantsCollapsed && !shelf.hidden && !shelf.busy,"A startup preflight failure preserves auto-collapse intent")
+            shelf.observe(.moved); await pause(); shelf.observe(.moved); await pause()
+            try check(reads == 1 && !shelf.hasDismissal,"A suspended attempt does not poll or flash on ordinary outside movement")
+            ready=true; shelf.hover(inside:true); shelf.hover(inside:false); await pause()
+            try check(reads == 2 && shelf.hidden,"A fresh bar visit resumes the five-second path with a new successful plan")
+            shelf.stop()
+        }
+        do {
+            let bridge=TestVisibility(), shelf=setup(bridge)
+            let normal=shelf.concealmentReadOverride!
+            var ready=false
+            shelf.concealmentReadOverride = { d,p,t,done in if ready { normal(d,p,t,done) } else { done(nil) } }
+            shelf.start(); ready=true; shelf.environmentChanged(); await pause()
+            try check(shelf.hidden,"A real environment notification may recover a transient startup failure")
+            shelf.stop()
+        }
+        do {
+            let bridge=TestVisibility(), shelf=setup(bridge)
+            let normal=shelf.concealmentReadOverride!
+            shelf.concealmentReadOverride = { _,_,_,done in done(nil) }
+            shelf.start(); shelf.showAll(); shelf.concealmentReadOverride=normal
+            shelf.hover(inside:true); shelf.hover(inside:false); shelf.environmentChanged(); await pause()
+            try check(!shelf.wantsCollapsed && !shelf.hidden && bridge.lists.isEmpty,"Explicit show-all remains distinct from a recoverable failure")
+            shelf.stop()
+        }
+        do {
+            let bridge=TestVisibility(), shelf=setup(bridge)
+            shelf.startupRetryLimit=1
+            let normal=shelf.concealmentReadOverride!
+            var reads=0
+            shelf.concealmentReadOverride = { d,p,t,done in reads += 1; if reads == 1 { done(nil) } else { normal(d,p,t,done) } }
+            shelf.start(); await pause()
+            try check(reads == 2 && shelf.hidden,"One bounded startup retry recovers after the apple/layout becomes ready without another user action")
+            shelf.stop()
+        }
+        do {
+            let bridge=TestVisibility(), shelf=setup(bridge)
+            shelf.startupRetryLimit=1
+            var reads=0
+            shelf.concealmentReadOverride = { _,_,_,done in reads += 1;done(nil) }
+            shelf.start();await pause();shelf.observe(.moved);await pause()
+            try check(reads == 2 && !shelf.hasDismissal && bridge.lists.isEmpty,"Startup failure retries once then stops; it never becomes an idle scan or unsafe activation")
+            shelf.stop()
+        }
+        do {
+            let bridge=TestVisibility(), shelf=setup(bridge)
+            shelf.startupRetryLimit=1
+            var reads=0
+            shelf.concealmentReadOverride = { _,_,_,done in reads += 1;done(nil) }
+            shelf.start();shelf.showAll();await pause()
+            try check(reads == 1 && !shelf.wantsCollapsed && !shelf.hasDismissal,"Explicit show-all cancels a pending startup retry")
+            shelf.stop()
+        }
+        do {
+            let bridge=TestVisibility(), shelf=setup(bridge)
+            shelf.startupRetryLimit=1
+            let normal=shelf.concealmentReadOverride!
+            var ready=false
+            shelf.concealmentReadOverride = { d,p,t,done in if ready { normal(d,p,t,done) } else { done(nil) } }
+            shelf.start();shelf.observe(.down);ready=true;shelf.observe(.up);await pause()
+            try check(shelf.hidden,"An ordinary outside click reschedules startup recovery rather than losing it")
+            shelf.stop()
+        }
+        do {
+            let bridge=TestVisibility(), shelf=setup(bridge)
+            shelf.concealmentVerifyOverride = { _,_,done in done(false) }
+            shelf.start();shelf.concealmentVerifyOverride = { _,_,done in done(true) }
+            shelf.hover(inside:true);shelf.hover(inside:false);await pause()
+            try check(shelf.hidden && bridge.lists.count == 2,"A fresh bar visit may recover a postflight failure only through a new plan and successful verification")
+            shelf.stop()
+        }
         let own: pid_t = 999
         let primary = CGRect(x:0,y:0,width:1500,height:24)
         let secondary = CGRect(x:1500,y:-240,width:2500,height:30)

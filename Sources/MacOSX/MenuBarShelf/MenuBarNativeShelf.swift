@@ -36,6 +36,9 @@ struct NativeMenuBarChoice {
     private let logger = Logger(subsystem: "cc.anjing.macos-x", category: "menu-bar-concealment")
     private var concealmentToken: MenuBarReadToken?
     private var appliedPlan: MenuBarConcealmentPlan?
+    private var awaitingRecoveryVisit = false
+    private var startupRetriesRemaining = 0
+    var startupRetryLimit = 1
     var concealmentReadOverride: ((Set<String>, MenuBarConcealmentPlan?, MenuBarReadToken, @escaping (MenuBarConcealmentPlan?) -> Void) -> Void)?
     var concealmentVerifyOverride: ((MenuBarConcealmentPlan, MenuBarReadToken, @escaping (Bool) -> Void) -> Void)?
     private var commandDragStart: CGPoint?
@@ -115,7 +118,8 @@ struct NativeMenuBarChoice {
 
     func start() {
         guard !active else { return }
-        active = true; issue = nil; applications = runningApplications()
+        active = true; issue = nil; awaitingRecoveryVisit = false; applications = runningApplications()
+        startupRetriesRemaining = startupRetryLimit
         if environmentEnabled {
             let center = NSWorkspace.shared.notificationCenter
             for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
@@ -155,7 +159,7 @@ struct NativeMenuBarChoice {
 
     func stop() {
         guard active else { return }
-        active = false; wantsCollapsed = false; ownMenuDepth = 0; commandDragStart = nil; postDropPoint = nil
+        active = false; wantsCollapsed = false; awaitingRecoveryVisit = false; ownMenuDepth = 0; commandDragStart = nil; postDropPoint = nil
         expose(); cancelReading(); cancelInteraction(); removeMonitors()
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)
@@ -167,13 +171,13 @@ struct NativeMenuBarChoice {
     /// Pinned expansion is an explicit user choice; hovering must not undo it.
     func showAll() {
         guard active else { return }
-        wantsCollapsed = false; postDropPoint = nil; commandDragStart = nil; commandDragMoved = false
+        wantsCollapsed = false; awaitingRecoveryVisit = false; postDropPoint = nil; commandDragStart = nil; commandDragMoved = false
         inputGeneration &+= 1; pendingMove = nil; moveQueued = false
         cancelReading(); expose(); changed()
     }
     func collapse() {
         guard active else { return }
-        wantsCollapsed = !order.isEmpty; cancelInteraction(); collapseWhenSafe()
+        wantsCollapsed = !order.isEmpty; awaitingRecoveryVisit = false; cancelInteraction(); collapseWhenSafe()
     }
     func toggle() {
         guard active else { return }
@@ -187,6 +191,7 @@ struct NativeMenuBarChoice {
     }
     func expandTemporarily() {
         guard active else { return }
+        awaitingRecoveryVisit = false
         postDropPoint = nil
         let wasConcealed = hidden || busy
         expose()
@@ -211,7 +216,7 @@ struct NativeMenuBarChoice {
         dismissGeneration &+= 1; dismissal?.cancel(); dismissal = nil
     }
     private func scheduleCollapse() {
-        guard active, wantsCollapsed, !order.isEmpty, !hidden, !busy, !interactionHeld, ownMenuDepth == 0,
+        guard active, wantsCollapsed, !awaitingRecoveryVisit, !order.isEmpty, !hidden, !busy, !interactionHeld, ownMenuDepth == 0,
               !overBar, pressedButtons() == 0, dismissal == nil else { return }
         let expected = dismissGeneration
         let work = DispatchWorkItem { [weak self] in
@@ -222,7 +227,7 @@ struct NativeMenuBarChoice {
         DispatchQueue.main.asyncAfter(deadline: .now() + collapseDelay, execute: work)
     }
     private func collapseWhenSafe() {
-        guard active, wantsCollapsed, !order.isEmpty else { return }
+        guard active, wantsCollapsed, !awaitingRecoveryVisit, !order.isEmpty else { return }
         guard !reading, !interactionHeld, ownMenuDepth == 0, (!overBar || mayCollapseAtDrop), pressedButtons() == 0 else { cancelDismissal(); return }
         guard permission(), visibility.available else {
             expose(); issue = permission() ? "当前系统暂不能收纳，已保留原生图标。" : "需要辅助功能权限，原生图标保持显示。"
@@ -239,7 +244,8 @@ struct NativeMenuBarChoice {
         DispatchQueue.main.asyncAfter(deadline: .now() + activationTimeout, execute: timeout)
         let receive: (MenuBarConcealmentPlan?) -> Void = { [weak self] plan in
             guard let self, self.active, self.transition == expected, !token.isCancelled else { return }
-            guard let plan else { self.failConcealment("未确认全部菜单栏位置，原生图标保持显示。请重试。"); return }
+            guard let plan else { self.failConcealment("未确认全部菜单栏位置，原生图标保持显示。请重试。",retryStartup:true); return }
+            self.startupRetriesRemaining = 0
             // The restriction applies globally. A right-side icon on ANY
             // display protects its entire app/helper family, including stale
             // membership restored at launch or a missed Command-drag event.
@@ -283,10 +289,18 @@ struct NativeMenuBarChoice {
                                      applications: applications, token: token, completion: receive)
         }
     }
-    private func failConcealment(_ message: String) {
-        wantsCollapsed = false; expose(); issue = message
-        logger.error("concealment stopped; preserving native controls")
+    private func failConcealment(_ message: String, retryStartup: Bool = false) {
+        // Suspend this attempt, not the user intent. Retry only after a fresh
+        // bar visit/environment event, never on repeated outside movement.
+        awaitingRecoveryVisit = true; expose(); issue = message
+        logger.error("concealment suspended: \(message,privacy:.public)")
         changed()
+        // One startup-only retry is safe: no visibility assertion was applied.
+        // It is cancelled by hover, explicit show-all, stop and new transitions.
+        if retryStartup, startupRetriesRemaining > 0 {
+            startupRetriesRemaining -= 1
+            awaitingRecoveryVisit = false; scheduleCollapse()
+        }
     }
 
     /// Passive observations only. Local monitors ALWAYS return the same event.
@@ -423,6 +437,7 @@ struct NativeMenuBarChoice {
     }
     func environmentChanged(reset: Bool = false) {
         guard active else { return }
+        awaitingRecoveryVisit = false
         applications = runningApplications()
         if inputEnabled { cachedBands = menuBands(); screenTop = NSScreen.screens.first?.frame.maxY ?? 0 }
         cancelReading()
