@@ -118,6 +118,10 @@ import ImageIO
         check(bounded.height > image.height, "An oversized document still produces one complete long image")
         check(CapturePinTransform().render(bounded) != nil,
               "The bounded maximum-edge image can pass through the actual image-copy renderer")
+        let tiledSampler = CapturePixelSampler(image: bounded,
+            maximumBytes: CaptureRaster.pinMaximumPixels(for: bounded) * 4, tiled: true)!
+        check(tiledSampler.byteCount <= 64 * 64 * 4 && tiledSampler.sample(x: 0, y: bounded.height - 1) != nil,
+              "Very long image color picking reaches the last row with only a small tile buffer")
         let tail = bounded.cropping(to: CGRect(x: 0, y: bounded.height - 64, width: bounded.width, height: 64))!
         let boundedSampler = CapturePixelSampler(image: tail)!
         var bottomHasInk = false

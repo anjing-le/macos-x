@@ -21,7 +21,7 @@ final class CapturePixelSampler: @unchecked Sendable {
 
     init?(image: CGImage, maximumBytes: Int = 128_000_000, tiled: Bool = false) {
         let width = image.width, height = image.height
-        guard width > 0, height > 0, width <= 16_000, height <= 16_000,
+        guard width > 0, height > 0, width <= 32_768, height <= 32_768,
               maximumBytes >= 4, width <= maximumBytes / 4 / height else { return nil }
         let rasterWidth = tiled ? min(64,width) : width, rasterHeight = tiled ? min(64,height) : height
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
