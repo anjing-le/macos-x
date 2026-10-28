@@ -93,7 +93,7 @@ struct NativeMenuBarChoice {
     }
     var inputEnabled = true
     var environmentEnabled = true
-    var collapseDelay: TimeInterval = 5
+    var collapseDelay: TimeInterval = 3
     var activationTimeout: TimeInterval = 5
     var readOverride: ((MenuBarReadToken, @escaping ([MenuBarEntry]) -> Void) -> Void)?
     var beginInteractionOverride: ((MenuBarReadToken, @escaping (pid_t?) -> Void) -> Void)?
