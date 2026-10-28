@@ -114,6 +114,7 @@ import os
             panel.isReleasedWhenClosed = false; panel.acceptsMouseMovedEvents = true
             let view = SelectionView(frame: CGRect(origin: .zero, size: frame.screen.frame.size), snapshot: frame)
             view.hint = mode == .recording ? "Enter 开始 · Esc 取消" : "点击编辑 · Enter / ⌘C 复制 · 拖动调整 · Esc 退出"
+            view.recording = mode == .recording
             view.region = { [weak self] in self?.visibleRegion ?? .null }
             view.pointer = { [weak self] in self?.pointer ?? .zero }
             view.magnifierVisible = { [weak self] in self?.magnifierVisible ?? false }
@@ -438,7 +439,7 @@ import os
     }
     private func showRecordingControls(at region: CGRect) {
         let bounds = frames.first?.screen.frame ?? desktop
-        let size = CGSize(width: 100, height: 38)
+        let size = CGSize(width: 282, height: 58)
         let x = min(max(region.maxX - size.width, bounds.minX), bounds.maxX - size.width)
         let below = region.minY - size.height - 10
         let y = below >= bounds.minY ? below : min(region.maxY + 10, bounds.maxY - size.height)
@@ -451,15 +452,19 @@ import os
             control.isOpaque = false; control.backgroundColor = .clear; control.hasShadow = false
             control.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             control.onKey = { [weak self] in self?.keyDown($0) ?? false }
-            let button = MinimalButton(title: "开始", target: self, action: #selector(startRecordingPressed(_:)), style: .primary)
-            button.setAccessibilityLabel("开始录屏")
-            button.toolTip = "Enter 开始 · Esc 取消"
-            button.frame = CGRect(origin: .zero, size: size)
-            button.autoresizingMask = [.width, .height]
-            control.contentView = button; panel = control; recordingControls = control
+            let bar = RecordingStartBar(target: self, start: #selector(startRecordingPressed(_:)),
+                cancel: #selector(cancelRecordingPressed(_:)))
+            bar.frame = CGRect(origin: .zero, size: size)
+            bar.autoresizingMask = [.width, .height]
+            control.contentView = bar; control.initialFirstResponder = bar
+            panel = control; recordingControls = control
         }
         panel.setFrame(CGRect(origin: CGPoint(x: x, y: y), size: size), display: true)
         panel.makeKeyAndOrderFront(nil)
+    }
+    @objc private func cancelRecordingPressed(_ sender: Any?) {
+        guard mode == .recording else { return }
+        finish(.cancel)
     }
     private func handleRecognitionShortcut(_ event: NSEvent) -> Bool {
         guard mode == .screenshot, completion != nil, !frames.isEmpty, event.keyCode == 17,
@@ -502,6 +507,7 @@ import os
 
 @MainActor private final class SelectionView: NSView {
     var hint = ""
+    var recording = false
     private let snapshot: CaptureFrame
     private let displayImage: NSImage
     private let creationTiming = CaptureTiming()
@@ -611,10 +617,17 @@ import os
         let shade = NSBezierPath(rect: bounds); if !overlap.isNull { shade.appendRect(local) }
         shade.windingRule = .evenOdd; NSColor.black.withAlphaComponent(0.3).setFill(); shade.fill()
         if !overlap.isNull {
-            NSColor.white.setStroke(); let outline = NSBezierPath(rect: local); outline.lineWidth = 1; outline.stroke()
+            if recording {
+                let outline = SketchPencil.outline(in: local, radius: 3)
+                outline.setLineDash([6, 4], count: 2, phase: 0)
+                SketchPencil.stroke(outline, color: SketchPalette.coral, width: 2)
+            } else {
+                NSColor.white.setStroke(); let outline = NSBezierPath(rect: local); outline.lineWidth = 1; outline.stroke()
+            }
             for handle in Self.handles(globalRegion) {
                 let rect = handle.offsetBy(dx: -snapshot.screen.frame.minX, dy: -snapshot.screen.frame.minY)
-                NSColor.white.setFill(); rect.fill(); NSColor.controlAccentColor.setStroke(); NSBezierPath(rect: rect).stroke()
+                NSColor.white.setFill(); rect.fill()
+                (recording ? SketchPalette.coral : NSColor.controlAccentColor).setStroke(); NSBezierPath(rect: rect).stroke()
             }
             label("\(Int((globalRegion.width * CGFloat(snapshot.image.width) / snapshot.screen.frame.width).rounded())) × \(Int((globalRegion.height * CGFloat(snapshot.image.height) / snapshot.screen.frame.height).rounded()))",
                   at: CGPoint(x: max(8, local.minX), y: min(bounds.maxY - 26, local.maxY + 6)))

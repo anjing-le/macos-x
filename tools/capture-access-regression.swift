@@ -680,6 +680,8 @@ private struct CheckFailure: Error { let message: String }
                         "selected region reaches SCK source rectangle unchanged")
             try require(MockCapture.lastConfiguration?.width == 240 && MockCapture.lastConfiguration?.height == 160,
                         "encoder dimensions follow crop rather than full display")
+            try require(MockCapture.lastConfiguration?.minimumFrameInterval == CMTime(value: 1, timescale: 60),
+                        "the actual stream requests 60 fps, independently of the encoder hint")
             try require(RecordingPresentation.starts == 0, "clock must not start before stream confirmation")
             MockCapture.started()
             try await wait({ RecordingPresentation.starts == 1 }, "record clock starts after stream confirmation")

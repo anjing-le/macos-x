@@ -1,5 +1,11 @@
 import AppKit
 
+@MainActor private final class RecordingControlReceiver: NSObject {
+    var starts = 0, cancels = 0
+    @objc func start(_ sender: Any?) { starts += 1 }
+    @objc func cancel(_ sender: Any?) { cancels += 1 }
+}
+
 // Compiled alongside the real editor/pin source; these helpers only exist in
 // this isolated executable, with injected OCR and no general clipboard writes.
 @MainActor private extension CaptureEditor {
@@ -330,6 +336,24 @@ import AppKit
     @MainActor static func main() {
         setbuf(stdout,nil)
         _ = NSApplication.shared; NSApp.setActivationPolicy(.prohibited)
+        let receiver = RecordingControlReceiver()
+        let recordingBar = RecordingStartBar(target: receiver, start: #selector(RecordingControlReceiver.start(_:)),
+            cancel: #selector(RecordingControlReceiver.cancel(_:)))
+        precondition(recordingBar.acceptsFirstResponder && recordingBar.startButton.keyEquivalent == "\r" && recordingBar.cancelButton.keyEquivalent == "\u{1b}",
+                     "The bar preserves selection keys while Enter and Escape activate the visible actions")
+        for width: CGFloat in [220, 282] {
+            recordingBar.frame = CGRect(x: 0, y: 0, width: width, height: 58)
+            recordingBar.layoutSubtreeIfNeeded()
+            precondition(recordingBar.bounds.contains(recordingBar.startButton.frame) && recordingBar.bounds.contains(recordingBar.cancelButton.frame))
+            precondition(!recordingBar.startButton.frame.intersects(recordingBar.cancelButton.frame))
+        }
+        recordingBar.startButton.performClick(nil); recordingBar.cancelButton.performClick(nil)
+        precondition(receiver.starts == 1 && receiver.cancels == 1, "Visible recording controls retain separate native actions")
+        if let path = ProcessInfo.processInfo.environment["MACOSX_RECORDING_BAR_PREVIEW"],
+           let bitmap = recordingBar.bitmapImageRepForCachingDisplay(in: recordingBar.bounds) {
+            recordingBar.cacheDisplay(in: recordingBar.bounds, to: bitmap)
+            try! bitmap.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
+        }
         let domain = "cc.anjing.macos-x.editor-fixture.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: domain)!
         defer { defaults.removePersistentDomain(forName: domain) }

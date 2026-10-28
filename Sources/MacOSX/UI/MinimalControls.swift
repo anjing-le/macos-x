@@ -226,7 +226,7 @@ final class MinimalPopUpButton: NSPopUpButton {
 }
 
 @MainActor
-private enum MinimalSurface {
+enum MinimalSurface {
     static func draw(in bounds: NSRect, fill: NSColor, border: NSColor?) {
         guard bounds.width.isFinite, bounds.height.isFinite, bounds.width > 2, bounds.height > 2 else { return }
         let path = SketchPencil.outline(in: bounds.insetBy(dx: 1.5, dy: 1.5), radius: 7)

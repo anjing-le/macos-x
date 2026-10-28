@@ -84,13 +84,8 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                         self.temporaryURL = temporary
                         let writer = try AVAssetWriter(outputURL: temporary, fileType: .mp4)
                         self.writer = writer
-                        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
-                            AVVideoCodecKey: AVVideoCodecType.h264,
-                            AVVideoWidthKey: width, AVVideoHeightKey: height,
-                            AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 5_000_000,
-                                                               AVVideoExpectedSourceFrameRateKey: 30,
-                                                               AVVideoMaxKeyFrameIntervalKey: 30]
-                        ])
+                        let input = AVAssetWriterInput(mediaType: .video,
+                            outputSettings: CaptureRecordingPreset.videoSettings(width: width, height: height))
                         input.expectsMediaDataInRealTime = true
                         guard writer.canAdd(input) else { throw CaptureFailure.message("当前编码器无法写入 MP4。") }
                         writer.add(input)
@@ -100,7 +95,7 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                         let configuration = SCStreamConfiguration()
                         configuration.sourceRect = region.source
                         configuration.width = width; configuration.height = height
-                        configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
+                        configuration.minimumFrameInterval = CMTime(value: 1, timescale: CaptureRecordingPreset.frameRate)
                         configuration.queueDepth = 3
                         configuration.pixelFormat = kCVPixelFormatType_32BGRA
                         configuration.showsCursor = true
@@ -242,7 +237,7 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         }
         // Native stream/device teardown can take hundreds of milliseconds. That
         // wait is not recorded time and must not extend the final frame/audio.
-        let elapsed = max(1.0 / 30, (endedAt ?? CACurrentMediaTime()) - startedAt)
+        let elapsed = max(1.0 / Double(CaptureRecordingPreset.frameRate), (endedAt ?? CACurrentMediaTime()) - startedAt)
         let endTime = CMTimeAdd(firstTime, CMTime(seconds: elapsed, preferredTimescale: 600))
         drainFinalAudio(through: elapsed, endTime: endTime, deadline: CACurrentMediaTime() + 3)
     }

@@ -97,9 +97,8 @@ import MacOSXCore
         clearIndicator(); busy = true
         clock.begin(at: ProcessInfo.processInfo.systemUptime)
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        let menu = NSMenu()
-        let stop = NSMenuItem(title: "结束录制", action: #selector(stopPressed), keyEquivalent: "")
-        stop.target = self; menu.addItem(stop); item?.menu = menu
+        item?.button?.target = self; item?.button?.action = #selector(stopPressed)
+        item?.button?.setAccessibilityLabel("停止录屏")
         tick()
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
@@ -111,7 +110,7 @@ import MacOSXCore
     func saving() {
         clock.stop(at: ProcessInfo.processInfo.systemUptime)
         timer?.invalidate(); timer = nil
-        if busy { item?.button?.title = "保存中…"; item?.menu = nil }
+        if busy { item?.button?.title = "保存中…"; item?.button?.isEnabled = false; item?.menu = nil }
     }
 
     func completed(_ url: URL?, announce: Bool) {
@@ -122,12 +121,8 @@ import MacOSXCore
         guard announce, url != nil else { return }
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item?.button?.title = "✓ 已复制路径"
-        let menu = NSMenu()
-        for (title, action) in [("播放", #selector(openResult)), ("在 Finder 中显示", #selector(revealResult)), ("复制路径", #selector(copyResult))] {
-            let entry = NSMenuItem(title: title, action: action, keyEquivalent: "")
-            entry.target = self; menu.addItem(entry)
-        }
-        item?.menu = menu
+        item?.button?.target = self; item?.button?.action = #selector(revealResult)
+        item?.button?.toolTip = "已复制录屏路径 · 点击在 Finder 中显示"
         let work = DispatchWorkItem { [weak self] in self?.clearIndicator() }
         dismissWork = work; DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: work)
     }
@@ -140,9 +135,10 @@ import MacOSXCore
 
     private func tick() {
         let elapsed = RecordingClock.display(clock.elapsed(at: ProcessInfo.processInfo.systemUptime))
-        recordingLabel.stringValue = "●  \(elapsed)"
-        let title = NSMutableAttributedString(string: "●  \(elapsed)", attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)])
-        title.addAttribute(.foregroundColor, value: NSColor.systemRed, range: NSRange(location: 0, length: 1))
+        recordingLabel.stringValue = "■  \(elapsed)"
+        let title = NSMutableAttributedString(string: "■  \(elapsed)", attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium), .foregroundColor: SketchPalette.ink])
+        title.addAttribute(.foregroundColor, value: SketchPalette.coral, range: NSRange(location: 0, length: 1))
         item?.button?.attributedTitle = title; item?.button?.toolTip = "正在录屏 · 点击结束录制"
     }
 

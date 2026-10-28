@@ -21,6 +21,7 @@ xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macos14.0" \
   "$access_repo/Sources/MacOSX/Capture/RecordingAudio.swift" \
   "$access_repo/Sources/MacOSX/Capture/RecordingMicrophone.swift" \
   "$access_repo/Sources/MacOSX/Capture/CaptureRecordingRegion.swift" \
+  "$access_repo/Sources/MacOSX/Capture/RecordingEncoding.swift" \
   "$access_check_dir/CaptureModule.swift" \
   "$access_repo/Sources/MacOSX/Capture/CaptureSampling.swift" \
   "$access_repo/Sources/MacOSX/Capture/CaptureTextDocument.swift" \

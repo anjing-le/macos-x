@@ -29,6 +29,8 @@ jobs:
         run: zsh tools/run-capture-export-regression.sh
       - name: Check recording audio choices, timestamp mixing and playable AAC output
         run: zsh tools/run-recording-audio-regression.sh
+      - name: Check real 60-fps H264 encoding and adaptive recording bitrate
+        run: zsh tools/run-recording-encoding-regression.sh
       - name: Check pinned-image transforms and clipboard color cards
         run: zsh tools/run-pin-regression.sh
       - name: Check formatted long text and offline tables without presenting windows
