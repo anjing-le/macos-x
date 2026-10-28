@@ -70,48 +70,68 @@ import ImageIO
         check(CaptureTextDocument.markdown(String(repeating:"x",count:100_001)) == nil,"Bounded preparation without truncation")
         if case .document = CaptureClipboardContent.decode(images:[],text:long,rtf:nil,html:nil) { check(true,"Long content routes to a document") } else { check(false,"Long document route") }
         if case .image(_,let isText) = CaptureClipboardContent.decode(images:[],text:"短文字",rtf:nil,html:nil) { check(isText,"Compact text retains image behavior") } else { check(false,"Short text route") }
-        let content = CaptureTextPin.Content(document:document)
-        content.frame = CGRect(x:0,y:0,width:860,height:640); content.layoutSubtreeIfNeeded()
-        check(content.text.frame.height > content.scroll.contentSize.height * 2,"Long layout scrolls at normal font size")
-        let png = content.png()!
-        let image = CGImageSourceCreateImageAtIndex(CGImageSourceCreateWithData(png as CFData,nil)!,0,nil)!
-        check(image.height > 1800,"Full export exceeds the old height cap")
-        content.scroll.contentView.scroll(to:NSPoint(x:0,y:1200))
-        check(content.png() == png,"Scrolling does not alter or crop the complete export")
-        let board = NSPasteboard.withUniqueName()
-        defer { board.releaseGlobally() }
-        let pin = CaptureTextPin(document:document,frame:CGRect(x:0,y:0,width:860,height:640),clipboard:board)
-        pin.content.text.copy(nil)
-        for _ in 0..<300 where board.data(forType:.png) == nil { try await Task.sleep(nanoseconds:10_000_000) }
-        check(board.data(forType:.png) != nil && board.data(forType:.rtf) != nil,"Full copy provides PNG and RTF on an isolated board")
-        check(board.string(forType:.string) == long,"Plain copy retains the original complete Markdown")
-        check(board.data(forType:.init("cc.anjing.macos-x.text-document")) == Data([1]),"Re-pinning an owned document retains document routing")
-        pin.dispose()
-        let cancelled = CaptureTextPin(document:document,frame:CGRect(x:0,y:0,width:860,height:640),clipboard:board)
-        let revision = board.changeCount
-        cancelled.content.text.copy(nil); cancelled.dispose()
-        try await Task.sleep(nanoseconds:200_000_000)
-        check(board.changeCount == revision,"Closing discards an in-flight copy without changing the clipboard")
-        let letter = CaptureTextPin.Content(document:CaptureTextDocument.markdown("F")!)
-        letter.frame = CGRect(x:0,y:0,width:200,height:80); letter.layoutSubtreeIfNeeded()
-        let letterImage = letter.image()!, sampler = CapturePixelSampler(image:letterImage)!
+        let image = CaptureTextPin.image(document: document)!
+        let png = CaptureTextPin.encodePNG(image)!
+        let decoded = CGImageSourceCreateImageAtIndex(CGImageSourceCreateWithData(png as CFData, nil)!, 0, nil)!
+        check(decoded.width == image.width && decoded.height == image.height, "PNG contains the whole image")
+        let repinned = CaptureClipboard.image(from: png)!
+        check(repinned.width == image.width && repinned.height == image.height,
+              "Copying and re-pinning a long PNG retains its source resolution instead of shrinking to 2200 pixels")
+        check(CapturePinTransform().render(image) != nil, "Ordinary image copy and save accept the complete long image")
+        var rotated = CapturePinTransform(); rotated.rotate(clockwise: true)
+        let rotatedImage = rotated.render(image)!
+        check(rotatedImage.width == image.height && rotatedImage.height == image.width,
+              "Long-image rotation retains all pixels within the image budget")
+        check(image.height > 1800 && image.width == 880, "Long text becomes a complete tall image at readable source width")
+        let sampler = CapturePixelSampler(image: image)!
+        var lastInk = -1
+        for y in max(0, image.height - 70)..<image.height {
+            for x in 0..<image.width where sampler.sample(x: x, y: y)!.red < 120 { lastInk = y; break }
+        }
+        check(lastInk > image.height - 50, "Final paragraph is painted near the image bottom, not clipped to a viewport")
+        let available = CGRect(x: -1440, y: 80, width: 1440, height: 860)
+        let frame = CaptureTextPin.initialFrame(image: image, available: available)
+        check(available.contains(frame) && abs(frame.width / frame.height - CGFloat(image.width) / CGFloat(image.height)) < 0.0001,
+              "Initial long-image frame fits a negative-coordinate display without changing its aspect")
+        let maximumZoom = CaptureTextPin.maximumZoom(image: image, baseSize: frame.size)
+        check(maximumZoom >= CGFloat(image.width) / frame.width && maximumZoom > 4,
+              "Long-image zoom can reach native pixels beyond the former 400-percent thumbnail limit")
+        let ticket = CaptureImageService.Ticket(); ticket.cancel()
+        check(CaptureTextPin.image(document: document, ticket: ticket) == nil, "Cancelled preparation does not create an image")
+        let letterImage = CaptureTextPin.image(document: CaptureTextDocument.markdown("F")!)!
+        let letterSampler = CapturePixelSampler(image: letterImage)!
         var rows: [Int] = []
         for y in 0..<letterImage.height {
             var ink = 0
-            for x in 0..<letterImage.width { if sampler.sample(x:x,y:y)!.red < 100 { ink += 1 } }
+            for x in 0..<letterImage.width { if letterSampler.sample(x: x, y: y)!.red < 100 { ink += 1 } }
             rows.append(ink)
         }
-        let first = rows.firstIndex(where:{$0>0})!, last = rows.lastIndex(where:{$0>0})!, middle = (first+last)/2
-        check(rows[first...middle].reduce(0,+) > rows[(middle+1)...last].reduce(0,+),"Full export keeps asymmetric glyphs upright, not merely their baseline positions")
-        let compact = CaptureTextPin(document:CaptureTextDocument.markdown("**重点提示**\n简短内容")!,clipboard:board)
-        check(compact.window.frame.width < 450 && compact.window.frame.height < 300,"Short formatted content does not inherit a large blank reading window")
-        compact.dispose()
+        let first = rows.firstIndex(where: { $0 > 0 })!, last = rows.lastIndex(where: { $0 > 0 })!, middle = (first + last) / 2
+        check(rows[first...middle].reduce(0,+) > rows[(middle+1)...last].reduce(0,+),
+              "Native glyphs remain upright, not mirrored vertically")
+        let compact = CaptureTextPin.image(document: CaptureTextDocument.markdown("**重点提示**\n简短内容")!)!
+        check(compact.width < 450 && compact.height < 300, "Short formatted content has close-fitting margins")
+        let enormous = CaptureTextDocument.markdown(String(repeating: "完整内容\n", count: 6000) + "最后一行-END")!
+        let bounded = CaptureTextPin.image(document: enormous)!
+        check(bounded.width * bounded.height <= CaptureTextPin.maximumPixels && bounded.height <= CaptureTextPin.maximumEdge,
+              "Very long content stays within pixel and edge budgets instead of disappearing")
+        check(bounded.height > image.height, "An oversized document still produces one complete long image")
+        check(CapturePinTransform().render(bounded) != nil,
+              "The bounded maximum-edge image can pass through the actual image-copy renderer")
+        let tail = bounded.cropping(to: CGRect(x: 0, y: bounded.height - 64, width: bounded.width, height: 64))!
+        let boundedSampler = CapturePixelSampler(image: tail)!
+        var bottomHasInk = false
+        for y in max(0, tail.height - 20)..<tail.height {
+            for x in 0..<tail.width where boundedSampler.sample(x: x, y: y)!.red < 180 { bottomHasInk = true; break }
+        }
+        check(bottomHasInk, "Adaptive density preserves the last line of an oversized document")
         if let path = ProcessInfo.processInfo.environment["MACOSX_TEXT_DOCUMENT_PREVIEW"] {
-            try png.write(to:URL(fileURLWithPath:path)); print("Offscreen preview: \(image.width)×\(image.height)")
-            if let top = image.cropping(to:CGRect(x:0,y:0,width:image.width,height:min(1200,image.height))), let data = CaptureTextPin.Content.encodePNG(top) {
-                try data.write(to:URL(fileURLWithPath:path.replacingOccurrences(of:".png",with:"-top.png")))
+            try png.write(to: URL(fileURLWithPath: path)); print("Offscreen preview: \(image.width)×\(image.height)")
+            if let top = image.cropping(to: CGRect(x: 0, y: 0, width: image.width, height: min(1200, image.height))),
+               let data = CaptureTextPin.encodePNG(top) {
+                try data.write(to: URL(fileURLWithPath: path.replacingOccurrences(of: ".png", with: "-top.png")))
             }
         }
-        print("PASS formatted text pins: \(count) assertions; offline semantics, long text, tables and full export; no presented windows or general clipboard writes")
+        print("PASS formatted long-image pins: \(count) assertions; native offline layout, complete tables, end-of-document pixels, bounded raster and zoom; no presented windows or general clipboard writes")
     }
 }

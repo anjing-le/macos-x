@@ -48,11 +48,13 @@ struct CapturePinTransform: Equatable {
         return CGPoint(x: floor(mapped.x), y: CGFloat(image.height - 1) - floor(mapped.y))
     }
     func render(_ image: CGImage) -> CGImage? {
+        let pixelBudget = CaptureRaster.pinMaximumPixels(for: image)
         if self == CapturePinTransform(), image.width > 0, image.height > 0,
-           image.width <= 4_000_000 / image.height { return image }
+           image.width <= pixelBudget / image.height { return image }
         let size = outputSize(for: image)
         let width = Int(size.width), height = Int(size.height)
-        guard width > 0, height > 0, width <= 4_000_000 / height,
+        guard width > 0, height > 0, width <= CaptureRaster.maximumDimension, height <= CaptureRaster.maximumDimension,
+              width <= pixelBudget / height,
               let space = CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
                 space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return nil }
@@ -124,13 +126,20 @@ enum CaptureClipboard {
     static func image(from data: Data) -> CGImage? {
         guard data.count <= 64_000_000,
               let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
+              let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue,
+              width.isFinite, height.isFinite, width > 0, height > 0 else { return nil }
+        let long = max(width, height) > 2 * min(width, height)
+        let edge = long ? max(1, min(Double(CaptureRaster.maximumDimension), max(width, height),
+            sqrt(Double(CaptureRaster.maximumPixels) / (width * height)) * max(width, height)).rounded(.down)) : 2200
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceThumbnailMaxPixelSize: 2200,
+                kCGImageSourceThumbnailMaxPixelSize: Int(edge),
                 kCGImageSourceCreateThumbnailWithTransform: true,
                 kCGImageSourceShouldCacheImmediately: true
               ] as CFDictionary) else { return nil }
-        return CaptureRaster.downsample(image, maximumPixels: 4_000_000)
+        return CaptureRaster.downsample(image, maximumPixels: CaptureRaster.pinMaximumPixels(for: image))
     }
     static func text(_ value: String) -> CGImage? {
         guard !value.isEmpty, value.count <= 4096 else { return nil }

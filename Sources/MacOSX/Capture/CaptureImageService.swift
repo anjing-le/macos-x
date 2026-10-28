@@ -403,8 +403,12 @@ final class CaptureImageService {
 
 enum CaptureRaster {
     static let maximumPixels = 16_000_000
+    static let maximumDimension = 32_768
+    static func pinMaximumPixels(for image: CGImage) -> Int {
+        max(image.width, image.height) > 2 * min(image.width, image.height) ? maximumPixels : 4_000_000
+    }
     static func context(width: Int, height: Int) -> CGContext? {
-        guard width > 0, height > 0, width <= 16_000, height <= 16_000,
+        guard width > 0, height > 0, width <= maximumDimension, height <= maximumDimension,
               width <= maximumPixels / height else { return nil }
         guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
         return CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,

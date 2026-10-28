@@ -3,7 +3,8 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class CapturePins {
-    private struct Request { let image: CGImage; let frame: CGRect?; let onPresent: ((Bool) -> Void)? }
+    private enum Content { case image(CGImage), text(CaptureTextDocument, CGRect) }
+    private struct Request { let content: Content; let frame: CGRect?; let onPresent: ((Bool) -> Void)? }
     private var entries: [any CapturePinnedItem] = []
     private var pending: [Request] = []
     private var adding = false
@@ -24,27 +25,46 @@ final class CapturePins {
     func add(_ image: CGImage, at frame: CGRect? = nil, onPresent: ((Bool) -> Void)? = nil) {
         guard canAdd else { onStatus?("最多 8 张贴图。"); onPresent?(false); return }
         recovered = nil
-        pending.append(Request(image: image, frame: frame, onPresent: onPresent))
+        pending.append(Request(content: .image(image), frame: frame, onPresent: onPresent))
         addNext()
     }
     func add(_ document: CaptureTextDocument) {
         guard canAdd else { onStatus?("最多 8 张贴图，请先关闭一张。"); return }
         recovered = nil
-        insert(CaptureTextPin(document:document))
+        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
+        let available = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1100, height: 800)
+        pending.append(Request(content: .text(document, available), frame: nil, onPresent: nil))
+        onStatus?("正在生成完整长图…")
+        addNext()
     }
     private func addNext() {
         guard !adding, !pending.isEmpty else { return }
         adding = true
         let request = pending.removeFirst(), expected = generation, ticket = ticket
         queue.async { [weak self] in
-            let image = ticket.valid ? CaptureRaster.downsample(request.image, maximumPixels: 4_000_000) : nil
+            let image: CGImage? = autoreleasepool {
+                guard ticket.valid else { return nil }
+                switch request.content {
+                case .image(let original):
+                    return CaptureRaster.downsample(original, maximumPixels: CaptureRaster.pinMaximumPixels(for: original))
+                case let .text(document, available):
+                    return CaptureTextPin.image(document: document, width: available.width - 64, ticket: ticket)
+                }
+            }
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.adding = false
                 if self.generation == expected, ticket.valid, let image {
-                    self.insert(PinEntry(image: image, frame: request.frame, queue: self.queue))
+                    let frame: CGRect?
+                    if case .text(_, let available) = request.content {
+                        frame = CaptureTextPin.initialFrame(image: image, available: available)
+                    } else { frame = request.frame }
+                    self.insert(PinEntry(image: image, frame: frame, queue: self.queue))
                     request.onPresent?(true)
-                } else { request.onPresent?(false) }
+                } else {
+                    if self.generation == expected, ticket.valid { self.onStatus?("贴图生成失败，内容未截断，请重试。") }
+                    request.onPresent?(false)
+                }
                 self.addNext()
             }
         }
@@ -67,10 +87,7 @@ final class CapturePins {
         guard changeCount == NSPasteboard.general.changeCount else { recovered = nil; return false }
         guard canAdd else { return false }
         recovered = nil
-        switch snapshot {
-        case .image(let image): insert(PinEntry(snapshot:image,queue:queue))
-        case let .text(document,frame,position): insert(CaptureTextPin(document:document,frame:frame,position:position))
-        }
+        switch snapshot { case .image(let image): insert(PinEntry(snapshot:image,queue:queue)) }
         return true
     }
     func shelveActive(_ save: @escaping (CGImage, @escaping (Bool) -> Void) -> Void) -> Bool {
@@ -245,7 +262,8 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
         case .close: window.close()
         case .hide: window.close()
         case let .zoom(factor):
-            thumbnail = false; zoom = min(4, max(0.15, zoom * factor)); resize()
+            thumbnail = false
+            zoom = min(CaptureTextPin.maximumZoom(image: image, baseSize: baseSize), max(0.15, zoom * factor)); resize()
             view.showZoom(zoom)
         case let .opacity(delta): window.alphaValue = min(1, max(0.1, window.alphaValue + delta))
         case let .rotate(clockwise): transform.rotate(clockwise: clockwise); resize()

@@ -15,21 +15,17 @@ enum CaptureClipboardContent {
     }
 }
 
-/// Semantic text, not one tall bitmap. Each pin owns its TextKit layout; long
-/// documents stay readable at normal size and do not allocate a full raster.
+/// Preserve text semantics until the background renderer produces a complete
+/// long image with native TextKit layout and a bounded pixel allocation.
 struct CaptureTextDocument {
     static let maximumCharacters = 100_000
     static let maximumRichBytes = 4_000_000
     let attributed: NSAttributedString
     let source: String
-    let rtf: Data?
 
     init(attributed:NSAttributedString,source:String) {
         let owned = NSAttributedString(attributedString:attributed)
         self.attributed = owned; self.source = source
-        // Prepared alongside parsing, before the main-thread TextKit view owns
-        // its layout. Export workers only receive immutable Data and CGImage.
-        self.rtf = try? owned.data(from:NSRange(location:0,length:owned.length),documentAttributes:[.documentType:NSAttributedString.DocumentType.rtf])
     }
 
     static func decode(text: String?, rtf: Data?, html: Data?) -> Self? {

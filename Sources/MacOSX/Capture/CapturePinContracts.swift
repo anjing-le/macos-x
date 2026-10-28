@@ -14,7 +14,6 @@ import AppKit
 }
 enum CapturePinRecovery {
     case image(PinSnapshot)
-    case text(CaptureTextDocument, CGRect, NSPoint)
 }
 
 struct PinSnapshot {
