@@ -311,9 +311,7 @@ final class CaptureModule: NSObject {
             recorder.stop(); return
         }
         if recordingState == .choosing {
-            recordingRevision &+= 1
-            images.cancel(); captureTicket?.cancel(); captureTicket = nil
-            selection.dismiss(); recordingState = .idle; setStatus("已取消录屏。")
+            selection.confirmRecordingSelection()
             return
         }
         guard recordingState == .idle else { return }

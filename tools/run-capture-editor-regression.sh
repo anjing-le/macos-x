@@ -11,7 +11,7 @@ xcrun swiftc -I "$editor_bin/Modules" "$editor_bin"/MacOSXCore.build/*.swift.o \
  Sources/MacOSX/UI/SketchTheme.swift Sources/MacOSX/UI/SketchIcons.swift Sources/MacOSX/UI/MinimalControls.swift Sources/MacOSX/Capture/RecordingStartBar.swift \
  Sources/MacOSX/Capture/CaptureSampling.swift Sources/MacOSX/Capture/CaptureImageService.swift \
  Sources/MacOSX/Capture/CaptureAnnotations.swift Sources/MacOSX/Capture/CaptureToolbar.swift \
- Sources/MacOSX/Capture/CaptureTextRecognition.swift \
+ Sources/MacOSX/Capture/CaptureTextRecognition.swift Sources/MacOSX/Capture/RecordingAudio.swift \
  Sources/MacOSX/Capture/CapturePinRaster.swift Sources/MacOSX/Capture/CapturePinHighlight.swift \
  Sources/MacOSX/Capture/CapturePinContracts.swift Sources/MacOSX/Capture/CaptureTextDocument.swift Sources/MacOSX/Capture/CaptureTextPin.swift \
  "$editor_dir/editor-and-pin-regression.swift" -o "$editor_dir/capture-editor-regression"

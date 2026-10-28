@@ -437,9 +437,15 @@ import os
         recordingControls?.orderOut(nil)
         finish(.edit(region))
     }
+    @discardableResult func confirmRecordingSelection() -> Bool {
+        guard mode == .recording, acceptsInput, completion != nil, drag == nil,
+              recordingControls != nil, validRegion() != nil else { return false }
+        startRecordingPressed(nil)
+        return true
+    }
     private func showRecordingControls(at region: CGRect) {
         let bounds = frames.first?.screen.frame ?? desktop
-        let size = CGSize(width: 282, height: 58)
+        let size = CGSize(width: min(360, bounds.width), height: 108)
         let x = min(max(region.maxX - size.width, bounds.minX), bounds.maxX - size.width)
         let below = region.minY - size.height - 10
         let y = below >= bounds.minY ? below : min(region.maxY + 10, bounds.maxY - size.height)

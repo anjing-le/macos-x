@@ -173,10 +173,15 @@ final class NSSavePanel {
     static var presentations = 0
     static var dismissals = 0
     static var lastCompletion: ((Result) -> Void)?
+    static var confirmationRegion: CGRect?
+    @discardableResult func confirmRecordingSelection() -> Bool {
+        guard let region = Self.confirmationRegion, let completion = Self.lastCompletion else { return false }
+        Self.confirmationRegion = nil; completion(.edit(region)); return true
+    }
     func present(_ frames: [CaptureFrame], mode: Mode = .screenshot, previousRegion: CGRect? = nil, windows: [CGRect] = [], completion: @escaping (Result) -> Void) {
         Self.current = self; Self.presentations += 1; Self.lastCompletion = completion
     }
-    func dismiss() { Self.dismissals += 1; Self.lastCompletion = nil }
+    func dismiss() { Self.dismissals += 1; Self.lastCompletion = nil; Self.confirmationRegion = nil }
     static var pinRequests = 0
     func pinCurrentSelection() { Self.pinRequests += 1 }
     static var shelfRequests = 0
@@ -657,8 +662,11 @@ private struct CheckFailure: Error { let message: String }
             module.start(); module.toggleRecording()
             try await wait({ MockCapture.pendingContent == 1 }, "cancel record selection acquisition")
             module.toggleRecording(); MockCapture.content()
-            try await settle()
-            try require(!module.isRecording && MockCapture.pendingImage == 0, "repeated shortcut cancels pending selection without late overlay")
+            try await wait({ MockCapture.pendingImage == 1 }, "pending selection survives repeated shortcut")
+            MockCapture.image(image)
+            try await wait({ CaptureSelection.lastCompletion != nil }, "pending selection reaches preview")
+            try require(module.isRecording && MockCapture.pendingStart == 0, "repeated shortcut while acquiring pixels neither cancels nor starts before selection")
+            CaptureSelection.lastCompletion?(.cancel)
             module.toggleRecording()
             try require(NSSavePanel.pending == nil, "record shortcut must not present destination dialog")
             try await succeedImage(image)
@@ -670,7 +678,8 @@ private struct CheckFailure: Error { let message: String }
             func beginRecordingSelection() async throws {
                 module.toggleRecording(); try await succeedImage(image)
                 try await wait({ CaptureSelection.lastCompletion != nil }, "record selection ready")
-                CaptureSelection.lastCompletion?(.edit(recordingRegion))
+                CaptureSelection.confirmationRegion = recordingRegion
+                module.toggleRecording()
                 try await wait({ MockCapture.pendingContent == 1 }, "record metadata")
             }
             try await beginRecordingSelection()

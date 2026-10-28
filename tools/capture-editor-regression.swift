@@ -337,16 +337,30 @@ import AppKit
         setbuf(stdout,nil)
         _ = NSApplication.shared; NSApp.setActivationPolicy(.prohibited)
         let receiver = RecordingControlReceiver()
+        let barDomain = "cc.anjing.macos-x.recording-controls-fixture.\(UUID().uuidString)"
+        let barDefaults = UserDefaults(suiteName: barDomain)!
+        defer { barDefaults.removePersistentDomain(forName: barDomain) }
+        RecordingAudioOptions(system: true, microphone: false).save(to: barDefaults)
         let recordingBar = RecordingStartBar(target: receiver, start: #selector(RecordingControlReceiver.start(_:)),
-            cancel: #selector(RecordingControlReceiver.cancel(_:)))
+            cancel: #selector(RecordingControlReceiver.cancel(_:)), defaults: barDefaults)
         precondition(recordingBar.acceptsFirstResponder && recordingBar.startButton.keyEquivalent == "\r" && recordingBar.cancelButton.keyEquivalent == "\u{1b}",
                      "The bar preserves selection keys while Enter and Escape activate the visible actions")
-        for width: CGFloat in [220, 282] {
-            recordingBar.frame = CGRect(x: 0, y: 0, width: width, height: 58)
+        for width: CGFloat in [220, 282, 360] {
+            recordingBar.frame = CGRect(x: 0, y: 0, width: width, height: 108)
             recordingBar.layoutSubtreeIfNeeded()
             precondition(recordingBar.bounds.contains(recordingBar.startButton.frame) && recordingBar.bounds.contains(recordingBar.cancelButton.frame))
             precondition(!recordingBar.startButton.frame.intersects(recordingBar.cancelButton.frame))
+            for button in [recordingBar.systemAudioButton, recordingBar.microphoneButton] {
+                precondition(recordingBar.bounds.contains(button.frame) && !button.frame.intersects(recordingBar.startButton.frame))
+            }
         }
+        precondition(recordingBar.systemAudioButton.state == .on && recordingBar.microphoneButton.state == .off)
+        recordingBar.systemAudioButton.performClick(nil); recordingBar.microphoneButton.performClick(nil)
+        precondition(RecordingAudioOptions(defaults: barDefaults) == .init(system: false, microphone: true),
+                     "Inline audio switches save the exact options read by the recorder, without requesting microphone access")
+        let reopenedBar = RecordingStartBar(target: receiver, start: #selector(RecordingControlReceiver.start(_:)),
+            cancel: #selector(RecordingControlReceiver.cancel(_:)), defaults: barDefaults)
+        precondition(reopenedBar.systemAudioButton.state == .off && reopenedBar.microphoneButton.state == .on)
         recordingBar.startButton.performClick(nil); recordingBar.cancelButton.performClick(nil)
         precondition(receiver.starts == 1 && receiver.cancels == 1, "Visible recording controls retain separate native actions")
         if let path = ProcessInfo.processInfo.environment["MACOSX_RECORDING_BAR_PREVIEW"],
@@ -733,6 +747,17 @@ import AppKit
             controller.completion = { results.append($0) }
             return controller
         }
+        let readyRecording = make()
+        readyRecording.mode = .recording
+        precondition(!readyRecording.confirmRecordingSelection(), "No recording can start before the ready controls exist")
+        readyRecording.recordingControls = Panel(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: false)
+        readyRecording.drag = .create(.zero)
+        precondition(!readyRecording.confirmRecordingSelection(), "A recording shortcut cannot commit an in-progress drag")
+        readyRecording.drag = nil
+        precondition(readyRecording.confirmRecordingSelection() && results.count == 1)
+        if case .edit(let chosen) = results[0] { precondition(chosen == region) } else { preconditionFailure("Shortcut must submit the exact ready selection") }
+        precondition(!readyRecording.confirmRecordingSelection(), "A repeated shortcut cannot submit the same selection twice")
+        readyRecording.dismiss()
         func key(_ code: UInt16 = 8,_ text: String = "c",flags: NSEvent.ModifierFlags = .command,repeat repeated: Bool = false) -> NSEvent {
             NSEvent.keyEvent(with: .keyDown,location: .zero,modifierFlags: flags,timestamp: 0,windowNumber: 0,
                 context: nil,characters: text,charactersIgnoringModifiers: text,isARepeat: repeated,keyCode: code)!
