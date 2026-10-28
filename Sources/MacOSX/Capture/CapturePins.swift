@@ -281,7 +281,7 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
         queue.async { [weak self] in
             let bytes = CaptureRaster.pinMaximumPixels(for: image) * 4
             let sampler = ticket.valid && lifetime.valid ? CapturePixelSampler(image: image, maximumBytes: bytes,
-                tiled: bytes > 16_000_000) : nil
+                tiled: bytes > 16_000_000, maximumDimension: CaptureRaster.maximumDimension) : nil
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.samplingPending = false

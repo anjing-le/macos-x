@@ -19,9 +19,10 @@ final class CapturePixelSampler: @unchecked Sendable {
     private var tileOrigin: CGPoint?
     private let lock = NSLock()
 
-    init?(image: CGImage, maximumBytes: Int = 128_000_000, tiled: Bool = false) {
+    init?(image: CGImage, maximumBytes: Int = 128_000_000, tiled: Bool = false, maximumDimension: Int = 16_000) {
         let width = image.width, height = image.height
-        guard width > 0, height > 0, width <= 32_768, height <= 32_768,
+        guard maximumDimension > 0, maximumDimension <= 32_768,
+              width > 0, height > 0, width <= maximumDimension, height <= maximumDimension,
               maximumBytes >= 4, width <= maximumBytes / 4 / height else { return nil }
         let rasterWidth = tiled ? min(64,width) : width, rasterHeight = tiled ? min(64,height) : height
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
