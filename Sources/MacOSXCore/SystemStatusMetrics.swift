@@ -6,13 +6,30 @@ public struct SystemStatusSnapshot: Equatable, Sendable {
     public var memory: SystemMemoryStatus?
     public var network: SystemNetworkStatus?
     public var issues: [String]
+    public var disk: SystemDiskStatus?
 
-    public init(timestamp: TimeInterval, cpuPercent: Double?, memory: SystemMemoryStatus?, network: SystemNetworkStatus?, issues: [String] = []) {
+    public init(timestamp: TimeInterval, cpuPercent: Double?, memory: SystemMemoryStatus?, network: SystemNetworkStatus?, issues: [String] = [], disk: SystemDiskStatus? = nil) {
         self.timestamp = timestamp
         self.cpuPercent = cpuPercent
         self.memory = memory
         self.network = network
         self.issues = issues
+        self.disk = disk
+    }
+}
+
+/// Immediate filesystem capacity; purgeable files are not counted as free.
+public struct SystemDiskStatus: Equatable, Sendable {
+    public let totalBytes: UInt64
+    public let availableBytes: UInt64
+    public var usedBytes: UInt64 { totalBytes - availableBytes }
+    public var usedRatio: Double { Double(usedBytes) / Double(totalBytes) }
+    public var isLow: Bool { Double(availableBytes) / Double(totalBytes) < 0.10 }
+
+    public init?(totalBytes: UInt64, availableBytes: UInt64) {
+        guard totalBytes > 0, availableBytes <= totalBytes else { return nil }
+        self.totalBytes = totalBytes
+        self.availableBytes = availableBytes
     }
 }
 
@@ -130,16 +147,16 @@ public struct SystemStatusAccumulator: Sendable {
     public init() {}
     public mutating func reset() { previousCPU = nil; previousNetwork = nil }
 
-    public mutating func sample(timestamp: TimeInterval, cpu: SystemCPUCounter?, memory: SystemMemoryStatus?, network: SystemNetworkCounter?, issues: [String] = []) -> SystemStatusSnapshot {
+    public mutating func sample(timestamp: TimeInterval, cpu: SystemCPUCounter?, memory: SystemMemoryStatus?, network: SystemNetworkCounter?, issues: [String] = [], disk: SystemDiskStatus? = nil) -> SystemStatusSnapshot {
         guard timestamp.isFinite, timestamp >= 0 else {
             reset()
             return .init(timestamp: 0, cpuPercent: nil, memory: memory,
                          network: network.map { .init(interfaceName: $0.interfaceName, downloadBytesPerSecond: nil, uploadBytesPerSecond: nil) },
-                         issues: issues + ["采样时间无效"])
+                         issues: issues + ["采样时间无效"], disk: disk)
         }
         let cpuPercent = readCPU(cpu, timestamp: timestamp)
         let networkStatus = readNetwork(network, timestamp: timestamp)
-        return .init(timestamp: timestamp, cpuPercent: cpuPercent, memory: memory, network: networkStatus, issues: issues)
+        return .init(timestamp: timestamp, cpuPercent: cpuPercent, memory: memory, network: networkStatus, issues: issues, disk: disk)
     }
 
     private mutating func readCPU(_ current: SystemCPUCounter?, timestamp: TimeInterval) -> Double? {

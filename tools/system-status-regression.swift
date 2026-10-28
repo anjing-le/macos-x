@@ -45,6 +45,33 @@ extension SystemStatusModule {
 }
 
 @main struct SystemStatusRegression {
+    @MainActor private static func diskCapacity() throws {
+        let normal = SystemDiskStatus(totalBytes: 1_000, availableBytes: 250)!
+        try require(normal.usedBytes == 750 && normal.usedRatio == 0.75 && !normal.isLow, "capacity arithmetic uses one consistent filesystem basis")
+        try require(SystemDiskStatus(totalBytes: 0, availableBytes: 0) == nil && SystemDiskStatus(totalBytes: 10, availableBytes: 11) == nil, "invalid capacities are missing rather than fabricated or underflowed")
+        try require(SystemDiskStatus(totalBytes: 100, availableBytes: 0)?.isLow == true && SystemDiskStatus(totalBytes: 100, availableBytes: 10)?.isLow == false, "full disk remains valid and the low space boundary is explicit")
+        var cache = SystemStatusDiskCache(); var reads = 0
+        func read() -> SystemDiskStatus? { reads += 1; return normal }
+        try require(cache.sample(at: 100, read: read) == normal && reads == 1, "capacity is available at the first sample")
+        _ = cache.sample(at: 129.99, read: read)
+        try require(reads == 1, "CPU/network ticks reuse capacity for thirty seconds")
+        _ = cache.sample(at: 130, read: read)
+        try require(reads == 2, "capacity refreshes at the thirty second boundary")
+        try require(cache.sample(at: 160, read: { reads += 1; return nil }) == nil, "read failure immediately invalidates old capacity")
+        _ = cache.sample(at: 162, read: read)
+        try require(reads == 3, "errors are also throttled without tight retry loops")
+        try require(cache.sample(at: 190, read: read) == normal && reads == 4, "capacity recovers on the next refresh")
+        _ = cache.sample(at: 1, read: read)
+        try require(reads == 5, "clock reset invalidates cached capacity")
+        let native = SystemStatusDiskCache.readStartupVolume()
+        try require(native != nil && native!.totalBytes > 0 && native!.availableBytes <= native!.totalBytes, "read-only native startup volume capacity is valid")
+        var accumulator = SystemStatusAccumulator()
+        let snapshot = accumulator.sample(timestamp: 1, cpu: nil, memory: nil, network: nil, disk: normal)
+        try require(snapshot.disk == normal, "capacity survives the production accumulator")
+        let card = SystemStatusDiskCard(frame: CGRect(x: 0, y: 0, width: 700, height: 98))
+        card.update(.init(totalBytes: 100, availableBytes: 5), isEnabled: true, hasSample: true)
+        try require(labels(card).contains(where: { $0.contains("空间不足 10%") }), "low capacity is explained without opening another page")
+    }
     @MainActor private static var checks = 0
     @MainActor private static func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
         checks += 1
@@ -92,6 +119,7 @@ extension SystemStatusModule {
 
     @MainActor static func main() async {
         do {
+            try diskCapacity()
             _ = NSApplication.shared
             NSApp.appearance = NSAppearance(named: .aqua)
             try await samplerLifecycle()
@@ -231,7 +259,8 @@ extension SystemStatusModule {
             let download = 850_000.0 + 240_000.0 * sin(step / 4.0)
             let upload = 35_000.0 + 15_000.0 * cos(step / 7.0)
             let network = SystemNetworkStatus(interfaceName: "en0", downloadBytesPerSecond: download, uploadBytesPerSecond: upload)
-            return SystemStatusSnapshot(timestamp: end - Double(99 - index) * 2.0, cpuPercent: cpu, memory: memory, network: network)
+            return SystemStatusSnapshot(timestamp: end - Double(99 - index) * 2.0, cpuPercent: cpu, memory: memory, network: network,
+                                        disk: .init(totalBytes: 500_000_000_000, availableBytes: 125_000_000_000))
         }
         let view = SystemStatusDashboardView(frame: .zero)
         view.update(snapshot: history.last, history: history, isEnabled: true)
@@ -240,7 +269,8 @@ extension SystemStatusModule {
         for width: CGFloat in [912, 312] {
             layout(view, width: width)
             try assertBounds(view, name: "dashboard \(Int(width))")
-            if width == 912 { try require(view.intrinsicContentSize.height < 400, "compact monitor keeps live cards within a smaller page") }
+            if width == 912 { try require(view.intrinsicContentSize.height < 510, "capacity strip and live cards fit the normal settings page") }
+            try require(labels(view).contains("硬盘") && labels(view).contains(where: { $0.contains("可用 125") }), "real capacity values appear alongside existing live charts")
             let charts = descendants(view).compactMap { $0 as? SystemStatusHistoryChart }
             try require(charts.count == 3, "dashboard exposes three native metric charts")
             try require(charts.allSatisfy { ($0.accessibilityLabel() ?? "").contains("最多 31 个采样点") },
@@ -255,13 +285,15 @@ extension SystemStatusModule {
         var missing = SystemStatusSnapshot(timestamp: end, cpuPercent: nil, memory: nil, network: nil,
                                            issues: ["测试：CPU 读取失败", "测试：内存读取失败", "测试：接口读取失败"])
         view.update(snapshot: missing, history: history, isEnabled: true)
+        try require(labels(view).contains("硬盘容量暂不可用"), "failed disk reads do not leave an old capacity visible")
         try require(labels(view).contains("部分数据暂不可用") && labels(view).contains("CPU 暂不可用") && labels(view).contains("内存数据暂不可用") && labels(view).contains("网络数据暂不可用"),
                     "partial failures expose missing metrics explicitly")
         layout(view, width: 312); try assertBounds(view, name: "missing-data narrow")
         try memoryHistoryRendering(end: end, output: output)
         view.update(snapshot: missing, history: history, isEnabled: false)
-        try require(labels(view).contains("已关闭 · 开启后开始监控") && labels(view).filter { $0 == "—" }.count == 3,
-                    "disabled dashboard clears all three values")
+        try require(labels(view).contains("开启后显示硬盘容量"), "disabled module clears disk capacity")
+        try require(labels(view).contains("已关闭 · 开启后开始监控") && labels(view).filter { $0 == "—" }.count == 4,
+                    "disabled dashboard clears all four values")
         missing.cpuPercent = .nan
         missing.timestamp = .nan
         missing.network = .init(interfaceName: String(repeating: "very-long-physical-interface-", count: 8),

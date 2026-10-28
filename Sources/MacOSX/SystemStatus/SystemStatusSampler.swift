@@ -9,6 +9,7 @@ struct SystemStatusRawReading: Sendable {
     var memory: SystemMemoryStatus?
     var network: SystemNetworkCounter?
     var issues: [String]
+    var disk: SystemDiskStatus? = nil
 }
 
 /// One timer on one serial queue. No metrics are sampled while the module is stopped.
@@ -120,6 +121,7 @@ private final class SystemStatusWorker: @unchecked Sendable {
     private let readOverride: (@Sendable () -> SystemStatusRawReading)?
 
     init(read: (@Sendable () -> SystemStatusRawReading)?) { readOverride = read }
+    private var diskCache = SystemStatusDiskCache()
 
     func cancel() {
         lock.lock(); defer { lock.unlock() }
@@ -149,7 +151,7 @@ private final class SystemStatusWorker: @unchecked Sendable {
     private func read() -> SystemStatusSnapshot {
         let reading = readOverride?() ?? nativeReading()
         return accumulator.sample(timestamp: reading.timestamp, cpu: reading.cpu, memory: reading.memory,
-                                  network: reading.network, issues: reading.issues)
+                                  network: reading.network, issues: reading.issues, disk: reading.disk)
     }
 
     private func nativeReading() -> SystemStatusRawReading {
@@ -159,11 +161,13 @@ private final class SystemStatusWorker: @unchecked Sendable {
         let cpu = readCPU(host)
         let memory = readMemory(host)
         let network = readNetwork()
+        let disk = diskCache.sample(at: timestamp)
         var issues: [String] = []
         if cpu == nil { issues.append("CPU 数据暂不可用") }
         if memory == nil { issues.append("内存数据暂不可用") }
         if network == nil { issues.append("网络主接口暂不可用") }
-        return .init(timestamp: timestamp, cpu: cpu, memory: memory, network: network, issues: issues)
+        if disk == nil { issues.append("硬盘容量暂不可用") }
+        return .init(timestamp: timestamp, cpu: cpu, memory: memory, network: network, issues: issues, disk: disk)
     }
 
     private func readCPU(_ host: mach_port_t) -> SystemCPUCounter? {
@@ -274,4 +278,27 @@ private final class SystemStatusWorker: @unchecked Sendable {
         return nil
     }
 
+}
+
+/// Owned by the serial worker; no extra timer, directory traversal or retained stale errors.
+struct SystemStatusDiskCache {
+    private var lastRead: TimeInterval?
+    private var cached: SystemDiskStatus?
+
+    mutating func sample(at time: TimeInterval, read: () -> SystemDiskStatus? = Self.readStartupVolume) -> SystemDiskStatus? {
+        guard time.isFinite, time >= 0 else { return nil }
+        if let lastRead, time >= lastRead, time - lastRead < 30 { return cached }
+        lastRead = time
+        cached = read()
+        return cached
+    }
+
+    static func readStartupVolume() -> SystemDiskStatus? {
+        // The writable Data volume avoids reporting the sealed system snapshot's capacity.
+        let url = URL(fileURLWithPath: "/System/Volumes/Data", isDirectory: true)
+        guard let values = try? url.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey]),
+              let total = values.volumeTotalCapacity, total > 0,
+              let available = values.volumeAvailableCapacity, available >= 0 else { return nil }
+        return .init(totalBytes: UInt64(total), availableBytes: UInt64(available))
+    }
 }

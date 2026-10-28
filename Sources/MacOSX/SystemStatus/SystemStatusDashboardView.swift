@@ -11,6 +11,7 @@ final class SystemStatusDashboardView: NSView {
     private let cpu = SystemStatusMetricCard(kind: .cpu)
     private let memory = SystemStatusMetricCard(kind: .memory)
     private let network = SystemStatusMetricCard(kind: .network)
+    private let disk = SystemStatusDiskCard()
     private let timeFormatter = DateFormatter()
     private var isEnabled = false
     private var measuredHeight: CGFloat = 436
@@ -31,14 +32,14 @@ final class SystemStatusDashboardView: NSView {
         issue.textColor = SketchPalette.ink
         issue.maximumNumberOfLines = 2
         issue.lineBreakMode = .byTruncatingTail
-        for view in [activity, updated, footnote, issue, cpu, memory, network] { addSubview(view) }
+        for view in [activity, updated, footnote, issue, cpu, memory, network, disk] { addSubview(view) }
         update(snapshot: nil, history: [], isEnabled: false)
     }
     required init?(coder: NSCoder) { nil }
 
     func update(snapshot: SystemStatusSnapshot?, history: [SystemStatusSnapshot], isEnabled: Bool) {
         self.isEnabled = isEnabled
-        footnote.stringValue = isEnabled ? "每 2 秒刷新 · 最近 1 分钟 · 本机读取" : "开启后每 2 秒刷新 · 曲线保留 1 分钟"
+        footnote.stringValue = isEnabled ? "曲线每 2 秒 · 硬盘每 30 秒 · 本机读取" : "开启后显示实时状态与硬盘容量"
         let latest = isEnabled ? snapshot : nil
         let points: [SystemStatusSnapshot]
         if let time = latest?.timestamp, time.isFinite {
@@ -49,6 +50,7 @@ final class SystemStatusDashboardView: NSView {
         cpu.update(snapshot: latest, history: points, isEnabled: isEnabled)
         memory.update(snapshot: latest, history: points, isEnabled: isEnabled)
         network.update(snapshot: latest, history: points, isEnabled: isEnabled)
+        disk.update(latest?.disk, isEnabled: isEnabled, hasSample: latest != nil)
         if !isEnabled {
             activity.stringValue = "已关闭 · 开启后开始监控"
             updated.stringValue = ""
@@ -65,7 +67,7 @@ final class SystemStatusDashboardView: NSView {
         } else {
             activity.stringValue = "等待首次采样"
             updated.stringValue = ""
-            issue.stringValue = "正在读取 CPU、内存和网络数据"
+            issue.stringValue = "正在读取 CPU、内存、网络和硬盘数据"
         }
         activity.setAccessibilityLabel(activity.stringValue)
         issue.toolTip = issue.stringValue.isEmpty ? nil : issue.stringValue
@@ -98,6 +100,9 @@ final class SystemStatusDashboardView: NSView {
             }
             footerY = top + cardHeight + 7
         }
+        let diskHeight: CGFloat = width < 500 ? 132 : 98
+        disk.frame = CGRect(x: inset, y: footerY + 5, width: contentWidth, height: diskHeight)
+        footerY += diskHeight + 15
         footnote.frame = CGRect(x: inset + 2, y: footerY, width: max(1, contentWidth - 4), height: 18)
         footerY += 20
         issue.frame = CGRect(x: inset + 2, y: footerY, width: max(1, contentWidth - 4), height: 30)
@@ -132,6 +137,82 @@ final class SystemStatusDashboardView: NSView {
         let dot = NSBezierPath(ovalIn: CGRect(x: bounds.width < 420 ? 2 : 8, y: 10, width: 6, height: 6))
         (isEnabled ? SketchPalette.green : SketchPalette.muted).setFill()
         dot.fill()
+    }
+}
+
+/// Capacity is a compact strip, not a misleading one-minute usage curve.
+@MainActor private final class SystemStatusDiskCard: NSView {
+    private let heading = NSTextField(labelWithString: "硬盘")
+    private let available = NSTextField(labelWithString: "—")
+    private let detail = NSTextField(labelWithString: "")
+    private var status: SystemDiskStatus?
+    override var isFlipped: Bool { true }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        heading.font = SketchPalette.heading(20); heading.textColor = SketchPalette.ink
+        available.font = .monospacedDigitSystemFont(ofSize: 22, weight: .semibold)
+        available.alignment = .right
+        detail.font = .systemFont(ofSize: 12); detail.textColor = SketchPalette.muted
+        for label in [heading, available, detail] {
+            label.lineBreakMode = .byTruncatingTail
+            addSubview(label)
+        }
+        toolTip = "启动磁盘的文件系统容量，每 30 秒刷新。已占用包含 APFS 其他卷及快照占用；可用空间不含系统可清理内容，不扫描文件。"
+        setAccessibilityRole(.group)
+    }
+    required init?(coder: NSCoder) { nil }
+
+    func update(_ value: SystemDiskStatus?, isEnabled: Bool, hasSample: Bool) {
+        status = isEnabled ? value : nil
+        if let status {
+            available.stringValue = "可用 " + Self.bytes(status.availableBytes)
+            detail.stringValue = "启动磁盘 · 已占用 " + Self.bytes(status.usedBytes) + " / 共 " + Self.bytes(status.totalBytes)
+                + (status.isLow ? " · 空间不足 10%" : "")
+        } else {
+            available.stringValue = "—"
+            detail.stringValue = !isEnabled ? "开启后显示硬盘容量" : hasSample ? "硬盘容量暂不可用" : "正在读取启动磁盘"
+        }
+        available.textColor = status?.isLow == true ? SketchPalette.coral : SketchPalette.ink
+        setAccessibilityLabel(["硬盘", available.stringValue, detail.stringValue].joined(separator: "，"))
+        needsDisplay = true
+    }
+
+    override func layout() {
+        super.layout()
+        let narrow = bounds.width < 500
+        heading.frame = CGRect(x: 54, y: 13, width: 90, height: 27)
+        available.frame = CGRect(x: narrow ? 18 : 152, y: narrow ? 43 : 13,
+                                 width: max(1, bounds.width - (narrow ? 36 : 170)), height: 29)
+        available.alignment = narrow ? .left : .right
+        detail.frame = CGRect(x: 18, y: narrow ? 79 : 49, width: max(1, bounds.width - 36), height: 18)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        NSGraphicsContext.saveGraphicsState(); defer { NSGraphicsContext.restoreGraphicsState() }
+        NSBezierPath(rect: bounds).addClip()
+        let outline = SketchPencil.outline(in: bounds.insetBy(dx: 1.5, dy: 1.5), radius: 14)
+        SketchPalette.paper.setFill(); outline.fill()
+        SketchPencil.stroke(outline, color: SketchPalette.line.withAlphaComponent(0.56), width: 1.2)
+        let icon = SketchPencil.outline(in: CGRect(x: 19, y: 17, width: 25, height: 19), radius: 4)
+        SketchPencil.stroke(icon, color: SketchPalette.ink, width: 1.3)
+        let slot = NSBezierPath(); slot.move(to: CGPoint(x: 24, y: 29)); slot.line(to: CGPoint(x: 39, y: 29))
+        SketchPencil.stroke(slot, color: SketchPalette.ink, width: 1.2)
+        let area = CGRect(x: 18, y: bounds.height - 21, width: max(1, bounds.width - 36), height: 8)
+        let bar = SketchPencil.outline(in: area, radius: 4)
+        SketchPalette.line.withAlphaComponent(0.08).setFill(); bar.fill()
+        if let status {
+            NSGraphicsContext.saveGraphicsState(); bar.addClip()
+            let fill = NSBezierPath(rect: CGRect(x: area.minX, y: area.minY, width: area.width * status.usedRatio, height: area.height))
+            SketchPalette.fill(fill, color: (status.isLow ? SketchPalette.coral : SketchPalette.blue).withAlphaComponent(0.6))
+            NSGraphicsContext.restoreGraphicsState()
+        }
+        SketchPencil.stroke(bar, color: SketchPalette.line.withAlphaComponent(0.3), width: 0.7)
+    }
+
+    private static func bytes(_ value: UInt64) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(min(value, UInt64(Int64.max))), countStyle: .file)
     }
 }
 
