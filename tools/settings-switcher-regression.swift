@@ -66,6 +66,16 @@ import MacOSXCore
         let registryDefaults=UserDefaults(suiteName:registrySuite)!
         defer { registryDefaults.removePersistentDomain(forName:registrySuite) }
         registryDefaults.set("保留的提示词",forKey:"fixture.prompt-content")
+        try require(Tool.allCases.count == 6 && Tool(rawValue: "shortcutRadar") == nil,
+                    "Removed module is absent from the home and module pool")
+        registryDefaults.set(["kaomoji", "shortcutRadar", "capture"], forKey: "addedTools")
+        let migratedRegistry = AddedTools(defaults: registryDefaults)
+        try require(migratedRegistry.tools == [.kaomoji, .capture],
+                    "An old installed radar entry is ignored without losing other modules or their order")
+        migratedRegistry.reorder([.capture, .kaomoji])
+        try require(registryDefaults.stringArray(forKey: "addedTools") == ["capture", "kaomoji"],
+                    "The next membership save excludes the removed entry")
+        registryDefaults.removeObject(forKey: "addedTools")
         let registry=AddedTools(defaults:registryDefaults)
         registry.add(.kaomoji); registry.add(.kaomoji); registry.add(.capture)
         try require(registry.tools == [.kaomoji,.capture],"Repeated add cannot duplicate a module")

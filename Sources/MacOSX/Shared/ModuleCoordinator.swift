@@ -16,7 +16,6 @@ final class ModuleCoordinator {
     private var switcher: WindowSwitcherModule?
     private var layout:WindowLayoutModule?
     private var systemStatus: SystemStatusModule?
-    private var shortcutRadar: ShortcutRadarModule?
     private var menuBarShelf: MenuBarShelfModule?
     var menuBarAnchor: (() -> CGRect?)?
     var menuBarCoveredEvent: ((NSEvent) -> Void)?
@@ -99,16 +98,6 @@ final class ModuleCoordinator {
                 menuBarShelf?.onAppleEvent = { [weak self] in self?.menuBarCoveredEvent?($0) }
                 menuBarShelf?.onStatusChange = { [weak self] in self?.onStateChanged?(.menuBarShelf) }
             }
-        case .shortcutRadar:
-            if shortcutRadar == nil {
-                shortcutRadar = ShortcutRadarModule(configuration: { [weak self] labels in
-                    self?.radarConfiguration(labels: labels) ?? []
-                }, captureChanged: { [weak self] recording in
-                    guard let self, !self.terminating else { return }
-                    self.input.setRecordingShortcut(recording)
-                    if !recording { self.configureInput() }
-                }, requestPermission: { [weak self] in self?.requestAccessibility() })
-            }
         case .systemStatus:
             if systemStatus == nil {
                 let module = SystemStatusModule()
@@ -138,12 +127,11 @@ final class ModuleCoordinator {
 
     private func start(_ tool: Tool) {
         ensure(tool)
-        switch tool { case .kaomoji: wheel?.start(); case .capture: capture?.start(); case .windowSwitcher: switcher?.start();case .windowLayout:layout?.start(); layout?.refreshPermission(); case .systemStatus: systemStatus?.start(); case .shortcutRadar: shortcutRadar?.start(); case .menuBarShelf: menuBarShelf?.start() }
+        switch tool { case .kaomoji: wheel?.start(); case .capture: capture?.start(); case .windowSwitcher: switcher?.start();case .windowLayout:layout?.start(); layout?.refreshPermission(); case .systemStatus: systemStatus?.start(); case .menuBarShelf: menuBarShelf?.start() }
     }
     private func stop(_ tool: Tool, remove: Bool) {
         switch tool {
         case .menuBarShelf: menuBarShelf?.stop(); if remove { menuBarShelf = nil }
-        case .shortcutRadar: shortcutRadar?.stop(); if remove { shortcutRadar = nil }
         case .systemStatus: systemStatus?.stop(); if remove { systemStatus = nil }
         case .kaomoji: wheel?.stop(); if remove { wheel = nil }
         case .capture:
@@ -193,26 +181,8 @@ final class ModuleCoordinator {
         case .windowSwitcher: return switcher!.settingsView
         case .windowLayout:return layout!.settingsView
         case .menuBarShelf:return menuBarShelf!.makeDashboard()
-        case .shortcutRadar:return shortcutRadar!.makeDashboard()
         case .systemStatus:return systemStatus!.makeDashboard()
         }
-    }
-
-    private func radarConfiguration(labels: [UInt16: String]) -> [RadarUse] {
-        var result: [RadarUse] = []
-        for action in ShortcutAction.allCases {
-            guard let tool = Tool(rawValue: action.moduleKey), isEnabled(tool) else { continue }
-            let binding = shortcuts.binding(for: action)
-            guard binding.kind == .chord, let key = labels[binding.keyCode] else { continue }
-            result.append(.init(chord: .init(key: key, modifiers: binding.modifiers), appID: "macos-x",
-                appName: "macos-x", action: action.title, path: tool.title + " › " + action.title,
-                scope: .global, evidence: issues[action] == nil ? .registration : .configuration))
-        }
-        if isEnabled(.windowSwitcher) {
-            result.append(.init(chord: .init(key: "Tab", modifiers: 8), appID: "macos-x", appName: "macos-x",
-                action: "窗口切换", path: "窗口切换", scope: .global, evidence: input.hasActiveTap && switcher?.isReady == true ? .registration : .configuration))
-        }
-        return result
     }
 
     func refreshSystemStatusDisplay() { systemStatus?.refreshDashboard() }
@@ -254,7 +224,6 @@ final class ModuleCoordinator {
     func issue(for tool: Tool) -> String? {
         if !isEnabled(tool) { return nil }
         if tool == .menuBarShelf { return nil } // The dashboard owns actionable status.
-        if tool == .shortcutRadar { return nil }
         if tool == .systemStatus { return systemStatus?.issue }
         if tool == .kaomoji {
             let usesTap = shortcuts.binding(for: .wheel).kind == .doubleModifier
@@ -297,7 +266,7 @@ final class ModuleCoordinator {
         terminating = true
         if let activeObserver { NotificationCenter.default.removeObserver(activeObserver); self.activeObserver = nil }
         input.stop()
-        wheel?.stop(); switcher?.stop(); layout?.stop(); systemStatus?.stop(); shortcutRadar?.stop(); menuBarShelf?.stop()
+        wheel?.stop(); switcher?.stop(); layout?.stop(); systemStatus?.stop(); menuBarShelf?.stop()
         let captures = Array(finishingCaptures.values) + (capture.map { [$0] } ?? [])
         guard !captures.isEmpty else { DispatchQueue.main.async { completion() }; return }
         var outstanding = captures.count

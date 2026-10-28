@@ -1,32 +1,7 @@
 Tool: built-in image_gen
-Status: approved by user for README cover (2026-10-26)
-Final output: exec-3a727248-2f2d-4876-997e-2ee029ffb170.png
+Purpose: remove the retired shortcut-radar module while preserving the established artwork.
+Output: assets/readme/01-cover.png
+Visual review: six remaining modules; no radar scene, caption or entry.
 
-INITIAL GENERATION
-Use case: ads-marketing.
-Asset type: GitHub README product cover, first image in a cohesive series for the real native macOS utility app "macos-x".
-Create a polished, calm, legible hand-drawn PRODUCT cover, landscape 2:1 aspect ratio, high resolution. It must look like the app's established warm-white paper, graphite pencil and restrained colored-pencil/crayon visual language. Refined light irregular pencil contours, soft blue, sage green, muted purple and pale yellow accents. No people, mascots, desks, laptops, stickers, puzzle pieces, generic app icons or decorative objects.
-
-Text, exact: large charcoal handwritten brand at the top "macos-x". One modest dark-gray sentence directly beneath it: "让 Mac 上的常用操作，顺手一点。" No other slogan or explanatory paragraph.
-
-Below the typography, one large front-facing illustrated version of the ACTUAL app home window, filling most of the image, surrounded by modest paper whitespace. Thin light-gray hand-drawn rounded window outline, paper-white interior, small coral/yellow/sage traffic-light controls at upper left, very restrained header rule. Above the upper-right corner of this window a SHORT understated macOS menu-bar fragment includes the recognizable black apple-shaped entry icon, Wi-Fi and battery, suggesting that the toolbox lives in the menu bar. Do not draw a second giant Apple logo or an Apple hardware product.
-
-Inside the app window, 4 columns by 2 rows of SEVEN distinctive illustrated tools plus one add tile, spacious and neatly aligned. Normal tool illustrations have NO surrounding gray card boxes; only each illustration's natural outlines. Each has a compact readable charcoal Chinese label below. Row 1, left to right:
-1 "截图录屏": blue dashed screenshot selection around a green mountain/blue lake scene, with the app's little editing toolbar attached underneath (rectangle, arrow, pencil, T, mosaic, text recognition, palette).
-2 "窗口切换": a compact native preview panel showing six small windows in a 3-by-2 grid, one clearly selected blue outline.
-3 "提示词库": a pale blue/purple radial wheel with a magnifier in its center and one purple highlighted position connecting to a small enlarged paper card labeled "prompt".
-4 "窗口布局": one little monitor whose whole screen is tiled neatly by blue, sage and purple windows, filling the screen.
-Row 2, left to right:
-5 "系统状态": a little monitor showing three restrained CPU/memory/network history charts, no invented benchmark values.
-6 "快捷键雷达": a miniature keyboard with three readable keycaps and a magnifying glass focusing on them.
-7 "菜单栏收纳": a single pencil menu-bar strip with a small dark apple boundary, subtle blue leftward arrow across it, pale icons to the left and ordinary Wi-Fi/battery to the right. No floating drawer below the bar.
-8 An empty add tile with only a large pencil-gray plus sign and a very light irregular pencil border, the only tile with an outer frame. A small simple cursor near the plus may suggest adding tools, but no extra arrows or explanatory text.
-
-This cover communicates a native menu-bar toolbox, available features and user-controlled composition. Do NOT imply downloadable executable plugins or independent module packages, do NOT show an install store, cloud, subscription, prices, badges, code or statistics. The seven tool names must be correct and each must appear once. Keep the illustration large and text readable at GitHub README width. Cohesive single scene, gentle visual rhythm, product clearly recognizable, no heavy outlines, no glossy gradients, no neon blue titles, no visual clutter, no watermark.
-
-TARGETED CORRECTION
-Edit only the miniature illustration above the bottom-row label "菜单栏收纳" (third tile in bottom row) in the supplied cover. Keep EVERYTHING ELSE pixel-faithful in layout, wording, drawing style, typography, illustrations, colors and 2:1 aspect ratio. Do not change the top-right menu-bar fragment or any text.
-Correct this one miniature so its spatial meaning matches the real product: within its existing rounded thin pencil menu-bar strip, arrange from LEFT to RIGHT: two small pale-gray application icons, then the dark apple logo in the CENTER as a clear boundary, then the black Wi-Fi and battery icons on the RIGHT. Remove the extra miscellaneous menu symbols and the vertical divider. Move the existing blue arrow so it curves gently from a small app icon just to the RIGHT of the center apple across it toward the two pale app icons to its LEFT; it points LEFT. This illustration communicates "icons left of our apple are collected, right stays visible". Keep the tile's size and label location unchanged, no new text or panels. Everything else in the cover must remain as supplied.
-
-APPROVAL
-The user approved and supplied codex-clipboard-a73ccf91-af18-4486-8ff2-7056d2ea4560.png. That exact supplied file is published as 01-cover.png.
+Edit the supplied approved macos-x README cover. Make ONLY this targeted product update: remove the lower-row keyboard + magnifier illustration AND its exact caption "快捷键雷达". This feature has been removed. Keep the upper macos-x wordmark, subtitle "让 Mac 上的常用操作，顺手一点。", top-right little menu-bar symbols, outer hand-drawn app frame, and the entire TOP row of four modules absolutely unchanged: 截图录屏, 窗口切换, 提示词库, 窗口布局. Keep their exact illustrations and captions, pencil/crayon texture, colors, sizes and positions.
+Rebalance only the LOWER row into THREE evenly spaced elements across the same full width: the existing 系统状态 monitor on the left, the existing 菜单栏收纳 native menu-bar arrow scene in the middle, and the existing dashed + add-feature tile on the right. Use the same scale as their originals; do not enlarge to fill every gap. Place the two existing captions directly beneath their corresponding scenes. No replacement feature, no extra words, no gap where radar used to be, no new symbols or promotional material. Seamlessly continue the same fine warm-white paper behind the removal. Preserve the exact landscape 2:1 aspect ratio and all remaining artwork/style. The final cover must show six modules and one plus tile, not seven modules. Do not add a version label.

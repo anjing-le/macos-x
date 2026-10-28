@@ -6,7 +6,6 @@ enum Tool: String, CaseIterable, Hashable {
     case kaomoji
     case windowLayout
     case systemStatus
-    case shortcutRadar
     case menuBarShelf
 
     var title: String {
@@ -16,7 +15,6 @@ enum Tool: String, CaseIterable, Hashable {
         case .kaomoji: return "提示词库"
         case .windowLayout:return "窗口布局"
         case .menuBarShelf:return "菜单栏收纳"
-        case .shortcutRadar:return "快捷键雷达"
         case .systemStatus:return "系统状态"
         }
     }
@@ -28,7 +26,6 @@ enum Tool: String, CaseIterable, Hashable {
         case .kaomoji: return "text.bubble"
         case .windowLayout:return "rectangle.split.2x1"
         case .menuBarShelf:return "menubar.rectangle"
-        case .shortcutRadar:return "keyboard.badge.ellipsis"
         case .systemStatus:return "chart.xyaxis.line"
         }
     }
@@ -327,10 +324,6 @@ final class ToolboxWindowController: NSWindowController {
         let header = ModuleSettingsHeader(tool: tool, module: modules)
         settingsHeader = header
         header.placeEnableControl(in: content.header)
-        if tool == .shortcutRadar, let dashboard = modules.settingsView(for: tool) as? ShortcutRadarDashboard {
-            content.showDetail([header, dashboard])
-            return
-        }
         if tool == .systemStatus || tool == .menuBarShelf {
             content.showDetail([header, modules.settingsView(for: tool)])
             return
@@ -345,7 +338,7 @@ final class ToolboxWindowController: NSWindowController {
             label.font = .systemFont(ofSize:16); label.textColor = SketchPalette.ink; label.alignment = .center
             label.toolTip = "Tab 选择 · Shift 反向 · 松开 Command 确认"
             shortcuts = [label]
-        case .systemStatus, .shortcutRadar, .menuBarShelf: shortcuts = []
+        case .systemStatus, .menuBarShelf: shortcuts = []
         }
         let board = SettingsBoardView(kind: tool.rawValue, settings: modules.settingsView(for: tool), shortcuts: shortcuts)
         content.showDetail([header, board])
