@@ -336,6 +336,7 @@ import AppKit
     @MainActor static func main() {
         setbuf(stdout,nil)
         _ = NSApplication.shared; NSApp.setActivationPolicy(.prohibited)
+        CaptureCanvas.verifyLiveMosaicFixture()
         let receiver = RecordingControlReceiver()
         let barDomain = "cc.anjing.macos-x.recording-controls-fixture.\(UUID().uuidString)"
         let barDefaults = UserDefaults(suiteName: barDomain)!
@@ -1052,5 +1053,45 @@ import AppKit
         precondition(first.image.size == CGSize(width: 24, height: 24) && first.hotSpot == CGPoint(x: 12, y: 12))
         precondition(first.image.tiffRepresentation != nil && second.image.tiffRepresentation != nil)
         precondition(first.image.tiffRepresentation != second.image.tiffRepresentation, "macOS 14 fallback diagonals render in different directions")
+    }
+}
+
+@MainActor private extension CaptureCanvas {
+    static func verifyLiveMosaicFixture() {
+        let pixels = CaptureRaster.context(width: 200, height: 160)!
+        for x in 0..<200 {
+            pixels.setFillColor(CGColor(gray: x % 2 == 0 ? 0 : 1, alpha: 1))
+            pixels.fill(CGRect(x: x, y: 0, width: 1, height: 160))
+        }
+        let canvas = CaptureCanvas(image: pixels.makeImage()!)
+        canvas.imageInset = 0; canvas.tool = .mosaic
+        let window = NSWindow(contentRect: CGRect(x: 0,y: 0,width: 200,height: 160),styleMask: .borderless,backing: .buffered,defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = canvas
+        var commits = 0; canvas.onAnnotation = { _ in commits += 1 }
+        func event(_ type: NSEvent.EventType, _ x: CGFloat) -> NSEvent {
+            NSEvent.mouseEvent(with: type,location: CGPoint(x: x,y: 80),modifierFlags: [],timestamp: 0,
+                windowNumber: window.windowNumber,context: nil,eventNumber: 1,clickCount: 1,pressure: 1)!
+        }
+        func painted(_ x: Int) -> Bool {
+            guard let preview = canvas.mosaicPreview, let read = CaptureRaster.context(width: 200,height: 160) else { return false }
+            read.draw(preview,in: CGRect(x: 0,y: 0,width: 200,height: 160))
+            let bytes = read.data!.assumingMemoryBound(to: UInt8.self)
+            let value = bytes[80 * read.bytesPerRow + x * 4]
+            return value > 20 && value < 235
+        }
+        func awaitPaint(_ x: Int) {
+            let end = Date().addingTimeInterval(3)
+            while !painted(x), Date() < end {
+                RunLoop.current.run(mode: .eventTracking,before: Date().addingTimeInterval(0.01))
+            }
+            precondition(painted(x), "Mosaic pixels must appear during native tracking, before mouse-up")
+        }
+        canvas.mouseDown(with: event(.leftMouseDown,50)); awaitPaint(50)
+        canvas.mouseDragged(with: event(.leftMouseDragged,140)); awaitPaint(130)
+        precondition(commits == 0 && canvas.draft != nil, "Live pixels do not split the held stroke into undo entries")
+        canvas.mouseUp(with: event(.leftMouseUp,140))
+        precondition(commits == 1 && canvas.draft == nil)
+        canvas.closeBrushPreview(); window.close()
+        print("PASS live mosaic: actual pixels update in event-tracking mode before release; one stroke commits once")
     }
 }

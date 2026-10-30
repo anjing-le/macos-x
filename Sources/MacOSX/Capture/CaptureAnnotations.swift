@@ -281,13 +281,18 @@ final class CaptureCanvas: NSView {
             let result = autoreleasepool {
                 renderer.render(base: base, annotation: mark, ticket: ticket)
             }
-            DispatchQueue.main.async { [weak self] in
+            // Native mouse tracking can defer main-dispatch deliveries until mouse-up.
+            // Deliver in both modes so a held brush paints before its stroke commits.
+            RunLoop.main.perform(inModes: [.default, .eventTracking]) { [weak self] in
+                MainActor.assumeIsolated {
                 guard let self else { return }
                 self.brushBusy = false
                 if self.brushGeneration == generation, ticket.valid, self.draft?.tool == .mosaic {
                     self.mosaicPreview = result; self.needsDisplay = true
+                    self.displayIfNeeded()
                 }
                 self.drainBrushPreview()
+                }
             }
         }
     }
