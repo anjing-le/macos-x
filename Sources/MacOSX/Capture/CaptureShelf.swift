@@ -412,11 +412,11 @@ enum ShelfRope {
     }
     func scheduleCollapse(after delay: Double = ShelfPanel.idleCollapseDelay) {
         work?.cancel(); work = nil
-        guard expanded, !disposed, !keyboardSession, !pullingRope, !shelfView.isInteracting, shelfView.canEdit() else { return }
+        guard expanded, !disposed, !pullingRope, !shelfView.isInteracting, shelfView.canEdit() else { return }
         let next = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.work = nil
-            guard self.expanded, !self.disposed, !self.keyboardSession, !self.pullingRope, !self.shelfView.isInteracting, self.shelfView.canEdit() else { return }
+            guard self.expanded, !self.disposed, !self.pullingRope, !self.shelfView.isInteracting, self.shelfView.canEdit() else { return }
             let point = self.pointerLocation()
             if self.containsInteraction(point) { return }
             self.collapse()
@@ -445,7 +445,7 @@ enum ShelfRope {
     func pointerExited() {
         guard expanded else { return }
         if containsInteraction(pointerLocation()) { interactionOccurred(); return }
-        guard !keyboardSession, !shelfView.isInteracting else { return }
+        guard !shelfView.isInteracting else { return }
         shelfView.hovered = nil; scheduleCollapse()
     }
     func triggerExited() {
@@ -477,6 +477,7 @@ enum ShelfRope {
         shelfView.keyboardPointer = pointerLocation()
         if presenting { makeKeyAndOrderFront(nil) }
         makeFirstResponder(shelfView)
+        interactionOccurred()
     }
     override func resignKey() {
         super.resignKey()
