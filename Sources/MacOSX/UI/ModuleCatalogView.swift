@@ -106,7 +106,7 @@ import AppKit
         super.init(frame: CGRect(x: 0, y: 0, width: 180, height: 168))
         focusRingType = .none
         membership.title = added ? AppLanguage.text("− 移除") : AppLanguage.text("＋ 添加"); membership.target = self; membership.action = #selector(toggle)
-        membership.setAccessibilityLabel("\(added ? AppLanguage.text("移除") : AppLanguage.text("添加"))\(tool.title)")
+        membership.setAccessibilityLabel([added ? AppLanguage.text("移除") : AppLanguage.text("添加"), tool.title].joined(separator: AppLanguage.current == .english ? " " : ""))
         previous.target = self; previous.action = #selector(movePrevious); previous.setAccessibilityLabel(AppLanguage.text("前移{0}", String(describing: (tool.title))))
         next.target = self; next.action = #selector(moveNext); next.setAccessibilityLabel(AppLanguage.text("后移{0}", String(describing: (tool.title))))
         addSubview(membership)

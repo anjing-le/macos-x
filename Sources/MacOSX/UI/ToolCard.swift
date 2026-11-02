@@ -370,7 +370,7 @@ final class ToolCard: NSControl {
     required init?(coder:NSCoder) { nil }
     override var intrinsicContentSize:NSSize { CGSize(width:68,height:30) }
     override var state:NSControl.StateValue { didSet {
-        toolTip="\(state == .on ? AppLanguage.text("关闭") : AppLanguage.text("开启"))\(moduleTitle)"
+        toolTip=[state == .on ? AppLanguage.text("关闭") : AppLanguage.text("开启"), moduleTitle].joined(separator: AppLanguage.current == .english ? " " : "")
         setAccessibilityValue(state == .on ? 1 : 0); needsDisplay=true
     } }
     override func acceptsFirstMouse(for event:NSEvent?)->Bool { isEnabled }
