@@ -1,12 +1,14 @@
 import MacOSXCore
 import AppKit
 
-/// One paper surface, genuine accessible buttons, no embedded encoder settings.
+/// One paper surface, genuine accessible buttons, quality presets without expert encoder settings.
 @MainActor final class RecordingStartBar: NSView {
     let startButton: MinimalButton
     let cancelButton: MinimalButton
     let systemAudioButton = MinimalToggle(title: AppLanguage.text("系统声音"), target: nil, action: nil)
     let microphoneButton = MinimalToggle(title: AppLanguage.text("麦克风"), target: nil, action: nil)
+    let qualityChoice = MinimalPopUpButton()
+    private let qualityLabel = NSTextField(labelWithString: AppLanguage.text("清晰度"))
     private let defaults: UserDefaults
     private let label = NSTextField(labelWithString: AppLanguage.text("录屏"))
     init(target: AnyObject?, start: Selector, cancel: Selector, defaults: UserDefaults = .standard) {
@@ -33,7 +35,14 @@ import AppKit
             button.target = self; button.action = #selector(audioChanged(_:))
             button.font = SketchPalette.heading(14)
         }
-        for view in [label, startButton, cancelButton, systemAudioButton, microphoneButton] { addSubview(view) }
+        qualityLabel.font = .systemFont(ofSize:13); qualityLabel.textColor = SketchPalette.ink
+        qualityChoice.font = .systemFont(ofSize:14)
+        qualityChoice.addItems(withTitles: RecordingQuality.allCases.map(\.title))
+        qualityChoice.selectItem(at: RecordingQuality.allCases.firstIndex(of: RecordingQuality.load(from: defaults)) ?? 2)
+        qualityChoice.target = self; qualityChoice.action = #selector(qualityChanged(_:))
+        qualityChoice.setAccessibilityLabel(AppLanguage.text("录屏清晰度"))
+        refreshQualityHelp()
+        for view in [qualityLabel, qualityChoice, label, startButton, cancelButton, systemAudioButton, microphoneButton] { addSubview(view) }
         setAccessibilityLabel(AppLanguage.text("录屏控制"))
     }
     required init?(coder: NSCoder) { nil }
@@ -56,9 +65,19 @@ import AppKit
             systemAudioButton.font = .systemFont(ofSize: 12)
             microphoneButton.font = .systemFont(ofSize: 12)
         }
+        qualityLabel.frame = CGRect(x:14,y:50,width:64,height:28)
+        qualityChoice.frame = CGRect(x:86,y:50,width:max(96,bounds.width-100),height:28)
         let half = (bounds.width - 28) / 2
         systemAudioButton.frame = CGRect(x: 14, y: 12, width: half, height: 30)
         microphoneButton.frame = CGRect(x: 14 + half, y: 12, width: half, height: 30)
+    }
+    private func refreshQualityHelp() {
+        qualityChoice.toolTip = RecordingQuality.load(from: defaults).help
+    }
+    @objc private func qualityChanged(_ sender: Any?) {
+        guard RecordingQuality.allCases.indices.contains(qualityChoice.indexOfSelectedItem) else { return }
+        RecordingQuality.allCases[qualityChoice.indexOfSelectedItem].save(to: defaults)
+        refreshQualityHelp()
     }
     @objc private func audioChanged(_ sender: NSButton) {
         RecordingAudioOptions(system: systemAudioButton.state == .on,

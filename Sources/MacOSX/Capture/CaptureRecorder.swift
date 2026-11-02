@@ -9,6 +9,7 @@ import AppKit
 final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private enum State { case idle, starting, recording, finishing }
     private let queue = DispatchQueue(label: "cc.anjing.macos-x.capture.recording", qos: .userInitiated)
+    private var quality: RecordingQuality = .ultra
     private var state: State = .idle
     private var stream: SCStream?
     private var writer: AVAssetWriter?
@@ -40,7 +41,7 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 
     func start(screen: CaptureScreen, region: CGRect? = nil, destination: URL,
-               audioOptions: RecordingAudioOptions = .init(),
+               audioOptions: RecordingAudioOptions = .init(), quality: RecordingQuality = .ultra,
                started: @escaping (Result<Void, Error>) -> Void,
                finished: @escaping (URL?, Error?) -> Void) {
         queue.async { [self] in
@@ -52,7 +53,7 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             endedAt = nil
             finishStarted = false; failureInProgress = false
             onStarted = started; onFinished = finished; self.destination = destination
-            self.audioOptions = audioOptions
+            self.audioOptions = audioOptions; self.quality = quality
             if audioOptions.microphone {
                 authorizeMicrophone { [weak self] allowed in
                     self?.queue.async { [weak self] in
@@ -77,7 +78,7 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                         self.fail(error ?? CaptureFailure.unavailable); return
                     }
                     do {
-                        guard let region = CaptureRecordingRegion(screen: screen, region: region ?? screen.frame) else {
+                        guard let region = CaptureRecordingRegion(screen: screen, region: region ?? screen.frame, quality: self.quality) else {
                             throw CaptureFailure.message(AppLanguage.text("录屏区域无效，请在同一块屏幕内重新选择。"))
                         }
                         let width = region.width, height = region.height
@@ -86,7 +87,7 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                         let writer = try AVAssetWriter(outputURL: temporary, fileType: .mp4)
                         self.writer = writer
                         let input = AVAssetWriterInput(mediaType: .video,
-                            outputSettings: CaptureRecordingPreset.videoSettings(width: width, height: height))
+                            outputSettings: CaptureRecordingPreset.videoSettings(width: width, height: height, quality: self.quality))
                         input.expectsMediaDataInRealTime = true
                         guard writer.canAdd(input) else { throw CaptureFailure.message(AppLanguage.text("当前编码器无法写入 MP4。")) }
                         writer.add(input)

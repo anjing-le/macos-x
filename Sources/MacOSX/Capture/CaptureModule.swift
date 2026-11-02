@@ -353,6 +353,7 @@ final class CaptureModule: NSObject {
         setStatus(AppLanguage.text("正在启动录屏…"))
         let folder = recordingPresentation.recordingDirectory
         let audioOptions = RecordingAudioOptions(defaults: .standard)
+        let quality = RecordingQuality.load(from: .standard)
         work.async { [weak self] in
             let result: Swift.Result<URL, Error> = Swift.Result {
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -367,7 +368,7 @@ final class CaptureModule: NSObject {
                     if case .failure(let error) = result { self.handle(error) }; return
                 }
                 self.recordingState = .starting; self.setStatus(AppLanguage.text("正在启动录屏…"))
-                self.recorder.start(screen: screen, region: region, destination: url, audioOptions: audioOptions, started: { [weak self] result in
+                self.recorder.start(screen: screen, region: region, destination: url, audioOptions: audioOptions, quality: quality, started: { [weak self] result in
                     MainActor.assumeIsolated {
                         guard let self, self.recordingRevision == revision else { return }
                         switch result {

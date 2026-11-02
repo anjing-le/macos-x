@@ -446,7 +446,7 @@ import os
     }
     private func showRecordingControls(at region: CGRect) {
         let bounds = frames.first?.screen.frame ?? desktop
-        let size = CGSize(width: min(360, bounds.width), height: 108)
+        let size = CGSize(width: min(360, bounds.width), height: 148)
         let x = min(max(region.maxX - size.width, bounds.minX), bounds.maxX - size.width)
         let below = region.minY - size.height - 10
         let y = below >= bounds.minY ? below : min(region.maxY + 10, bounds.maxY - size.height)

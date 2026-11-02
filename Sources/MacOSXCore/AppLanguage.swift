@@ -618,5 +618,8 @@ public enum AppLanguage {
         "话筒": "Mic",
         "单击选中 · 双击贴出 · 左右拖动调整位置 · 向下拉出可拖到聊天框 · 离开 3 秒收起 · 左右键选择 · Esc 收起 · Option＋方向键排序 · ⌘C 复制 · ⌘⌫ / Delete 删除 · ⌘Z 撤销": "Click to select · Double-click to pin · Drag sideways to arrange · Pull down to drag into a chat · Hide after 3 seconds away · Arrow keys to select · Esc to hide · Option + arrows to reorder · ⌘C Copy · ⌘⌫ / Delete Remove · ⌘Z Undo",
         "继续向下拉，拖到聊天框": "Pull farther down to drag into a chat",
+        "最高长边 {0} 像素 · 60 fps；保持选区比例，不放大小区域。清晰度越高，文件通常越大。": "Maximum long edge: {0} pixels · 60 fps. Preserves the selection ratio without enlarging small areas. Higher quality usually makes larger files.",
+        "清晰度": "Quality",
+        "录屏清晰度": "Recording quality",
     ]
 }

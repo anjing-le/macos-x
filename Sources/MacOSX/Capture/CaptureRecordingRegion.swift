@@ -1,13 +1,14 @@
 import Foundation
+import MacOSXCore
 
 /// AppKit global, Y-up points -> display-local, Y-down points. SCK crops at
-/// the source; only the selected region is encoded, with a 1920-pixel cap.
+/// the source; only the selected region is encoded, with a selected resolution and bounded pixel budget.
 struct CaptureRecordingRegion {
     let source: CGRect
     let width: Int
     let height: Int
 
-    init?(screen: CaptureScreen, region: CGRect) {
+    init?(screen: CaptureScreen, region: CGRect, quality: RecordingQuality = .ultra) {
         let bounds = screen.frame
         guard [bounds.minX, bounds.minY, bounds.width, bounds.height,
                region.minX, region.minY, region.width, region.height, screen.scale].allSatisfy({ $0.isFinite }),
@@ -15,7 +16,8 @@ struct CaptureRecordingRegion {
               region.width > 0, region.height > 0, bounds.contains(region) else { return nil }
         let pixelsWide = region.width * screen.scale, pixelsHigh = region.height * screen.scale
         guard pixelsWide.isFinite, pixelsHigh.isFinite, pixelsWide >= 2, pixelsHigh >= 2 else { return nil }
-        let ratio = min(1, 1920 / max(pixelsWide, pixelsHigh))
+        let ratio = min(1, CGFloat(quality.maximumDimension) / max(pixelsWide, pixelsHigh),
+                        sqrt(CGFloat(quality.maximumPixels) / pixelsWide / pixelsHigh))
         width = max(2, Int(pixelsWide * ratio) / 2 * 2)
         height = max(2, Int(pixelsHigh * ratio) / 2 * 2)
         source = CGRect(x: region.minX - bounds.minX, y: bounds.maxY - region.maxY,

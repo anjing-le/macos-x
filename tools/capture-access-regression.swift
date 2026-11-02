@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 import AVFoundation
 import UniformTypeIdentifiers
@@ -656,8 +657,18 @@ private struct CheckFailure: Error { let message: String }
             try require(recordingGeometry?.source == CGRect(x: 20, y: 190, width: 120, height: 80), "negative display origin and top-left recording crop")
             try require(recordingGeometry?.width == 240 && recordingGeometry?.height == 160, "Retina recording uses selected dimensions")
             let largeScreen = CaptureScreen(id: 7, frame: CGRect(x: 0, y: 0, width: 3000, height: 2000), scale: 2)
-            let capped = CaptureRecordingRegion(screen: largeScreen, region: largeScreen.frame)
+            let capped = CaptureRecordingRegion(screen: largeScreen, region: largeScreen.frame, quality: .standard)
             try require(capped?.width == 1920 && capped?.height == 1280, "record encoding bounded at 1920 with aspect ratio")
+            let nativeScreen=CaptureScreen(id:7,frame:CGRect(x:0,y:0,width:1512,height:982),scale:2)
+            let native=CaptureRecordingRegion(screen:nativeScreen,region:nativeScreen.frame,quality:.ultra)!
+            try require(native.width==3024 && native.height==1964,"Default 4K preset keeps a typical Retina desktop at native pixels")
+            for quality in RecordingQuality.allCases {
+                let output=CaptureRecordingRegion(screen:largeScreen,region:largeScreen.frame,quality:quality)!
+                try require(max(output.width,output.height)<=quality.maximumDimension && output.width*output.height<=quality.maximumPixels,"Quality bounds both dimensions and frame memory")
+                try require(output.width%2==0 && output.height%2==0,"All quality presets align to H264 pixel requirements")
+                let small=CaptureRecordingRegion(screen:nativeScreen,region:CGRect(x:10,y:10,width:120,height:80),quality:quality)!
+                try require(small.width==240 && small.height==160,"Quality never enlarges a small selection")
+            }
             try require(CaptureRecordingRegion(screen: largeScreen, region: CGRect(x: -1, y: 0, width: 100, height: 100)) == nil, "reject cross-display recording rather than silently shift or crop")
             module.start(); module.toggleRecording()
             try await wait({ MockCapture.pendingContent == 1 }, "cancel record selection acquisition")

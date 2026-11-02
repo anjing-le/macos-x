@@ -5374,5 +5374,29 @@
       "raw": false,
       "multiline": false
     }
+  ],
+  "最高长边 {0} 像素 · 60 fps；保持选区比例，不放大小区域。清晰度越高，文件通常越大。": [
+    {
+      "file": "Sources/MacOSXCore/RecordingQuality.swift",
+      "line": 21,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "清晰度": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingStartBar.swift",
+      "line": 11,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "录屏清晰度": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingStartBar.swift",
+      "line": 43,
+      "raw": false,
+      "multiline": false
+    }
   ]
 }

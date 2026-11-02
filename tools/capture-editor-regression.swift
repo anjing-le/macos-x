@@ -347,7 +347,7 @@ import AppKit
         precondition(recordingBar.acceptsFirstResponder && recordingBar.startButton.keyEquivalent == "\r" && recordingBar.cancelButton.keyEquivalent == "\u{1b}",
                      "The bar preserves selection keys while Enter and Escape activate the visible actions")
         for width: CGFloat in [220, 282, 360] {
-            recordingBar.frame = CGRect(x: 0, y: 0, width: width, height: 108)
+            recordingBar.frame = CGRect(x: 0, y: 0, width: width, height: 148)
             recordingBar.layoutSubtreeIfNeeded()
             precondition(recordingBar.bounds.contains(recordingBar.startButton.frame) && recordingBar.bounds.contains(recordingBar.cancelButton.frame))
             precondition(!recordingBar.startButton.frame.intersects(recordingBar.cancelButton.frame))

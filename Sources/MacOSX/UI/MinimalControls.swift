@@ -380,7 +380,7 @@ private final class MinimalFocusObserver {
         let y=max(visible.minY+8,below < visible.minY ? frame.maxY+5 : below)
         let panel=SketchDropdownPanel(contentRect:CGRect(x:x,y:min(y,visible.maxY-surface.bounds.height-8),width:surface.bounds.width,height:surface.bounds.height),styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
         panel.isOpaque=false; panel.backgroundColor = .clear; panel.hasShadow=true; panel.isReleasedWhenClosed=false
-        panel.level = .floating; panel.delegate=self; panel.contentView=surface; panel.onKey = { [weak self] code in
+        panel.level = NSWindow.Level(rawValue:max(NSWindow.Level.floating.rawValue,window.level.rawValue+1)); panel.delegate=self; panel.contentView=surface; panel.onKey = { [weak self] code in
             switch code { case 125: self?.moveSelection(1); case 126: self?.moveSelection(-1); case 36: self?.commitSelection(); case 53: self?.dismiss(); default: break }
         }
         self.panel=panel
