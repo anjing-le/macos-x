@@ -614,5 +614,7 @@ public enum AppLanguage {
         "添加": "Add",
         "已添加": "Added",
         "未添加": "Not added",
+        "系统": "System",
+        "话筒": "Mic",
     ]
 }

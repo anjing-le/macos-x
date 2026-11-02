@@ -5342,5 +5342,21 @@
       "raw": false,
       "multiline": false
     }
+  ],
+  "系统": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingStartBar.swift",
+      "line": 52,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "话筒": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingStartBar.swift",
+      "line": 53,
+      "raw": false,
+      "multiline": false
+    }
   ]
 }

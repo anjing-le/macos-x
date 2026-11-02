@@ -14,6 +14,10 @@ import AppKit
         startButton = MinimalButton(title: AppLanguage.text("开始录屏"), target: target, action: start, style: .primary)
         cancelButton = MinimalButton(title: AppLanguage.text("取消"), target: target, action: cancel, style: .quiet)
         super.init(frame: .zero)
+        if AppLanguage.current == .english {
+            startButton.font = .systemFont(ofSize: 13, weight: .medium)
+            cancelButton.font = .systemFont(ofSize: 13)
+        }
         label.font = SketchPalette.heading(16); label.textColor = SketchPalette.ink
         startButton.setAccessibilityLabel(AppLanguage.text("开始录屏"))
         cancelButton.setAccessibilityLabel(AppLanguage.text("取消录屏选区"))
@@ -43,6 +47,15 @@ import AppKit
         let x: CGFloat = compact ? 10 : 96
         startButton.frame = CGRect(x: x, y: bounds.height - 48, width: max(90, bounds.width - x - 72), height: 36)
         cancelButton.frame = CGRect(x: bounds.width - 62, y: bounds.height - 48, width: 52, height: 36)
+        if AppLanguage.current == .english {
+            // Compact English names retain full meanings in the accessible labels and tooltips.
+            systemAudioButton.title = bounds.width < 300 ? AppLanguage.text("系统") : AppLanguage.text("系统声音")
+            microphoneButton.title = bounds.width < 300 ? AppLanguage.text("话筒") : AppLanguage.text("麦克风")
+            systemAudioButton.setAccessibilityLabel(AppLanguage.text("系统声音"))
+            microphoneButton.setAccessibilityLabel(AppLanguage.text("麦克风"))
+            systemAudioButton.font = .systemFont(ofSize: 12)
+            microphoneButton.font = .systemFont(ofSize: 12)
+        }
         let half = (bounds.width - 28) / 2
         systemAudioButton.frame = CGRect(x: 14, y: 12, width: half, height: 30)
         microphoneButton.frame = CGRect(x: 14 + half, y: 12, width: half, height: 30)

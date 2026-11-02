@@ -229,6 +229,11 @@ final class ToolCard: NSControl {
 
     override func layout() {
         super.layout()
+        if AppLanguage.current == .english {
+            let measured = (titleLabel.stringValue as NSString).size(withAttributes: [.font: SketchPalette.heading(20)]).width
+            let size = max(12, min(20, floor(20 * max(0, bounds.width - 24) / max(1, measured))))
+            if titleLabel.font?.pointSize != size { titleLabel.font = SketchPalette.heading(size) }
+        }
         enableButton?.frame=CGRect(x:bounds.width-78,y:bounds.height-40,width:68,height:30)
         removeButton?.frame = CGRect(x: 10, y: 8, width: 56, height: 26)
         stateLabel.frame = CGRect(x: bounds.width - 90, y: 10, width: 78, height: 20)

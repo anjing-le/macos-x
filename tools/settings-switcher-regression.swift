@@ -67,6 +67,16 @@ import MacOSXCore
                         "Narrow client windows never clip a newer dashboard horizontally")
         }
         hostWindow.contentView = nil; hostWindow.close()
+        if AppLanguage.current == .english {
+            for tool in Tool.allCases {
+                let card=ToolCard(title:tool.title,symbol:tool.symbol) {}
+                for width:CGFloat in [180,192,200] {
+                    card.frame.size=CGSize(width:width,height:177); card.layoutSubtreeIfNeeded()
+                    let label=descendants(card).compactMap { $0 as? NSTextField }.first { $0.stringValue == tool.title }!
+                    try require((label.stringValue as NSString).size(withAttributes:[.font:label.font!]).width <= label.frame.width, "English home hover title fits: " + tool.title)
+                }
+            }
+        }
         let registrySuite="cc.anjing.macos-x.registry-fixture.\(UUID().uuidString)"
         let registryDefaults=UserDefaults(suiteName:registrySuite)!
         defer { registryDefaults.removePersistentDomain(forName:registrySuite) }

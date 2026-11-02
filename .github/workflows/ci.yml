@@ -20,6 +20,7 @@ jobs:
       - name: Check localization coverage and English settings layout
         run: |
           python3 tools/localization/check.py
+          zsh tools/run-localization-regression.sh
           MACOSX_TEST_LANGUAGE=en zsh tools/run-settings-switcher-regression.sh
           MACOSX_TEST_LANGUAGE=en zsh tools/run-system-status-regression.sh
           MACOSX_TEST_LANGUAGE=en zsh tools/run-prompt-wheel-regression.sh
