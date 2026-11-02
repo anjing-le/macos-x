@@ -235,7 +235,17 @@ enum CaptureCrayonStroke {
 @MainActor
 final class CaptureCanvas: NSView {
     var base: CGImage
-    var image: CGImage { didSet { needsDisplay = true } }
+    var image: CGImage {
+        didSet {
+            if draft?.tool == .mosaic {
+                // A previous committed stroke may finish rendering while the
+                // next stroke is held. Rebase it, rejecting the older preview.
+                brushGeneration &+= 1; brushTicket?.cancel()
+                requestBrushPreview()
+            } else { mosaicPreview = nil }
+            needsDisplay = true
+        }
+    }
     var tool: CaptureTool? { didSet { refreshPointerTracking() } }
     var ink = CaptureInk.red
     var lineWidth: CGFloat = 3
@@ -308,7 +318,11 @@ final class CaptureCanvas: NSView {
     }
     @discardableResult func commitDraft() -> Bool {
         guard let mark = draft else { return false }
+        let heldPreview = mark.tool == .mosaic ? mosaicPreview : nil
         draft = nil; stopBrushPreview(); needsDisplay = true
+        // Keep visible pixels until the editor replaces image with its final
+        // render, rather than flashing the unredacted image on mouse-up.
+        mosaicPreview = heldPreview
         if mark.tool == .pen || mark.tool == .highlighter || mark.tool == .mosaic || mark.bounds.width > 1 || mark.bounds.height > 1 { onAnnotation?(mark) }
         return true
     }

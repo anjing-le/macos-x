@@ -8,7 +8,7 @@ final class SCRunningApplication { let processID: pid_t = 314 }
 final class SCWindow {
     let windowID: CGWindowID
     let owningApplication: SCRunningApplication? = SCRunningApplication()
-    var frame = CGRect(x: 100, y: 200, width: 640, height: 400)
+    var frame: CGRect { CGRect(x: 100,y: 200,width: windowID == 79 ? 24 : windowID == 80 ? 1e-300 : 640,height: windowID >= 79 ? 18 : 400) }
     init(_ id: UInt32) { windowID = id }
 }
 final class SCShareableContent {
@@ -50,6 +50,8 @@ private enum MockThumbnail {
         lock.lock()
         boundsValid = boundsValid && config.width <= 480 && config.height <= 300 && config.width > 0 && config.height > 0
             && !config.capturesAudio && !config.showsCursor && config.ignoreShadowsSingleWindow
+        if id == 79 { boundsValid = boundsValid && config.width == 24 && config.height == 18 }
+        if id == 80 { boundsValid = boundsValid && config.width == 1 && config.height == 18 }
         captures.append(id); images.append(callback); lock.unlock()
     }
     static func content(error: Error? = nil) {
@@ -176,6 +178,11 @@ private struct Failure: Error { let message: String }
             try require(MockThumbnail.capturedIDs.suffix(16) == Array(UInt32(40)...55), "All visible cards get thumbnails, still capped to sixteen")
             try require(MockThumbnail.validBounds, "small pixel bounds, no cursor/audio and shadow-free windows")
             try require(MockThumbnail.includesOtherDesktops, "metadata includes off-screen windows")
+            let tiny = service.request([id(79),id(80)],updated: { _,_ in },failed: { _ in })
+            try await complete(2,image( ))
+            try await settle()
+            try require(MockThumbnail.validBounds, "tiny windows are not upscaled and subpixel bounds cannot overflow integer dimensions")
+            tiny.cancel()
             print("PASS switcher: \(checks) assertions; latest-page cancellation, one SCK request, cache/pruning bounds, PID identity, protected-window fallback; mocked OS only")
         } catch { print("FAIL switcher: \(error)"); exit(1) }
     }

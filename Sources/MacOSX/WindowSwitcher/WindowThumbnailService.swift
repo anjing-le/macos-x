@@ -88,7 +88,7 @@ final class WindowThumbnailService {
               window.frame.width > 0, window.frame.height > 0 else {
             capture(ids, windows, index: index + 1, job); return
         }
-        let ratio = min(480 / window.frame.width, 300 / window.frame.height)
+        let ratio = min(1, 480 / window.frame.width, 300 / window.frame.height)
         let configuration = SCStreamConfiguration()
         configuration.width = max(1, Int((window.frame.width * ratio).rounded(.down)))
         configuration.height = max(1, Int((window.frame.height * ratio).rounded(.down)))

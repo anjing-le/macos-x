@@ -1108,8 +1108,18 @@ import AppKit
         canvas.mouseDown(with: event(.leftMouseDown,50)); awaitPaint(50)
         canvas.mouseDragged(with: event(.leftMouseDragged,140)); awaitPaint(130)
         precondition(commits == 0 && canvas.draft != nil, "Live pixels do not split the held stroke into undo entries")
+        let heldPreview = canvas.mosaicPreview
         canvas.mouseUp(with: event(.leftMouseUp,140))
-        precondition(commits == 1 && canvas.draft == nil)
+        precondition(commits == 1 && canvas.draft == nil && canvas.mosaicPreview === heldPreview,
+                     "Mouse-up keeps the visible mosaic until final rendering replaces the image")
+        canvas.image = heldPreview!
+        precondition(canvas.mosaicPreview == nil, "Final image releases the temporary preview")
+        canvas.mouseDown(with: event(.leftMouseDown,50)); awaitPaint(50)
+        let generation = canvas.brushGeneration
+        canvas.image = pixels.makeImage()!
+        precondition(canvas.brushGeneration != generation && (canvas.brushPending != nil || canvas.brushBusy),
+                     "An arriving prior render rebases the held stroke and invalidates stale preview deliveries")
+        precondition(canvas.cancelDraft())
         canvas.closeBrushPreview(); window.close()
         print("PASS live mosaic: actual pixels update in event-tracking mode before release; one stroke commits once")
     }
