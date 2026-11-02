@@ -1,0 +1,11 @@
+# English README artwork
+
+Generated with built-in imagegen. Original Chinese images are preserved for README.zh-CN.md.
+
+## assets/readme/01-cover.en.png
+
+Use case: text-localization. Supplied image is EDIT TARGET. Translate Chinese into English only. Keep macos-x title. Subtitle "Make Everyday Mac Tasks Easier". Labels: "Capture & Record", "Window Switcher", "Prompt Library", "Window Layout", "System Status", "Menu Bar Organizer". Preserve original aspect ratio, complete composition, figures, colors, crayon texture, hand-drawn contours and background. No redesign, cropping, new scenes or embellishments. Match original hand-lettering; adjust font size and line wraps within existing text areas for readable English without collisions. All visible text English, no Chinese glyphs remain.
+
+## assets/readme/02-features.en.png
+
+Use case: text-localization. Supplied image is EDIT TARGET. Translate Chinese into English only. Translate ALL labels and notes accurately, keeping exact shortcut key symbols and their placement. Section titles: "Capture & Record", "Window Switcher", "Prompt Library", "Window Layout", "Menu Bar Organizer", "System Status". F1 "Capture"; ⌘C "Copy"; ⌘T "Extract Text"; ⌃⇧T "Record"; system sound/microphone "Optional System Audio / Mic". Meeting note "Meeting Notes". F3 "Pin"; ⇧F3 "Show / Hide"; F4 "Screenshot Shelf"; "Hover to View". Switcher: "Release ⌘ to Switch". Prompt content "Keep the meaning. Refine concisely."; "Double-tap Right Option · Select to Copy". Layout directions "Left", "Right", "Top", "Bottom"; "Drag to Edge · ⌥⌘ Arrow Keys". Menu bar left "Hidden", right "Always Visible"; "⌘-drag Left of the Apple · Hover to Expand". System "Memory", "Network", "Example Data"; "View CPU, Memory and Network Speed in the App". Footer "Add as Needed · Toggle Independently"; "Default Shortcuts Shown". All numerical samples unchanged and explicitly marked Example Data. Six modules, original illustrations, no invented shortcuts. Preserve original aspect ratio, complete composition, figures, colors, crayon texture, hand-drawn contours and background. No redesign, cropping, new scenes or embellishments. Match original hand-lettering; adjust font size and line wraps within existing text areas for readable English without collisions. All visible text English, no Chinese glyphs remain.
