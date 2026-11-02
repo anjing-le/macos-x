@@ -426,8 +426,10 @@ enum CaptureEditor {
         idlePanel.shelfView.keyDown(with:event(.keyDown,.zero,view:idlePanel.shelfView,key:124))
         try await Task.sleep(nanoseconds:70_000_000)
         precondition(idlePanel.expanded && idlePanel.keyboardSession,"Arrow-key activity replaces an old deadline with the normal three-second grace period")
+        idlePanel.shelfView.preview=thumbs[fixture[0].id]
+        idlePanel.expand(preview:true)
         try await Task.sleep(nanoseconds:UInt64((ShelfPanel.idleCollapseDelay+0.2)*1_000_000_000))
-        precondition(!idlePanel.expanded && !idlePanel.keyboardSession,"F4 keyboard selection hides after three seconds without hover or interaction")
+        precondition(!idlePanel.expanded && !idlePanel.keyboardSession,"F4 keyboard selection hides after three seconds; asynchronous preview resizing cannot erase the deadline")
         idlePanel.beginKeyboardSelection()
         idlePointer=CGPoint(x:idlePanel.frame.midX,y:idlePanel.frame.midY)
         idlePanel.scheduleCollapse(after:0.02)

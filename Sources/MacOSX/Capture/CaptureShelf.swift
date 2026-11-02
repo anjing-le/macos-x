@@ -387,7 +387,8 @@ enum ShelfRope {
     func expand(preview: Bool = false) {
         guard !disposed else { return }
         let wasExpanded = expanded
-        work?.cancel(); work = nil; expanded = true
+        if !wasExpanded { work?.cancel(); work = nil }
+        expanded = true
         (railPanel?.contentView as? ShelfRailView)?.showsRope = true
         shelfView.expanded = true
         let height = ShelfRope.panelHeight(available: availableHeight, preview: preview)
