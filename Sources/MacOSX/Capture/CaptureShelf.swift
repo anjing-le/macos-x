@@ -1020,7 +1020,7 @@ enum ShelfRope {
             drawFramedImage(image,in:ghost,opacity:0.95,attachment:CGPoint(x:anchor.x,y:anchor.y+13),selected:true)
             drawClip(at:anchor,selected:true)
             if dragPoint.y - grab.point.y >= Self.externalPullDistance / 2 {
-                pill(AppLanguage.text("继续向下拉，拖到聊天框"), in:CGRect(x:ghost.midX-100,y:ghost.maxY+8,width:200,height:26),size:12)
+                pill(AppLanguage.text("继续向下拉，拖到聊天框"), in:externalDragHintRect(around:ghost),size:12)
             }
         }
         if records.isEmpty { pill(AppLanguage.text("没有图片 · ⌘Z 撤销删除"),in: CGRect(x: max(16,bounds.midX-110),y: 78,width: min(220,bounds.width-32),height: 28),size: 13) }
@@ -1051,6 +1051,14 @@ enum ShelfRope {
                    respectFlipped: true,hints: [.interpolation:NSImageInterpolation.high])
         let frame = SketchPencil.outline(in: picture.insetBy(dx: -2,dy: -2),radius: 3)
         SketchPencil.stroke(frame,color: (selected ? SketchPalette.blue : SketchPalette.ink).withAlphaComponent(opacity),width: 3.8)
+    }
+    func externalDragHintRect(around picture: CGRect) -> CGRect {
+        guard bounds.width > 16, bounds.height > 34 else { return .zero }
+        let text = AppLanguage.text("继续向下拉，拖到聊天框")
+        let measured = (text as NSString).size(withAttributes:[.font:NSFont.systemFont(ofSize:12)]).width
+        let width = min(bounds.width-16, ceil(measured)+20)
+        return CGRect(x:min(max(8,picture.midX-width/2),bounds.width-width-8),
+                      y:max(0,min(picture.maxY+8,min(ShelfRope.footerY-32,bounds.height-34))),width:width,height:26)
     }
     private func pill(_ text: String, in rect: CGRect, size: CGFloat) {
         SketchPalette.paper.withAlphaComponent(0.95).setFill()

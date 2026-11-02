@@ -101,6 +101,10 @@ enum CaptureEditor {
         let externalWindow=NSWindow(contentRect:external.frame,styleMask:[.borderless],backing:.buffered,defer:false)
         externalWindow.isReleasedWhenClosed=false;externalWindow.contentView=external
         var externalActions=[ShelfView.Action]();external.onAction={externalActions.append($0)}
+        for x:CGFloat in [-100,0,850,1000] {
+            let hint=external.externalDragHintRect(around:CGRect(x:x,y:145,width:100,height:100))
+            precondition(external.bounds.contains(hint) && hint.maxY < ShelfRope.footerY,"Drag cue stays inside the screen and above shelf controls at both edges")
+        }
         let beforeIDs=external.records.map(\.id), beforePNG=try Data(contentsOf:store.imageURL(first.id))
         let externalCard=external.cardRect(0), start=CGPoint(x:externalCard.midX,y:externalCard.midY)
         external.mouseDown(with:event(.leftMouseDown,start,view:external))
