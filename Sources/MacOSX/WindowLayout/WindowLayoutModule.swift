@@ -30,7 +30,7 @@ import MacOSXCore
     init() {}
     func start() {
         guard !enabled else { return }; enabled=true
-        guard AXIsProcessTrusted() else { updateStatus("需要辅助功能权限"); return }
+        guard AXIsProcessTrusted() else { updateStatus(AppLanguage.text("需要辅助功能权限")); return }
         let mask:NSEvent.EventTypeMask=[.leftMouseDown,.leftMouseDragged,.leftMouseUp]
         localMonitor=NSEvent.addLocalMonitorForEvents(matching:mask) { [weak self] event in self?.receive(event); return event }
         globalMonitor=NSEvent.addGlobalMonitorForEvents(matching:mask) { [weak self] event in MainActor.assumeIsolated { self?.receive(event) } }
@@ -111,16 +111,16 @@ import MacOSXCore
     }
     func perform(_ action:WindowLayoutAction) {
         guard enabled else { return }; cancelDrag()
-        guard AXIsProcessTrusted() else { updateStatus("请先允许辅助功能权限"); return }
+        guard AXIsProcessTrusted() else { updateStatus(AppLanguage.text("请先允许辅助功能权限")); return }
         let token=generation
         if NSWorkspace.shared.frontmostApplication?.processIdentifier == getpid() {
-            guard let window=NSApp.keyWindow,eligible(window) else { updateStatus("当前窗口不支持调整"); return }
+            guard let window=NSApp.keyWindow,eligible(window) else { updateStatus(AppLanguage.text("当前窗口不支持调整")); return }
             applyAction(action,to:.local(window,window.frame)); return
         }
         guard let pid=NSWorkspace.shared.frontmostApplication?.processIdentifier else { return }
         worker.locate(pid:pid,point:nil) { [weak self] window in MainActor.assumeIsolated {
             guard let self,self.generation == token,self.enabled else { return }
-            guard let window else { self.updateStatus("当前窗口不支持调整"); return }
+            guard let window else { self.updateStatus(AppLanguage.text("当前窗口不支持调整")); return }
             self.applyAction(action,to:.external(window))
         } }
     }
@@ -128,7 +128,7 @@ import MacOSXCore
         let screen=NSScreen.screens.max { intersectionArea($0.visibleFrame,target.frame)<intersectionArea($1.visibleFrame,target.frame) }
         guard let screen else { return }
         if action == .restore {
-            guard let saved=history.first(where: { $0.matches(target) }) else { updateStatus("当前窗口没有可恢复的大小"); return }
+            guard let saved=history.first(where: { $0.matches(target) }) else { updateStatus(AppLanguage.text("当前窗口没有可恢复的大小")); return }
             apply(target,frame:WindowLayoutGeometry.restored(saved.frame,within:screen.visibleFrame),restoring:true)
         } else if let frame=WindowLayoutGeometry.frame(for:action,in:screen.visibleFrame,scale:screen.backingScaleFactor) { apply(target,frame:frame,restoring:false) }
     }
@@ -147,16 +147,16 @@ import MacOSXCore
             worker.apply(window,frame:ax) { [weak self] actual in MainActor.assumeIsolated {
                 guard let self,self.generation == token else { return }
                 if actual != nil,restoring { self.history.removeAll { $0.matches(target) } }
-                self.updateStatus(actual == nil ? "应用未接受窗口调整，请重试" : "")
+                self.updateStatus(actual == nil ? AppLanguage.text("应用未接受窗口调整，请重试") : "")
             } }
         }
     }
     private func updateStatus(_ value:String) { status.stringValue=value; status.isHidden=value.isEmpty; onStatusChange?() }
     private func makeSettings()->NSView {
         let stack=NSStackView(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing=8
-        let heading=NSTextField(labelWithString:"拖到边缘，松手落位")
+        let heading=NSTextField(labelWithString:AppLanguage.text("拖到边缘，松手落位"))
         heading.font=SketchPalette.heading(18); heading.textColor=SketchPalette.ink
-        let description=NSTextField(wrappingLabelWithString:"左、右、上、下边缘：对应半屏\n四个角：四分之一屏　·　预览出现后松手")
+        let description=NSTextField(wrappingLabelWithString:AppLanguage.text("左、右、上、下边缘：对应半屏\n四个角：四分之一屏　·　预览出现后松手"))
         description.font = .systemFont(ofSize:12); description.textColor=SketchPalette.muted
         status.font = .systemFont(ofSize:12); status.textColor=SketchPalette.muted; status.maximumNumberOfLines=2
         for view in [heading,description,status] { stack.addArrangedSubview(view) }

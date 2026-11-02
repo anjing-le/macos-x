@@ -10,7 +10,7 @@ struct PromptPresentation: Equatable {
 }
 
 private func promptTitle(_ title: String, occupied: Bool) -> String {
-    title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? (occupied ? "未命名" : "+") : title
+    title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? (occupied ? AppLanguage.text("未命名") : "+") : title
 }
 
 @MainActor final class PromptRingView: NSView {
@@ -89,7 +89,7 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
             card.title = title
             card.isEnabled = editing || !entry.content.isEmpty
             card.state = selected == i ? .on : .off
-            card.setAccessibilityLabel(editing ? "位置 \(i+1)：\(title)" : title)
+            card.setAccessibilityLabel(editing ? AppLanguage.text("位置 {0}：{1}", String(describing: (i+1)), String(describing: (title))) : title)
             card.needsDisplay = true
         }
     }
@@ -156,7 +156,7 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
         backgroundColor = .clear; isOpaque = false; hasShadow = true; isReleasedWhenClosed = false
         level = .popUpMenu; hidesOnDeactivate = false; becomesKeyOnlyIfNeeded = false; animationBehavior = .none
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
-        title = "提示词库"; contentView = wheel; delegate = self
+        title = AppLanguage.text("提示词库"); contentView = wheel; delegate = self
         wheel.onChoose = { [weak self] in self?.onChoose?($0) }
         wheel.onCancel = { [weak self] in self?.onCancel?() }
         wheel.onResize = { [weak self] size in
@@ -255,9 +255,9 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
     private let pageLabel = NSTextField(labelWithString: "")
     private let preview = NSTextField(wrappingLabelWithString: "")
     private let previewHeading = NSTextField(labelWithString: "")
-    private let previewHint = NSTextField(labelWithString: "Enter 复制")
+    private let previewHint = NSTextField(labelWithString: AppLanguage.text("Enter 复制"))
     private let previewSeparator = PromptPreviewSeparator()
-    private let empty = NSTextField(labelWithString: "无匹配")
+    private let empty = NSTextField(labelWithString: AppLanguage.text("无匹配"))
     private var matches: [Int] = []
     private var selected: Int?
     private var searching = false
@@ -303,19 +303,19 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
         self.selectedSlot = selectedSlot
         self.collection = collection; self.presentation = presentation; self.maximum = size
         ring = PromptRingView(size: size)
-        super.init(frame: CGRect(origin: .zero, size: size)); setAccessibilityLabel("提示词库")
+        super.init(frame: CGRect(origin: .zero, size: size)); setAccessibilityLabel(AppLanguage.text("提示词库"))
         search.delegate = self; search.placeholderString = ""; search.focusRingType = .none
         search.font = .systemFont(ofSize: 12); search.sendsSearchStringImmediately = true
-        search.setAccessibilityLabel("搜索提示词标题")
+        search.setAccessibilityLabel(AppLanguage.text("搜索提示词标题"))
         surface.radius = 16; surface.edge = SketchPalette.line.withAlphaComponent(0.6)
         addSubview(surface); addSubview(search)
         preview.font = .systemFont(ofSize: 11.5); preview.textColor = SketchPalette.ink.withAlphaComponent(0.8)
         preview.maximumNumberOfLines = 3; preview.lineBreakMode = .byTruncatingTail
         preview.identifier = .init("prompt-body-preview")
-        preview.setAccessibilityLabel("提示词内容预览"); addSubview(preview)
+        preview.setAccessibilityLabel(AppLanguage.text("提示词内容预览")); addSubview(preview)
         previewHeading.font = .systemFont(ofSize: 11.5, weight: .semibold); previewHeading.textColor = SketchPalette.purple
         previewHeading.lineBreakMode = .byTruncatingTail; previewHeading.identifier = .init("prompt-preview-heading")
-        previewHeading.setAccessibilityLabel("已选提示词"); addSubview(previewHeading)
+        previewHeading.setAccessibilityLabel(AppLanguage.text("已选提示词")); addSubview(previewHeading)
         previewHint.font = .systemFont(ofSize: 10.5); previewHint.textColor = SketchPalette.muted; previewHint.alignment = .right
         previewHint.identifier = .init("prompt-preview-hint"); addSubview(previewHint)
         addSubview(previewSeparator)
@@ -437,11 +437,11 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
             guard !result.isHidden else { continue }
             let index=matches[position]
             let prompt=collection.prompts.indices.contains(index) ? collection.prompts[index] : nil
-            let title=prompt.map { promptTitle($0.title,occupied:true) } ?? "+ 空位置"
+            let title=prompt.map { promptTitle($0.title,occupied:true) } ?? AppLanguage.text("+ 空位置")
             result.title = showsEditableSlots ? "\(position+1) · \(title)" : title
             result.toolTip = prompt.map { String($0.content.prefix(400)) }
             result.state = (showsEditableSlots ? selectedSlot == position : selected == index) ? .on : .off
-            result.setAccessibilityLabel(showsEditableSlots ? "位置 \(position+1)：\(title)" : title)
+            result.setAccessibilityLabel(showsEditableSlots ? AppLanguage.text("位置 {0}：{1}", String(describing: (position+1)), String(describing: (title))) : title)
             result.needsDisplay = true
         }
         let entries = displayed.map { i -> PromptEntry in

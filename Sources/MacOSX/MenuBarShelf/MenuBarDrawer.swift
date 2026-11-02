@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 import ApplicationServices
 
@@ -138,7 +139,7 @@ import ApplicationServices
         live.onFailure = { [weak self] in
             guard let self, self.active else { return }; self.liveFailed = true
             self.hidden = self.restriction != nil
-            self.issue = "图标实时读取中断，请重新展开重试。"; self.changed()
+            self.issue = AppLanguage.text("图标实时读取中断，请重新展开重试。"); self.changed()
         }
         live.onPixels = { [weak self] pixels in
             guard let self, self.active else { return }
@@ -191,10 +192,10 @@ import ApplicationServices
     private func installInput() {
         guard active, permitted else { input.stop(); return }
         guard visibility.available else {
-            input.stop(); issue = "当前系统的隐藏接口暂不可用，已保留全部图标。"; return
+            input.stop(); issue = AppLanguage.text("当前系统的隐藏接口暂不可用，已保留全部图标。"); return
         }
         input.enabled = true
-        if !testSkipInput, !input.start() { input.enabled = false; issue = "拖动监听暂不可用；可在下面点击图标收纳。" }
+        if !testSkipInput, !input.start() { input.enabled = false; issue = AppLanguage.text("拖动监听暂不可用；可在下面点击图标收纳。") }
     }
     func hover(_ frame: CGRect, inside: Bool) {
         if !live.isActive { anchor = frame }
@@ -238,7 +239,7 @@ import ApplicationServices
         if panel == nil {
             let panel = MenuDrawerPanel(contentRect: CGRect(origin: origin, size: CGSize(width: width, height: height)), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             panel.level = .popUpMenu; panel.isOpaque = false; panel.backgroundColor = .clear
-            panel.title = "菜单栏抽屉"
+            panel.title = AppLanguage.text("菜单栏抽屉")
             panel.hasShadow = true; panel.hidesOnDeactivate = false; panel.isReleasedWhenClosed = false
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
             panel.contentView = view; self.panel = panel
@@ -315,7 +316,7 @@ import ApplicationServices
     }
     func prepareDrag() {
         guard active else { return }
-        guard permitted else { issue = "需要辅助功能权限来读取和操作真实菜单栏图标。"; changed(); return }
+        guard permitted else { issue = AppLanguage.text("需要辅助功能权限来读取和操作真实菜单栏图标。"); changed(); return }
         installInput()
         if live.isActive { return }
         readEntries(force: false)
@@ -335,7 +336,7 @@ import ApplicationServices
             // A failed refresh must not discard an already working restriction,
             // including the exception for the one menu being opened.
             self.menuBundle = nil; self.reapplyOnHover = self.wantsCollapsed
-            self.issue = "原图标读取超时，已保留当前收纳状态；可点击读取图标重试。"; self.changed()
+            self.issue = AppLanguage.text("原图标读取超时，已保留当前收纳状态；可点击读取图标重试。"); self.changed()
         }
         readWatchdog = timeout; DispatchQueue.main.asyncAfter(deadline: .now() + iconReadTimeout, execute: timeout)
         let receive: ([MenuBarEntry]) -> Void = { [weak self] entries in
@@ -406,7 +407,7 @@ import ApplicationServices
         guard active, permitted, visibility.available, !busy, !order.contains(bundle), order.count < 40,
               bundle != Bundle.main.bundleIdentifier, !MenuBarSections.systemOwners.contains(bundle) else { completion?(false); return }
         guard entries.contains(where: { $0.bundle == bundle && $0.visible }), originalIcons[bundle] != nil else {
-            issue = "原图或当前位置尚未确认，已保留菜单栏图标；请重新读取。"
+            issue = AppLanguage.text("原图或当前位置尚未确认，已保留菜单栏图标；请重新读取。")
             changed(); completion?(false); return
         }
         var next = order; next.insert(bundle, at: min(max(0, index ?? order.count), order.count))
@@ -447,7 +448,7 @@ import ApplicationServices
         let proposed = next ?? order
         wantsCollapsed = !proposed.isEmpty; cancelRecovery(); menuBundle = nil
         guard permitted, visibility.available else {
-            restoreNativeIcons(); reapplyOnHover = wantsCollapsed; issue = permitted ? "当前系统暂不支持抽屉隐藏，图标已全部恢复。" : "请先授予辅助功能权限。"; changed(); completion?(false); return
+            restoreNativeIcons(); reapplyOnHover = wantsCollapsed; issue = permitted ? AppLanguage.text("当前系统暂不支持抽屉隐藏，图标已全部恢复。") : AppLanguage.text("请先授予辅助功能权限。"); changed(); completion?(false); return
         }
         // A native layout change invalidates every in-flight position/image
         // pair. Never replace a verified glyph with a crop from an older layout.
@@ -471,7 +472,7 @@ import ApplicationServices
         // A newly collected owner still requires verified native pixels.
         guard confirmed.subtracting(order).allSatisfy({ originalIcons[$0] != nil }) else {
             restriction?.invalidate(); restriction = nil; hidden = false
-            issue = CGPreflightScreenCaptureAccess() ? "原图标暂不可读取，已保留真实菜单栏；可点击读取图标重试。" : "需要屏幕录制权限读取原菜单栏图标；未读到的图标保持显示。"
+            issue = CGPreflightScreenCaptureAccess() ? AppLanguage.text("原图标暂不可读取，已保留真实菜单栏；可点击读取图标重试。") : AppLanguage.text("需要屏幕录制权限读取原菜单栏图标；未读到的图标保持显示。")
             changed(); completion?(false); return
         }
         guard !confirmed.isEmpty else {
@@ -488,7 +489,7 @@ import ApplicationServices
             guard let self, self.active, self.restrictionGeneration == expected else { return }
             self.restrictionGeneration += 1; self.watchdog = nil; self.busy = false
             self.restriction?.invalidate(); self.restriction = nil; self.hidden = false
-            self.issue = "系统隐藏响应超时，图标已恢复；可重试。"; self.changed(); completion?(false)
+            self.issue = AppLanguage.text("系统隐藏响应超时，图标已恢复；可重试。"); self.changed(); completion?(false)
         }
         watchdog = work; DispatchQueue.main.asyncAfter(deadline: .now() + activationTimeout, execute: work)
         visibility.activate(allowing: Array(all.subtracting(confirmed)).sorted()) { [weak self] handle in
@@ -498,7 +499,7 @@ import ApplicationServices
             self.restriction = handle; self.hidden = handle != nil
             previous?.invalidate()
             if handle != nil { self.order = proposed; self.persist(); self.input.entries.removeAll(); self.issue = nil }
-            else { self.issue = "系统未能收纳，图标已恢复；请重试。" }
+            else { self.issue = AppLanguage.text("系统未能收纳，图标已恢复；请重试。") }
             self.changed(); completion?(handle != nil)
             if handle != nil { self.readEntries(force: true) }
             self.presence(self.contains(self.pointer()))
@@ -528,7 +529,7 @@ import ApplicationServices
     }
     func openMenu(_ bundle: String, samples: [MenuBarPointerSample] = MenuBarPointerSample.singleClick) {
         guard active, !busy, menuBundle != bundle, MenuBarPointerSample.valid(samples) else { return }
-        guard permitted else { issue = "请先授予辅助功能权限。"; changed(); return }
+        guard permitted else { issue = AppLanguage.text("请先授予辅助功能权限。"); changed(); return }
         if live.isActive, let entry = entries.first(where: { $0.bundle == bundle }) {
             busy = true; menuBundle = bundle; close(keepingLive: true)
             changed()
@@ -536,7 +537,7 @@ import ApplicationServices
             if live.activate(entry, samples: samples, completion: { [weak self] ok in
                 guard let self, self.active, self.menuGeneration == expected else { return }
                 self.busy = false; self.menuBundle = nil
-                if !ok { self.issue = "本次操作未完成，请重试。" }
+                if !ok { self.issue = AppLanguage.text("本次操作未完成，请重试。") }
                 self.changed()
             }) { return }
             live.finish { [weak self] restored in
@@ -561,7 +562,7 @@ import ApplicationServices
         let perform = { [weak self] in
             guard let self, self.active, self.menuGeneration == expected else { return }
             guard let entry = self.entries.first(where: { $0.bundle == bundle }) else {
-                self.menuBundle = nil; self.issue = "这个应用的菜单栏入口暂不可读，已保留收纳状态。"; self.changed(); return
+                self.menuBundle = nil; self.issue = AppLanguage.text("这个应用的菜单栏入口暂不可读，已保留收纳状态。"); self.changed(); return
             }
             let token = MenuBarReadToken(); self.actionToken = token
             self.busy = true; self.changed()
@@ -576,7 +577,7 @@ import ApplicationServices
                 guard covered else {
                     self.watchdog?.cancel(); self.watchdog = nil; self.cancelMenuInteraction()
                     self.busy = false; self.actionToken = nil; self.menuBundle = nil
-                    self.issue = "暂时无法保持菜单栏画面，已保留收纳状态；请检查屏幕录制权限后重试。"; self.changed(); return
+                    self.issue = AppLanguage.text("暂时无法保持菜单栏画面，已保留收纳状态；请检查屏幕录制权限后重试。"); self.changed(); return
                 }
                 let relay = { [weak self] in
                     guard let self, self.active, self.menuGeneration == expected, !token.isCancelled else { return }
@@ -622,7 +623,7 @@ import ApplicationServices
             self.watchdog?.cancel(); self.watchdog = nil
             self.cancelMenuInteraction(); self.actionToken?.cancel(); self.actionToken = nil
             self.busy = false; self.menuBundle = nil; self.reapplyOnHover = false
-            self.issue = success ? nil : "应用未响应本次操作，已保留收纳状态；可重试。"
+            self.issue = success ? nil : AppLanguage.text("应用未响应本次操作，已保留收纳状态；可重试。")
             self.readDate = 0; self.changed()
         }
         guard wantsCollapsed, !order.isEmpty, interactionRequested else { finish(); return }
@@ -631,7 +632,7 @@ import ApplicationServices
             self.menuGeneration += 1; self.watchdog = nil; self.cancelMenuInteraction()
             self.restriction?.invalidate(); self.restriction = nil; self.hidden = false; self.busy = false
             self.actionToken?.cancel(); self.actionToken = nil; self.menuBundle = nil
-            self.issue = "系统恢复收纳超时，已恢复原生入口；请重新收纳。"; self.changed()
+            self.issue = AppLanguage.text("系统恢复收纳超时，已恢复原生入口；请重新收纳。"); self.changed()
         }
         watchdog = timeout; DispatchQueue.main.asyncAfter(deadline: .now() + activationTimeout, execute: timeout)
         let all = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
@@ -744,7 +745,7 @@ import ApplicationServices
         if !view.items.elementsEqual(items, by: { $0.bundle == $1.bundle && $0.name == $1.name && $0.icon === $1.icon && $0.available == $1.available }) {
             view.items = items
         }
-        view.message = issue ?? (order.isEmpty ? "⌘ 拖入图标，收纳在这里" : "点击打开 · ⌘ 拖动排序，拖出恢复")
+        view.message = issue ?? (order.isEmpty ? AppLanguage.text("⌘ 拖入图标，收纳在这里") : AppLanguage.text("点击打开 · ⌘ 拖动排序，拖出恢复"))
     }
     private func cancelRecovery() {
         recoveryGeneration &+= 1; recoveryWork?.cancel(); recoveryWork = nil

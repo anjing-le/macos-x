@@ -1,3 +1,4 @@
+import MacOSXCore
 import Foundation
 @preconcurrency import AVFoundation
 
@@ -80,7 +81,7 @@ final class RecordingAudioWriter {
             AVNumberOfChannelsKey: 2, AVEncoderBitRateKey: 128_000
         ])
         input.expectsMediaDataInRealTime = true
-        guard writer.canAdd(input) else { throw CaptureFailure.message("当前编码器无法写入录屏声音。") }
+        guard writer.canAdd(input) else { throw CaptureFailure.message(AppLanguage.text("当前编码器无法写入录屏声音。")) }
         writer.add(input)
     }
 
@@ -100,13 +101,13 @@ final class RecordingAudioWriter {
         sourcePCM.frameLength = AVAudioFrameCount(count)
         guard CMSampleBufferCopyPCMDataIntoAudioBufferList(sample, at: 0, frameCount: Int32(count),
                                                          into: sourcePCM.mutableAudioBufferList) == noErr else {
-            throw CaptureFailure.message("无法读取录屏声音数据。")
+            throw CaptureFailure.message(AppLanguage.text("无法读取录屏声音数据。"))
         }
         let converter: AVAudioConverter
         if let existing = converters[source], existing.inputFormat == sourceFormat { converter = existing }
         else {
             guard let created = AVAudioConverter(from: sourceFormat, to: format) else {
-                throw CaptureFailure.message("当前音频设备的格式无法录制。")
+                throw CaptureFailure.message(AppLanguage.text("当前音频设备的格式无法录制。"))
             }
             created.primeMethod = .none; converters[source] = created; converter = created
         }
@@ -118,7 +119,7 @@ final class RecordingAudioWriter {
             if supplied { status.pointee = .noDataNow; return nil }
             supplied = true; status.pointee = .haveData; return sourcePCM
         }
-        guard result != .error else { throw error ?? CaptureFailure.message("录屏声音转换失败。") }
+        guard result != .error else { throw error ?? CaptureFailure.message(AppLanguage.text("录屏声音转换失败。")) }
         guard pcm.frameLength > 0 else { return }
         let offset = CMTimeSubtract(hostTime, anchor).seconds * 48_000
         guard offset.isFinite, abs(offset) < Double(Int64.max) / 2 else { return }
@@ -142,7 +143,7 @@ final class RecordingAudioWriter {
             guard input.isReadyForMoreMediaData else { droppedBlocks += 1; continue }
             let pts = CMTimeAdd(anchor, CMTime(value: start, timescale: 48_000))
             let sample = try Self.sample(pcm, at: pts)
-            guard input.append(sample) else { throw CaptureFailure.message("录屏声音写入失败。") }
+            guard input.append(sample) else { throw CaptureFailure.message(AppLanguage.text("录屏声音写入失败。")) }
         }
         return true
     }

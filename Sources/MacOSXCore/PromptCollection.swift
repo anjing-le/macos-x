@@ -17,35 +17,26 @@ public struct PromptImport: Codable, Sendable {
     public var version: Int
     public var prompts: [Item]
     public static func parse(_ data: Data) throws -> Self {
-        guard data.count <= PromptCollection.byteLimit else { throw PromptCollection.Failure("JSON 超过 4 MB") }
+        guard data.count <= PromptCollection.byteLimit else { throw PromptCollection.Failure(AppLanguage.text("JSON 超过 4 MB")) }
         let value: Self
         do { value = try JSONDecoder().decode(Self.self, from: data) }
-        catch { throw PromptCollection.Failure("需要 version: 1 和 prompts 数组，每项包含 title、content") }
-        guard value.version == 1 else { throw PromptCollection.Failure("仅支持 version: 1") }
-        guard value.prompts.count <= PromptCollection.limit else { throw PromptCollection.Failure("每次导入最多 500 条") }
+        catch { throw PromptCollection.Failure(AppLanguage.text("需要 version: 1 和 prompts 数组，每项包含 title、content")) }
+        guard value.version == 1 else { throw PromptCollection.Failure(AppLanguage.text("仅支持 version: 1")) }
+        guard value.prompts.count <= PromptCollection.limit else { throw PromptCollection.Failure(AppLanguage.text("每次导入最多 500 条")) }
         var ids = Set<String>(), slots = Set<Int>()
         for item in value.prompts {
             try PromptCollection.check(title: item.title, content: item.content)
             let unfinished = item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || item.content.isEmpty
-            guard !unfinished || (item.draft == true && item.id != nil) else { throw PromptCollection.Failure("标题和内容不能为空；导出的草稿须保留 id 和 draft: true") }
+            guard !unfinished || (item.draft == true && item.id != nil) else { throw PromptCollection.Failure(AppLanguage.text("标题和内容不能为空；导出的草稿须保留 id 和 draft: true")) }
             if let id = item.id {
-                guard !id.isEmpty, id.utf8.count <= 64, ids.insert(id).inserted else { throw PromptCollection.Failure("id 不能为空、重复或超过 64 字节") }
+                guard !id.isEmpty, id.utf8.count <= 64, ids.insert(id).inserted else { throw PromptCollection.Failure(AppLanguage.text("id 不能为空、重复或超过 64 字节")) }
             }
-            if let slot = item.slot { guard (1...10).contains(slot), slots.insert(slot).inserted else { throw PromptCollection.Failure("slot 必须是 1–10，且不能重复") } }
+            if let slot = item.slot { guard (1...10).contains(slot), slots.insert(slot).inserted else { throw PromptCollection.Failure(AppLanguage.text("slot 必须是 1–10，且不能重复")) } }
         }
         return value
     }
-    public static let example = """
-    {"version":1,"prompts":[
-      {"id":"summary","title":"总结","content":"请总结以下内容：","slot":1},
-      {"id":"rewrite","title":"润色","content":"请保留原意，简洁自然地润色以下文字："}
-    ]}
-    """
-    public static let aiInstructions = """
-    请把我的提示词整理成纯 JSON，不要 Markdown 代码块。协议：根对象 version 为 1，prompts 为数组；每项 title 是简短标题，content 是完整内容（字符串换行用 \\n）。可选 id 为稳定且唯一的字符串，用于再次导入时更新同一条；省略 id 时按相同标题和内容去重。可选 slot 为 1–10，表示转盘位置，从正上方开始顺时针；省略 slot 仅加入可搜索的库。一次最多 500 条，标题最多 64 字，内容最多 16384 字 / 64 KiB，整个 JSON 最多 4 MB。同一次导入 id 和 slot 均不能重复。
-    示例：
-    \(example)
-    """
+    public static let example = AppLanguage.text("{\"version\":1,\"prompts\":[\n  {\"id\":\"summary\",\"title\":\"总结\",\"content\":\"请总结以下内容：\",\"slot\":1},\n  {\"id\":\"rewrite\",\"title\":\"润色\",\"content\":\"请保留原意，简洁自然地润色以下文字：\"}\n]}")
+    public static let aiInstructions = AppLanguage.text("请把我的提示词整理成纯 JSON，不要 Markdown 代码块。协议：根对象 version 为 1，prompts 为数组；每项 title 是简短标题，content 是完整内容（字符串换行用 \\n）。可选 id 为稳定且唯一的字符串，用于再次导入时更新同一条；省略 id 时按相同标题和内容去重。可选 slot 为 1–10，表示转盘位置，从正上方开始顺时针；省略 slot 仅加入可搜索的库。一次最多 500 条，标题最多 64 字，内容最多 16384 字 / 64 KiB，整个 JSON 最多 4 MB。同一次导入 id 和 slot 均不能重复。\n示例：\n{0}", String(describing: (example)))
 }
 public struct PromptCollection: Codable, Equatable, Sendable {
     public static let limit = 500, byteLimit = 4_000_000
@@ -65,15 +56,15 @@ public struct PromptCollection: Codable, Equatable, Sendable {
         slots = entries.enumerated().map { i, entry in entry.title.isEmpty && entry.content.isEmpty ? nil : "legacy-\(i+1)" }
     }
     public static func check(title: String, content: String) throws {
-        guard title.count <= 64, title.utf8.count <= 512, content.count <= 16_384, content.utf8.count <= 65_536 else { throw Failure("标题最多 64 字，内容最多 16384 字 / 64 KiB") }
+        guard title.count <= 64, title.utf8.count <= 512, content.count <= 16_384, content.utf8.count <= 65_536 else { throw Failure(AppLanguage.text("标题最多 64 字，内容最多 16384 字 / 64 KiB")) }
     }
     public func validate() throws {
-        guard prompts.count <= Self.limit, slots.count == 10 else { throw Failure("提示词库最多 500 条，转盘固定 10 个位置") }
+        guard prompts.count <= Self.limit, slots.count == 10 else { throw Failure(AppLanguage.text("提示词库最多 500 条，转盘固定 10 个位置")) }
         var ids = Set<String>()
-        for p in prompts { try Self.check(title: p.title, content: p.content); guard !p.id.isEmpty, p.id.utf8.count <= 64, ids.insert(p.id).inserted else { throw Failure("提示词 id 无效或重复") } }
+        for p in prompts { try Self.check(title: p.title, content: p.content); guard !p.id.isEmpty, p.id.utf8.count <= 64, ids.insert(p.id).inserted else { throw Failure(AppLanguage.text("提示词 id 无效或重复")) } }
         let assigned = slots.compactMap { $0 }
-        guard Set(assigned).count == assigned.count, assigned.allSatisfy({ ids.contains($0) }) else { throw Failure("转盘位置引用无效") }
-        guard try JSONEncoder().encode(self).count <= Self.byteLimit else { throw Failure("提示词库超过 4 MB") }
+        guard Set(assigned).count == assigned.count, assigned.allSatisfy({ ids.contains($0) }) else { throw Failure(AppLanguage.text("转盘位置引用无效")) }
+        guard try JSONEncoder().encode(self).count <= Self.byteLimit else { throw Failure(AppLanguage.text("提示词库超过 4 MB")) }
     }
     public var wheelEntries: [PromptEntry] { slots.map { id in
         guard let id, let p = prompts.first(where: { $0.id == id }) else { return .init(title: "", content: "") }
@@ -107,7 +98,7 @@ public struct PromptCollection: Codable, Equatable, Sendable {
         return deleted
     }
     public mutating func restore(_ deleted: DeletedPrompt) throws {
-        guard !prompts.contains(where: { $0.id == deleted.prompt.id }) else { throw Failure("相同 id 的提示词已存在，不能覆盖") }
+        guard !prompts.contains(where: { $0.id == deleted.prompt.id }) else { throw Failure(AppLanguage.text("相同 id 的提示词已存在，不能覆盖")) }
         var copy = self
         copy.prompts.insert(deleted.prompt, at: min(deleted.index, copy.prompts.count))
         if let slot = deleted.previousSlot, copy.slots.indices.contains(slot), copy.slots[slot] == nil { copy.slots[slot] = deleted.prompt.id }
@@ -127,7 +118,7 @@ public struct PromptCollection: Codable, Equatable, Sendable {
             encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
             data = try encoder.encode(document)
         }
-        guard data.count <= Self.byteLimit else { throw Failure("导出 JSON 超过 4 MB") }
+        guard data.count <= Self.byteLimit else { throw Failure(AppLanguage.text("导出 JSON 超过 4 MB")) }
         return data
     }
     public func merging(_ document: PromptImport) throws -> Self {
@@ -140,7 +131,7 @@ public struct PromptCollection: Codable, Equatable, Sendable {
             if let id = item.id, let old = indices[id] { index = old }
             else if item.id == nil, let old = exact[fingerprint] { index = old }
             else {
-                guard copy.prompts.count < Self.limit else { throw Failure("提示词库最多 500 条") }
+                guard copy.prompts.count < Self.limit else { throw Failure(AppLanguage.text("提示词库最多 500 条")) }
                 index = copy.prompts.count
                 copy.prompts.append(.init(id: item.id ?? UUID().uuidString, title: item.title, content: item.content))
                 indices[copy.prompts[index].id] = index

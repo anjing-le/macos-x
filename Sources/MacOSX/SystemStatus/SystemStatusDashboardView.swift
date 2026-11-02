@@ -4,9 +4,9 @@ import MacOSXCore
 /// Live values are supplied by the module. The view owns no sampler, observer or timer.
 @MainActor
 final class SystemStatusDashboardView: NSView {
-    private let activity = NSTextField(labelWithString: "等待首次采样")
+    private let activity = NSTextField(labelWithString: AppLanguage.text("等待首次采样"))
     private let updated = NSTextField(labelWithString: "")
-    private let footnote = NSTextField(labelWithString: "每 2 秒刷新 · 最近 1 分钟 · 本机读取")
+    private let footnote = NSTextField(labelWithString: AppLanguage.text("每 2 秒刷新 · 最近 1 分钟 · 本机读取"))
     private let issue = NSTextField(wrappingLabelWithString: "")
     private let cpu = SystemStatusMetricCard(kind: .cpu)
     private let memory = SystemStatusMetricCard(kind: .memory)
@@ -39,7 +39,7 @@ final class SystemStatusDashboardView: NSView {
 
     func update(snapshot: SystemStatusSnapshot?, history: [SystemStatusSnapshot], isEnabled: Bool) {
         self.isEnabled = isEnabled
-        footnote.stringValue = isEnabled ? "曲线每 2 秒 · 硬盘每 30 秒 · 本机读取" : "开启后显示实时状态与硬盘容量"
+        footnote.stringValue = isEnabled ? AppLanguage.text("曲线每 2 秒 · 硬盘每 30 秒 · 本机读取") : AppLanguage.text("开启后显示实时状态与硬盘容量")
         let latest = isEnabled ? snapshot : nil
         let points: [SystemStatusSnapshot]
         if let time = latest?.timestamp, time.isFinite {
@@ -52,22 +52,22 @@ final class SystemStatusDashboardView: NSView {
         network.update(snapshot: latest, history: points, isEnabled: isEnabled)
         disk.update(latest?.disk, isEnabled: isEnabled, hasSample: latest != nil)
         if !isEnabled {
-            activity.stringValue = "已关闭 · 开启后开始监控"
+            activity.stringValue = AppLanguage.text("已关闭 · 开启后开始监控")
             updated.stringValue = ""
             issue.stringValue = ""
         } else if let latest {
             let problems = latest.issues.prefix(3).map { String($0.prefix(180)) }
-            activity.stringValue = problems.isEmpty ? "正在监控" : "部分数据暂不可用"
+            activity.stringValue = problems.isEmpty ? AppLanguage.text("正在监控") : AppLanguage.text("部分数据暂不可用")
             issue.stringValue = problems.joined(separator: " · ")
             if latest.timestamp.isFinite, latest.timestamp >= 0 {
                 let age = max(0, ProcessInfo.processInfo.systemUptime - latest.timestamp)
                 updated.stringValue = age.isFinite && age < 31_536_000
-                    ? "更新于 " + timeFormatter.string(from: Date(timeIntervalSinceNow: -age)) : "更新时间不可用"
-            } else { updated.stringValue = "更新时间不可用" }
+                    ? AppLanguage.text("更新于 ") + timeFormatter.string(from: Date(timeIntervalSinceNow: -age)) : AppLanguage.text("更新时间不可用")
+            } else { updated.stringValue = AppLanguage.text("更新时间不可用") }
         } else {
-            activity.stringValue = "等待首次采样"
+            activity.stringValue = AppLanguage.text("等待首次采样")
             updated.stringValue = ""
-            issue.stringValue = "正在读取 CPU、内存、网络和硬盘数据"
+            issue.stringValue = AppLanguage.text("正在读取 CPU、内存、网络和硬盘数据")
         }
         activity.setAccessibilityLabel(activity.stringValue)
         issue.toolTip = issue.stringValue.isEmpty ? nil : issue.stringValue
@@ -142,7 +142,7 @@ final class SystemStatusDashboardView: NSView {
 
 /// Capacity is a compact strip, not a misleading one-minute usage curve.
 @MainActor private final class SystemStatusDiskCard: NSView {
-    private let heading = NSTextField(labelWithString: "硬盘")
+    private let heading = NSTextField(labelWithString: AppLanguage.text("硬盘"))
     private let available = NSTextField(labelWithString: "—")
     private let detail = NSTextField(labelWithString: "")
     private var status: SystemDiskStatus?
@@ -158,7 +158,7 @@ final class SystemStatusDashboardView: NSView {
             label.lineBreakMode = .byTruncatingTail
             addSubview(label)
         }
-        toolTip = "启动磁盘的文件系统容量，每 30 秒刷新。已占用包含 APFS 其他卷及快照占用；可用空间不含系统可清理内容，不扫描文件。"
+        toolTip = AppLanguage.text("启动磁盘的文件系统容量，每 30 秒刷新。已占用包含 APFS 其他卷及快照占用；可用空间不含系统可清理内容，不扫描文件。")
         setAccessibilityRole(.group)
     }
     required init?(coder: NSCoder) { nil }
@@ -166,15 +166,15 @@ final class SystemStatusDashboardView: NSView {
     func update(_ value: SystemDiskStatus?, isEnabled: Bool, hasSample: Bool) {
         status = isEnabled ? value : nil
         if let status {
-            available.stringValue = "可用 " + Self.bytes(status.availableBytes)
-            detail.stringValue = "启动磁盘 · 已占用 " + Self.bytes(status.usedBytes) + " / 共 " + Self.bytes(status.totalBytes)
-                + (status.isLow ? " · 空间不足 10%" : "")
+            available.stringValue = AppLanguage.text("可用 ") + Self.bytes(status.availableBytes)
+            detail.stringValue = AppLanguage.text("启动磁盘 · 已占用 ") + Self.bytes(status.usedBytes) + AppLanguage.text(" / 共 ") + Self.bytes(status.totalBytes)
+                + (status.isLow ? AppLanguage.text(" · 空间不足 10%") : "")
         } else {
             available.stringValue = "—"
-            detail.stringValue = !isEnabled ? "开启后显示硬盘容量" : hasSample ? "硬盘容量暂不可用" : "正在读取启动磁盘"
+            detail.stringValue = !isEnabled ? AppLanguage.text("开启后显示硬盘容量") : hasSample ? AppLanguage.text("硬盘容量暂不可用") : AppLanguage.text("正在读取启动磁盘")
         }
         available.textColor = status?.isLow == true ? SketchPalette.coral : SketchPalette.ink
-        setAccessibilityLabel(["硬盘", available.stringValue, detail.stringValue].joined(separator: "，"))
+        setAccessibilityLabel([AppLanguage.text("硬盘"), available.stringValue, detail.stringValue].joined(separator: "，"))
         needsDisplay = true
     }
 
@@ -224,10 +224,10 @@ private final class SystemStatusMetricCard: NSView {
     private let value = NSTextField(labelWithString: "—")
     private let secondary = NSTextField(labelWithString: "")
     private let detail = NSTextField(labelWithString: "")
-    private let caption = NSTextField(labelWithString: "最近 1 分钟")
+    private let caption = NSTextField(labelWithString: AppLanguage.text("最近 1 分钟"))
     private let chart = SystemStatusHistoryChart()
-    private let downloadLegend = NSTextField(labelWithString: "↓ 下载")
-    private let uploadLegend = NSTextField(labelWithString: "↑ 上传")
+    private let downloadLegend = NSTextField(labelWithString: AppLanguage.text("↓ 下载"))
+    private let uploadLegend = NSTextField(labelWithString: AppLanguage.text("↑ 上传"))
     private var outline: NSBezierPath?
     private var outlineBounds = CGRect.zero
     private var ratio: Double?
@@ -236,7 +236,7 @@ private final class SystemStatusMetricCard: NSView {
     init(kind: Kind) {
         self.kind = kind
         super.init(frame: .zero)
-        heading.stringValue = kind == .cpu ? "CPU" : (kind == .memory ? "内存" : "网络")
+        heading.stringValue = kind == .cpu ? "CPU" : (kind == .memory ? AppLanguage.text("内存") : AppLanguage.text("网络"))
         heading.font = SketchPalette.heading(20)
         heading.textColor = SketchPalette.ink
         value.font = .monospacedDigitSystemFont(ofSize: kind == .cpu ? 42 : 34, weight: .semibold)
@@ -265,7 +265,7 @@ private final class SystemStatusMetricCard: NSView {
 
     func update(snapshot: SystemStatusSnapshot?, history: [SystemStatusSnapshot], isEnabled: Bool) {
         value.stringValue = "—"
-        secondary.stringValue = isEnabled ? "等待数据" : "监控已关闭"
+        secondary.stringValue = isEnabled ? AppLanguage.text("等待数据") : AppLanguage.text("监控已关闭")
         detail.stringValue = ""
         secondary.font = .systemFont(ofSize: 13)
         ratio = nil
@@ -277,10 +277,10 @@ private final class SystemStatusMetricCard: NSView {
             case .cpu:
                 if let cpu = Self.finite(snapshot.cpuPercent) {
                     value.stringValue = String(format: "%.0f%%", min(100, cpu))
-                    secondary.stringValue = "CPU 总负载"
+                    secondary.stringValue = AppLanguage.text("CPU 总负载")
                     ratio = min(100, cpu) / 100
-                } else { secondary.stringValue = snapshot.issues.isEmpty ? "建立采样基线" : "CPU 暂不可用" }
-                detail.stringValue = "所有核心的平均负载"
+                } else { secondary.stringValue = snapshot.issues.isEmpty ? AppLanguage.text("建立采样基线") : AppLanguage.text("CPU 暂不可用") }
+                detail.stringValue = AppLanguage.text("所有核心的平均负载")
                 points = history.map { .init(time: $0.timestamp, values: [Self.finite($0.cpuPercent).map { min(100, $0) }]) }
             case .memory:
                 let capacity = snapshot.memory.flatMap { $0.totalBytes > 0 ? $0 : nil }
@@ -291,10 +291,10 @@ private final class SystemStatusMetricCard: NSView {
                 }
                 if let memory = snapshot.memory, memory.totalBytes > 0 {
                     value.stringValue = Self.bytes(memory.usedBytes)
-                    secondary.stringValue = "已用 / 共 " + Self.bytes(memory.totalBytes)
-                    detail.stringValue = "压缩 " + Self.bytes(memory.compressedBytes) + " · 交换 " + Self.bytes(memory.swapBytes)
+                    secondary.stringValue = AppLanguage.text("已用 / 共 ") + Self.bytes(memory.totalBytes)
+                    detail.stringValue = AppLanguage.text("压缩 ") + Self.bytes(memory.compressedBytes) + AppLanguage.text(" · 交换 ") + Self.bytes(memory.swapBytes)
                     ratio = min(1, Double(memory.usedBytes) / Double(memory.totalBytes))
-                } else { secondary.stringValue = "内存数据暂不可用" }
+                } else { secondary.stringValue = AppLanguage.text("内存数据暂不可用") }
                 points = history.map { point in
                     let bytes = point.memory.flatMap { memory -> Double? in
                         guard memory.totalBytes > 0 else { return nil }
@@ -309,15 +309,15 @@ private final class SystemStatusMetricCard: NSView {
                     value.stringValue = down.map(Self.rate) ?? "—"
                     secondary.stringValue = "↑ " + (up.map(Self.rate) ?? "—")
                     secondary.font = .monospacedDigitSystemFont(ofSize: 22, weight: .medium)
-                    detail.stringValue = network.interfaceName.isEmpty ? "网络接口不可用" : "接口 " + network.interfaceName
-                    if down == nil && up == nil { detail.stringValue += " · 建立网速基线" }
+                    detail.stringValue = network.interfaceName.isEmpty ? AppLanguage.text("网络接口不可用") : AppLanguage.text("接口 ") + network.interfaceName
+                    if down == nil && up == nil { detail.stringValue += AppLanguage.text(" · 建立网速基线") }
                     points = history.map { point in
                         guard let old = point.network, old.interfaceName == network.interfaceName else {
                             return .init(time: point.timestamp, values: [nil, nil])
                         }
                         return .init(time: point.timestamp, values: [Self.finite(old.downloadBytesPerSecond), Self.finite(old.uploadBytesPerSecond)])
                     }
-                } else { secondary.stringValue = "网络数据暂不可用" }
+                } else { secondary.stringValue = AppLanguage.text("网络数据暂不可用") }
                 let values = points.flatMap(\.values).compactMap { $0 }
                 let peak = values.max() ?? 0
                 maximum = Self.networkScale(peak)
@@ -326,11 +326,11 @@ private final class SystemStatusMetricCard: NSView {
         }
         chart.update(points: points, end: snapshot?.timestamp, maximum: maximum,
                      colors: kind == .network ? [SketchPalette.blue, SketchPalette.green] : [accent], top: top,
-                     emptyText: !isEnabled ? "开启后显示实时曲线" : snapshot?.issues.isEmpty == false ? "暂无有效曲线" : "等待采样形成曲线")
+                     emptyText: !isEnabled ? AppLanguage.text("开启后显示实时曲线") : snapshot?.issues.isEmpty == false ? AppLanguage.text("暂无有效曲线") : AppLanguage.text("等待采样形成曲线"))
         let summary = [heading.stringValue, value.stringValue, secondary.stringValue, detail.stringValue].filter { !$0.isEmpty }.joined(separator: "，")
         setAccessibilityLabel(summary)
-        value.setAccessibilityLabel(kind == .network ? "下载 " + value.stringValue : value.stringValue)
-        secondary.setAccessibilityLabel(kind == .network ? "上传 " + secondary.stringValue : secondary.stringValue)
+        value.setAccessibilityLabel(kind == .network ? AppLanguage.text("下载 ") + value.stringValue : value.stringValue)
+        secondary.setAccessibilityLabel(kind == .network ? AppLanguage.text("上传 ") + secondary.stringValue : secondary.stringValue)
         detail.toolTip = detail.stringValue.isEmpty ? nil : detail.stringValue
         needsDisplay = true
     }
@@ -451,7 +451,7 @@ private final class SystemStatusHistoryChart: NSView {
     private var maximum = 100.0
     private var colors: [NSColor] = []
     private var top = "100%"
-    private var emptyText = "等待采样形成曲线"
+    private var emptyText = AppLanguage.text("等待采样形成曲线")
     override var isFlipped: Bool { true }
     func update(points: [Point], end: TimeInterval?, maximum: Double, colors: [NSColor], top: String, emptyText: String) {
         self.points = Array(points.suffix(31))
@@ -460,7 +460,7 @@ private final class SystemStatusHistoryChart: NSView {
         self.colors = Array(colors.prefix(2))
         self.top = top; self.emptyText = emptyText
         setAccessibilityRole(.image)
-        setAccessibilityLabel("最近一分钟趋势，最大刻度 \(top)，最多 \(self.points.count) 个采样点")
+        setAccessibilityLabel(AppLanguage.text("最近一分钟趋势，最大刻度 {0}，最多 {1} 个采样点", String(describing: (top)), String(describing: (self.points.count))))
         needsDisplay = true
     }
     override func draw(_ dirtyRect: NSRect) {
@@ -479,8 +479,8 @@ private final class SystemStatusHistoryChart: NSView {
         let text: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular), .foregroundColor: SketchPalette.muted]
         (top as NSString).draw(at: CGPoint(x: 1, y: 0), withAttributes: text)
         ("0" as NSString).draw(at: CGPoint(x: 1, y: plot.maxY - 12), withAttributes: text)
-        ("−60 秒" as NSString).draw(at: CGPoint(x: plot.minX, y: plot.maxY + 5), withAttributes: text)
-        let now = "现在" as NSString
+        (AppLanguage.text("−60 秒") as NSString).draw(at: CGPoint(x: plot.minX, y: plot.maxY + 5), withAttributes: text)
+        let now = AppLanguage.text("现在") as NSString
         now.draw(at: CGPoint(x: plot.maxX - now.size(withAttributes: text).width, y: plot.maxY + 5), withAttributes: text)
         var hasValue = false
         NSGraphicsContext.saveGraphicsState(); defer { NSGraphicsContext.restoreGraphicsState() }

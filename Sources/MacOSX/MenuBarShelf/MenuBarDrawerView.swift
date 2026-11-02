@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 
 struct MenuDrawerItem {
@@ -27,7 +28,7 @@ struct MenuDrawerItem {
     var onRestore: ((String, CGPoint) -> Void)?
     var onPresence: ((Bool) -> Void)?
     var onInteraction: (() -> Void)?
-    var message = "⌘ 拖入图标，收纳在这里" { didSet { updateHint() } }
+    var message = AppLanguage.text("⌘ 拖入图标，收纳在这里") { didSet { updateHint() } }
     private var down: (String, CGPoint, Bool)?
     private var dragging = false
     var isDragging: Bool { dragging }

@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 import ApplicationServices
 import os
@@ -104,7 +105,7 @@ struct NativeMenuBarChoice {
     func requestAccess() {
         guard active else { return }
         if requestPermission() { issue = nil; readChoices() }
-        else { issue = "请在系统设置中授权辅助功能，返回后重试。"; changed() }
+        else { issue = AppLanguage.text("请在系统设置中授权辅助功能，返回后重试。"); changed() }
     }
 
     init(defaults: UserDefaults, visibility: MenuVisibilityProviding) {
@@ -234,7 +235,7 @@ struct NativeMenuBarChoice {
         guard active, wantsCollapsed, !awaitingRecoveryVisit else { return }
         guard !reading, !interactionHeld, ownMenuDepth == 0, (!overBar || mayCollapseAtDrop), pressedButtons() == 0 else { cancelDismissal(); return }
         guard permission(), visibility.available else {
-            expose(); issue = permission() ? "当前系统暂不能收纳，已保留原生图标。" : "需要辅助功能权限，原生图标保持显示。"
+            expose(); issue = permission() ? AppLanguage.text("当前系统暂不能收纳，已保留原生图标。") : AppLanguage.text("需要辅助功能权限，原生图标保持显示。")
             changed(); return
         }
         cancelDismissal(); transition &+= 1; let expected = transition
@@ -242,13 +243,13 @@ struct NativeMenuBarChoice {
         transitionTimeout?.cancel(); busy = true; issue = nil; changed()
         let timeout = DispatchWorkItem { [weak self] in
             guard let self, self.active, self.transition == expected else { return }
-            self.failConcealment("收纳核验超时，原生图标保持显示。")
+            self.failConcealment(AppLanguage.text("收纳核验超时，原生图标保持显示。"))
         }
         transitionTimeout = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + activationTimeout, execute: timeout)
         let receive: (MenuBarConcealmentPlan?) -> Void = { [weak self] plan in
             guard let self, self.active, self.transition == expected, !token.isCancelled else { return }
-            guard let plan else { self.failConcealment("未确认全部菜单栏位置，原生图标保持显示。请重试。",retryStartup:true); return }
+            guard let plan else { self.failConcealment(AppLanguage.text("未确认全部菜单栏位置，原生图标保持显示。请重试。"),retryStartup:true); return }
             self.startupRetriesRemaining = 0
             // The restriction applies globally. A right-side icon on ANY
             // display protects its entire app/helper family, including stale
@@ -265,7 +266,7 @@ struct NativeMenuBarChoice {
             self.logger.info("preflight desired=\(self.order.count) hidden=\(plan.hidden.count) protected=\(plan.protected.count) rendered=\(plan.renderedProtected.count)")
             self.visibility.activate(allowing: Array(plan.allowing).sorted()) { [weak self] handle in
                 guard let self, self.active, self.transition == expected, self.busy, !token.isCancelled else { handle?.invalidate(); return }
-                guard let handle else { self.failConcealment("系统未能收纳，原生图标保持显示。"); return }
+                guard let handle else { self.failConcealment(AppLanguage.text("系统未能收纳，原生图标保持显示。")); return }
                 guard !self.interactionHeld, self.ownMenuDepth == 0, (!self.overBar || self.mayCollapseAtDrop), self.pressedButtons() == 0 else {
                     handle.invalidate(); self.expose(); self.changed(); self.scheduleCollapse(); return
                 }
@@ -274,7 +275,7 @@ struct NativeMenuBarChoice {
                     guard let self, self.active, self.transition == expected, !token.isCancelled else { return }
                     guard valid else {
                         self.logger.error("postflight failed; restoring native icons")
-                        self.failConcealment("系统收纳影响了保留图标，已恢复全部显示。请重试。"); return
+                        self.failConcealment(AppLanguage.text("系统收纳影响了保留图标，已恢复全部显示。请重试。")); return
                     }
                     self.transitionTimeout?.cancel(); self.transitionTimeout = nil
                     self.appliedPlan = plan; self.busy = false; self.hidden = true; self.issue = nil
@@ -472,12 +473,12 @@ struct NativeMenuBarChoice {
     }
     func readChoices() {
         guard active, !reading else { return }
-        guard permission() else { issue = "请先在系统设置中授予辅助功能权限。"; changed(); return }
+        guard permission() else { issue = AppLanguage.text("请先在系统设置中授予辅助功能权限。"); changed(); return }
         applications = runningApplications(); updateMonitors(); reading = true; readGeneration &+= 1
         let expected = readGeneration, token = MenuBarReadToken(); readToken = token
         let timeout = DispatchWorkItem { [weak self] in
             guard let self, self.active, self.readGeneration == expected else { return }
-            self.cancelReading(); self.issue = "读取应用超时，已保留收纳名单。"; self.changed()
+            self.cancelReading(); self.issue = AppLanguage.text("读取应用超时，已保留收纳名单。"); self.changed()
         }
         readTimeout = timeout; DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: timeout)
         let receive: ([MenuBarEntry]) -> Void = { [weak self] entries in
@@ -532,14 +533,14 @@ struct NativeMenuBarChoice {
         cancelReading(); cancelInteraction(); wantsCollapsed = true; expandTemporarily()
         awaitingRecoveryVisit = true
         guard permission(), visibility.available else {
-            issue = "请先授权辅助功能；原生图标保持显示。"; changed(); return
+            issue = AppLanguage.text("请先授权辅助功能；原生图标保持显示。"); changed(); return
         }
         let apple = appleFrame()
         guard dropPoint != nil || apple.map({ $0.width > 0 && $0.height > 0 }) == true else {
-            issue = "未确认苹果位置，原生图标保持显示；请重试。"; changed(); return
+            issue = AppLanguage.text("未确认苹果位置，原生图标保持显示；请重试。"); changed(); return
         }
         if let dropPoint, !inBar(dropPoint) {
-            issue = "未确认当前屏幕的菜单栏，原生图标保持显示。"; changed(); return
+            issue = AppLanguage.text("未确认当前屏幕的菜单栏，原生图标保持显示。"); changed(); return
         }
         screenTop = NSScreen.screens.first?.frame.maxY ?? 0
         let top = screenTop
@@ -547,7 +548,7 @@ struct NativeMenuBarChoice {
         let expected = readGeneration, token = MenuBarReadToken(); readToken = token
         let timeout = DispatchWorkItem { [weak self] in
             guard let self, self.active, self.readGeneration == expected else { return }
-            self.cancelReading(); self.issue = "位置读取超时，原生图标保持显示；请重试。"; self.changed()
+            self.cancelReading(); self.issue = AppLanguage.text("位置读取超时，原生图标保持显示；请重试。"); self.changed()
         }
         readTimeout = timeout; DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: timeout)
         let receive: (MenuBarBoundaryLayout?) -> Void = { [weak self] layout in
@@ -561,7 +562,7 @@ struct NativeMenuBarChoice {
                   }) ?? true,
                   Set(self.order).intersection(running).isSubset(of: Set(layout.entries.map(\.bundle))),
                   let next = MenuBarBoundaryGrouping.order(layout, previous: self.order, running: running) else {
-                self.issue = "未读到稳定位置，原生图标保持显示；请重试。"; self.changed(); return
+                self.issue = AppLanguage.text("未读到稳定位置，原生图标保持显示；请重试。"); self.changed(); return
             }
             self.order = next; self.defaults.set(next, forKey: "menuBarShelf.drawerBundles.v1")
             self.entries = layout.entries; self.wantsCollapsed = true; self.awaitingRecoveryVisit = false

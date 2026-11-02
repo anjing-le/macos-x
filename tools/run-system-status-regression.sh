@@ -20,7 +20,12 @@ paths = ['Sources/MacOSX/SystemStatus/SystemStatusSampler.swift',
          'Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift',
          'Sources/MacOSX/SystemStatus/SystemStatusModule.swift',
          'tools/system-status-regression.swift']
-(out / 'SystemStatusAndFixture.swift').write_text('\n'.join((root / p).read_text() for p in paths))
+texts=[(root / p).read_text() for p in paths]
+if __import__('os').environ.get('MACOSX_TEST_LANGUAGE') == 'en':
+    sys.path.insert(0,str(root/'tools/localization'))
+    import extract
+    texts[-1]=extract.process(texts[-1],'fixture',apply=True)
+(out / 'SystemStatusAndFixture.swift').write_text('\n'.join(texts))
 (out / 'Preview.app/Contents/Info.plist').write_text('''<?xml version="1.0"?><plist version="1.0"><dict>
 <key>CFBundleIdentifier</key><string>cc.anjing.macos-x.system-status.fixture</string>
 <key>CFBundleExecutable</key><string>Preview</string><key>CFBundlePackageType</key><string>APPL</string>

@@ -19,9 +19,9 @@ import MacOSXCore
     private let recordingLabel = NSTextField(labelWithString: "")
     private let resultLabel = NSTextField(labelWithString: "")
     private lazy var folderButton = MinimalButton(title: "", target: self, action: #selector(chooseFolder), style: .standard)
-    private lazy var choose = MinimalButton(title: "选择文件夹", target: self, action: #selector(chooseFolder), style: .standard)
-    private lazy var copy = MinimalButton(title: "复制路径", target: self, action: #selector(copyResult), style: .quiet)
-    private lazy var play = MinimalButton(title: "播放", target: self, action: #selector(openResult), style: .standard)
+    private lazy var choose = MinimalButton(title: AppLanguage.text("选择文件夹"), target: self, action: #selector(chooseFolder), style: .standard)
+    private lazy var copy = MinimalButton(title: AppLanguage.text("复制路径"), target: self, action: #selector(copyResult), style: .quiet)
+    private lazy var play = MinimalButton(title: AppLanguage.text("播放"), target: self, action: #selector(openResult), style: .standard)
     private lazy var reveal = MinimalButton(title: "Finder", target: self, action: #selector(revealResult), style: .quiet)
     private lazy var results = NSStackView(views: [resultLabel, NSStackView(views: [play, reveal, copy])])
     private lazy var settings: RecordingSettingsFooter = {
@@ -30,9 +30,9 @@ import MacOSXCore
         resultLabel.lineBreakMode = .byTruncatingMiddle; resultLabel.maximumNumberOfLines = 1
         resultLabel.widthAnchor.constraint(lessThanOrEqualToConstant:220).isActive=true
         for button in [play,reveal,copy] { button.font = .systemFont(ofSize:12) }
-        reveal.toolTip = "在 Finder 中显示"
+        reveal.toolTip = AppLanguage.text("在 Finder 中显示")
         results.orientation = .vertical; results.alignment = .leading; results.spacing = 10
-        let folderLabel = NSTextField(labelWithString: "保存位置")
+        let folderLabel = NSTextField(labelWithString: AppLanguage.text("保存位置"))
         folderLabel.font = SketchPalette.heading(16); folderLabel.textColor = .secondaryLabelColor
         updateFolderButton()
         folderButton.cell?.lineBreakMode = .byTruncatingMiddle
@@ -98,7 +98,7 @@ import MacOSXCore
         clock.begin(at: ProcessInfo.processInfo.systemUptime)
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item?.button?.target = self; item?.button?.action = #selector(stopPressed)
-        item?.button?.setAccessibilityLabel("停止录屏")
+        item?.button?.setAccessibilityLabel(AppLanguage.text("停止录屏"))
         tick()
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
@@ -110,7 +110,7 @@ import MacOSXCore
     func saving() {
         clock.stop(at: ProcessInfo.processInfo.systemUptime)
         timer?.invalidate(); timer = nil
-        if busy { item?.button?.title = "保存中…"; item?.button?.isEnabled = false; item?.menu = nil }
+        if busy { item?.button?.title = AppLanguage.text("保存中…"); item?.button?.isEnabled = false; item?.menu = nil }
     }
 
     func completed(_ url: URL?, announce: Bool) {
@@ -120,9 +120,9 @@ import MacOSXCore
         refreshVisibility()
         guard announce, url != nil else { return }
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item?.button?.title = "✓ 已复制路径"
+        item?.button?.title = AppLanguage.text("✓ 已复制路径")
         item?.button?.target = self; item?.button?.action = #selector(revealResult)
-        item?.button?.toolTip = "已复制录屏路径 · 点击在 Finder 中显示"
+        item?.button?.toolTip = AppLanguage.text("已复制录屏路径 · 点击在 Finder 中显示")
         let work = DispatchWorkItem { [weak self] in self?.clearIndicator() }
         dismissWork = work; DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: work)
     }
@@ -139,7 +139,7 @@ import MacOSXCore
         let title = NSMutableAttributedString(string: "■  \(elapsed)", attributes: [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium), .foregroundColor: SketchPalette.ink])
         title.addAttribute(.foregroundColor, value: SketchPalette.coral, range: NSRange(location: 0, length: 1))
-        item?.button?.attributedTitle = title; item?.button?.toolTip = "正在录屏 · 点击结束录制"
+        item?.button?.attributedTitle = title; item?.button?.toolTip = AppLanguage.text("正在录屏 · 点击结束录制")
     }
 
     private func setResult(_ url: URL, readDuration: Bool = true) {
@@ -176,14 +176,14 @@ import MacOSXCore
     private func updateFolderButton() {
         let folder = recordingDirectory
         folderButton.title = "\(folder.deletingLastPathComponent().lastPathComponent)/\(folder.lastPathComponent) ›"
-        folderButton.toolTip = folder.path; folderButton.setAccessibilityLabel("更改录屏保存目录，\(folder.path)")
+        folderButton.toolTip = folder.path; folderButton.setAccessibilityLabel(AppLanguage.text("更改录屏保存目录，{0}", String(describing: (folder.path))))
         folderButton.invalidateIntrinsicContentSize()
     }
     @objc private func chooseFolder() {
         guard let window = settings.window, !busy, window.attachedSheet == nil else { return }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = true; panel.directoryURL = recordingDirectory; panel.prompt = "选择"
+        panel.canCreateDirectories = true; panel.directoryURL = recordingDirectory; panel.prompt = AppLanguage.text("选择")
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let self, let url = panel.url else { return }
             self.defaults.set(url.path, forKey: "recording.directory-path"); self.updateFolderButton()
@@ -194,8 +194,8 @@ import MacOSXCore
 /// Native controls positioned over the illustration; no duplicate bitmap values.
 @MainActor final class RecordingSettingsFooter: NSView {
     private let folderLabel: NSView, path: NSView, choose: NSView, clock: NSView, results: NSView
-    private let recent = NSTextField(labelWithString: "最近录屏")
-    private let empty = NSTextField(labelWithString: "录屏完成后在这里查看")
+    private let recent = NSTextField(labelWithString: AppLanguage.text("最近录屏"))
+    private let empty = NSTextField(labelWithString: AppLanguage.text("录屏完成后在这里查看"))
     private var wasCompact=false
     var usesArtwork=false { didSet { if oldValue != usesArtwork { needsLayout=true; invalidateIntrinsicContentSize() } } }
     override var isFlipped: Bool { true }
@@ -203,7 +203,7 @@ import MacOSXCore
     override var intrinsicContentSize: NSSize { NSSize(width:840,height:compact ? 142 : (usesArtwork ? 72 : 96)) }
     init(folder:NSView,path:NSView,choose:NSView,clock:NSView,results:NSView) {
         self.path=path; self.choose=choose; self.clock=clock; self.results=results
-        folderLabel=(folder as? NSStackView)?.arrangedSubviews.first ?? NSTextField(labelWithString:"保存位置")
+        folderLabel=(folder as? NSStackView)?.arrangedSubviews.first ?? NSTextField(labelWithString:AppLanguage.text("保存位置"))
         super.init(frame:CGRect(x:0,y:0,width:840,height:96))
         recent.font=SketchPalette.heading(14); recent.textColor=SketchPalette.ink
         empty.font = .systemFont(ofSize:12); empty.textColor=SketchPalette.muted

@@ -10,13 +10,13 @@ enum ShortcutAction: UInt32, CaseIterable, Sendable {
     }
     var title: String {
         switch self {
-        case .wheel: return "提示词库"
-        case .capture: return "截图"
-        case .pin: return "贴图"
-        case .shelf: return "截图晾衣杆"
-        case .recording: return "录屏"
-        case .togglePins: return "显示 / 隐藏"
-        case .layoutLeft:return "左半屏";case .layoutRight:return "右半屏";case .layoutUp:return "上半屏";case .layoutDown:return "下半屏"
+        case .wheel: return AppLanguage.text("提示词库")
+        case .capture: return AppLanguage.text("截图")
+        case .pin: return AppLanguage.text("贴图")
+        case .shelf: return AppLanguage.text("截图晾衣杆")
+        case .recording: return AppLanguage.text("录屏")
+        case .togglePins: return AppLanguage.text("显示 / 隐藏")
+        case .layoutLeft:return AppLanguage.text("左半屏");case .layoutRight:return AppLanguage.text("右半屏");case .layoutUp:return AppLanguage.text("上半屏");case .layoutDown:return AppLanguage.text("下半屏")
         }
     }
     var defaultBinding: ShortcutBinding {
@@ -239,13 +239,13 @@ final class GlobalInput {
         }
         for (action, binding) in chords where registered[action] == nil {
             guard eventHandler != nil else {
-                issues[action] = "快捷键监听不可用，请重新打开应用"; continue
+                issues[action] = AppLanguage.text("快捷键监听不可用，请重新打开应用"); continue
             }
             var ref: EventHotKeyRef?
             let status = RegisterEventHotKey(UInt32(binding.keyCode), binding.carbonModifiers,
                 EventHotKeyID(signature: signature, id: action.rawValue), GetApplicationEventTarget(), 0, &ref)
             if status == noErr, let ref { registered[action] = (binding, ref) }
-            else { issues[action] = "快捷键已被占用，请换一个" }
+            else { issues[action] = AppLanguage.text("快捷键已被占用，请换一个") }
         }
         let wheel = desired[.wheel].flatMap { $0.kind == .doubleModifier ? $0 : nil }
         let needsTap = !suspended && (switcherReady || wheel != nil) && AXIsProcessTrusted()
@@ -269,7 +269,7 @@ final class GlobalInput {
 
     func probe(_ binding: ShortcutBinding, for action: ShortcutAction) -> String? {
         guard binding.kind == .chord else { return nil }
-        guard eventHandler != nil else { return "快捷键监听不可用，请重新打开应用" }
+        guard eventHandler != nil else { return AppLanguage.text("快捷键监听不可用，请重新打开应用") }
         if registered[action]?.0 == binding { return nil }
         var ref: EventHotKeyRef?
         let status = RegisterEventHotKey(UInt32(binding.keyCode), binding.carbonModifiers,
@@ -279,7 +279,7 @@ final class GlobalInput {
             EventHotKeyID(signature: signature, id: 99), GetApplicationEventTarget(), OptionBits(kEventHotKeyExclusive), &ref)
         if let ref { UnregisterEventHotKey(ref) }
         if status == noErr { return nil }
-        return status == eventHotKeyExistsErr ? "快捷键存在排他登记占用，请换一个" : "暂时无法核对快捷键，请重试"
+        return status == eventHotKeyExistsErr ? AppLanguage.text("快捷键存在排他登记占用，请换一个") : AppLanguage.text("暂时无法核对快捷键，请重试")
     }
 
     private func consume(_ action: InputAction) {

@@ -1,3 +1,4 @@
+import MacOSXCore
 @preconcurrency import AVFoundation
 
 /// AVCapture's public audio-only path also supports macOS 14. Device startup
@@ -23,14 +24,14 @@ final class RecordingMicrophone: NSObject, AVCaptureAudioDataOutputSampleBufferD
         control.async { [self] in
             do {
                 guard let device = AVCaptureDevice.default(for: .audio) else {
-                    throw CaptureFailure.message("未找到可用麦克风，请关闭麦克风选项或连接设备。")
+                    throw CaptureFailure.message(AppLanguage.text("未找到可用麦克风，请关闭麦克风选项或连接设备。"))
                 }
                 let input = try AVCaptureDeviceInput(device: device)
                 let output = AVCaptureAudioDataOutput()
                 session.beginConfiguration()
                 guard session.canAddInput(input), session.canAddOutput(output) else {
                     session.commitConfiguration()
-                    throw CaptureFailure.message("当前麦克风无法录制。")
+                    throw CaptureFailure.message(AppLanguage.text("当前麦克风无法录制。"))
                 }
                 session.addInput(input); session.addOutput(output)
                 output.setSampleBufferDelegate(self, queue: queue)
@@ -38,11 +39,11 @@ final class RecordingMicrophone: NSObject, AVCaptureAudioDataOutputSampleBufferD
                 observer = NotificationCenter.default.addObserver(forName: .AVCaptureSessionRuntimeError,
                     object: session, queue: nil) { notification in
                     let error = notification.userInfo?[AVCaptureSessionErrorKey] as? Error
-                        ?? CaptureFailure.message("麦克风录制中断。")
+                        ?? CaptureFailure.message(AppLanguage.text("麦克风录制中断。"))
                     queue.async { failure(error) }
                 }
                 session.startRunning()
-                let error: Error? = session.isRunning ? nil : CaptureFailure.message("麦克风未能启动。")
+                let error: Error? = session.isRunning ? nil : CaptureFailure.message(AppLanguage.text("麦克风未能启动。"))
                 queue.async { completion(error) }
             } catch { queue.async { completion(error) } }
         }

@@ -7,6 +7,7 @@ cd "$wheel_repo"
 swift build --disable-keychain --target MacOSXCore
 wheel_bin="$(swift build --disable-keychain --show-bin-path)"
 mkdir -p "$wheel_dir/Preview.app/Contents/MacOS" "$wheel_dir/Preview.app/Contents/Resources"
+cp -R Resources/en.lproj Resources/zh-Hans.lproj "$wheel_dir/Preview.app/Contents/Resources/"
 cp Resources/SettingsPromptsBoard.png Resources/SketchPaper.png Resources/SketchFont.ttf "$wheel_dir/Preview.app/Contents/Resources/"
 python3 - "$wheel_repo" "$wheel_dir" <<'PY'
 from pathlib import Path
@@ -14,7 +15,13 @@ import sys
 root, out = map(Path, sys.argv[1:])
 source = (root / 'Sources/MacOSX/Shared/GlobalInput.swift').read_text()
 (out / 'ShortcutTypes.swift').write_text(source[:source.index('private enum InputAction')] + source[source.index('extension ShortcutBinding'):])
-(out / 'PromptModuleAndFixture.swift').write_text((root / 'Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift').read_text() + '\n' + (root / 'tools/prompt-management-regression.swift').read_text() + '\n' + (root / 'tools/prompt-polish-regression.swift').read_text() + '\n' + (root / 'tools/prompt-wheel-regression.swift').read_text())
+texts=[(root / name).read_text() for name in ['Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift','tools/prompt-management-regression.swift','tools/prompt-polish-regression.swift','tools/prompt-wheel-regression.swift']]
+if __import__('os').environ.get('MACOSX_TEST_LANGUAGE') == 'en':
+    sys.path.insert(0,str(root/'tools/localization'))
+    import extract
+    texts=[texts[0]]+[extract.process(t,'fixture',apply=True) for t in texts[1:]]
+(out / 'PromptModuleAndFixture.swift').write_text('\n'.join(texts))
+
 PY
 xcrun swiftc -I "$wheel_bin/Modules" "$wheel_bin"/MacOSXCore.build/*.swift.o \
   Sources/MacOSX/UI/SketchTheme.swift Sources/MacOSX/UI/SketchIcons.swift \

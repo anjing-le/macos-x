@@ -158,7 +158,7 @@ final class CountingPromptDefaults: UserDefaults {
         let editorList=PromptWheelView(size:CGSize(width:320,height:360),collection:drafts,presentation:.init(style:.list,wheelCount:4,listCount:4),editing:true,selectedSlot:0)
         editorList.frame.size=editorList.preferredSize; editorList.layoutSubtreeIfNeeded()
         let editableRows=editorList.subviews.compactMap { $0 as? NSButton }.filter { !$0.isHidden && $0.title.contains(" · ") }
-        precondition(editableRows.count == 4 && editableRows[0].title.contains("空位置") && editableRows[1].title.contains("标题草稿") && editableRows[2].title.contains("未命名"))
+        precondition(editableRows.count == 4 && editableRows[0].title.contains(AppLanguage.current == .english ? "Empty slot" : "空位置") && editableRows[1].title.contains("标题草稿") && editableRows[2].title.contains("未命名"))
         var editedSlots=[Int]()
         editorList.onEditSlot={ editedSlots.append($0) }
         editableRows[0].performClick(nil); editableRows[1].performClick(nil)

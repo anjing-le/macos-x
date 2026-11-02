@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 
 /// An editing surface. Membership and ordering are its only operations.
@@ -7,9 +8,9 @@ import AppKit
     var onToggle: ((Tool) -> Void)?
     var onReorder: (([Tool]) -> Void)?
     private var cards: [ModuleCatalogCard] = []
-    private let selectedLabel = NSTextField(labelWithString: "已添加 · 拖动调整首页顺序")
-    private let availableLabel = NSTextField(labelWithString: "可添加")
-    private let note = NSTextField(labelWithString: "移除保留设置和内容 · 功能设置从首页进入")
+    private let selectedLabel = NSTextField(labelWithString: AppLanguage.text("已添加 · 拖动调整首页顺序"))
+    private let availableLabel = NSTextField(labelWithString: AppLanguage.text("可添加"))
+    private let note = NSTextField(labelWithString: AppLanguage.text("移除保留设置和内容 · 功能设置从首页进入"))
     private var measuredHeight: CGFloat = 450
     override var isFlipped: Bool { true }
     override var intrinsicContentSize: NSSize { CGSize(width: 840, height: measuredHeight) }
@@ -33,8 +34,8 @@ import AppKit
             if let index = added.firstIndex(of: tool) { card.configurePosition(index: index, count: added.count) }
             addSubview(card); return card
         }
-        selectedLabel.stringValue = added.isEmpty ? "已添加 · 暂无，选择下方功能开始" : "已添加 · 拖动调整首页顺序"
-        availableLabel.stringValue = added.count == Tool.allCases.count ? "全部功能已添加" : "可添加"
+        selectedLabel.stringValue = added.isEmpty ? AppLanguage.text("已添加 · 暂无，选择下方功能开始") : AppLanguage.text("已添加 · 拖动调整首页顺序")
+        availableLabel.stringValue = added.count == Tool.allCases.count ? AppLanguage.text("全部功能已添加") : AppLanguage.text("可添加")
         needsLayout = true; layoutSubtreeIfNeeded()
         window?.contentView?.needsLayout = true; window?.recalculateKeyViewLoop()
         if let focus, let replacement = cards.first(where: { $0.tool == focus }) { window?.makeFirstResponder(replacement) }
@@ -104,16 +105,16 @@ import AppKit
         self.tool = tool; isAdded = added; art = SketchCardArt.image(tool.symbol) ?? SketchIcons.image(tool.symbol, size: 96)
         super.init(frame: CGRect(x: 0, y: 0, width: 180, height: 168))
         focusRingType = .none
-        membership.title = added ? "− 移除" : "＋ 添加"; membership.target = self; membership.action = #selector(toggle)
-        membership.setAccessibilityLabel("\(added ? "移除" : "添加")\(tool.title)")
-        previous.target = self; previous.action = #selector(movePrevious); previous.setAccessibilityLabel("前移\(tool.title)")
-        next.target = self; next.action = #selector(moveNext); next.setAccessibilityLabel("后移\(tool.title)")
+        membership.title = added ? AppLanguage.text("− 移除") : AppLanguage.text("＋ 添加"); membership.target = self; membership.action = #selector(toggle)
+        membership.setAccessibilityLabel("\(added ? AppLanguage.text("移除") : AppLanguage.text("添加"))\(tool.title)")
+        previous.target = self; previous.action = #selector(movePrevious); previous.setAccessibilityLabel(AppLanguage.text("前移{0}", String(describing: (tool.title))))
+        next.target = self; next.action = #selector(moveNext); next.setAccessibilityLabel(AppLanguage.text("后移{0}", String(describing: (tool.title))))
         addSubview(membership)
         if added { addSubview(previous); addSubview(next) }
-        setAccessibilityRole(.group); setAccessibilityLabel("\(tool.title)，\(added ? "已添加" : "未添加")")
+        setAccessibilityRole(.group); setAccessibilityLabel("\(tool.title)，\(added ? AppLanguage.text("已添加") : AppLanguage.text("未添加"))")
         setAccessibilityElement(true)
         setAccessibilityChildren(added ? [membership, previous, next] : [membership])
-        toolTip = added ? "拖动调整首页位置，也可用左右按钮或方向键" : "点击添加按钮加入首页"
+        toolTip = added ? AppLanguage.text("拖动调整首页位置，也可用左右按钮或方向键") : AppLanguage.text("点击添加按钮加入首页")
     }
     required init?(coder: NSCoder) { nil }
     func configurePosition(index: Int, count: Int) { previous.isEnabled = index > 0; next.isEnabled = index + 1 < count }

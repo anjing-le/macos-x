@@ -29,10 +29,10 @@ public enum PromptLibrary {
         }
     }
     public static let presets = normalize([
-        .init(title: "总结", content: "请总结以下内容，保留关键结论、依据和待办事项：\n\n"),
-        .init(title: "润色", content: "请在保留原意的前提下润色以下文字，使表达清晰、简洁、自然。只输出修改后的内容：\n\n"),
-        .init(title: "翻译", content: "请将以下内容翻译成中文，保留专有名词、结构和原意：\n\n"),
-        .init(title: "提取待办", content: "请从以下内容中提取待办事项，列出负责人和时间；未明确的信息标注为待确认：\n\n"),
-        .init(title: "邮件回复", content: "请根据以下内容起草一封简洁、礼貌的回复，不补充未经确认的事实：\n\n")
+        .init(title: AppLanguage.text("总结"), content: AppLanguage.text("请总结以下内容，保留关键结论、依据和待办事项：\n\n")),
+        .init(title: AppLanguage.text("润色"), content: AppLanguage.text("请在保留原意的前提下润色以下文字，使表达清晰、简洁、自然。只输出修改后的内容：\n\n")),
+        .init(title: AppLanguage.text("翻译"), content: AppLanguage.text("请将以下内容翻译成中文，保留专有名词、结构和原意：\n\n")),
+        .init(title: AppLanguage.text("提取待办"), content: AppLanguage.text("请从以下内容中提取待办事项，列出负责人和时间；未明确的信息标注为待确认：\n\n")),
+        .init(title: AppLanguage.text("邮件回复"), content: AppLanguage.text("请根据以下内容起草一封简洁、礼貌的回复，不补充未经确认的事实：\n\n"))
     ])
 }

@@ -54,7 +54,7 @@ final class ModuleCoordinator {
         input.onMove = { [weak self] horizontal, vertical in self?.switcher?.moveSelection(horizontal: horizontal, vertical: vertical) }
         input.onConfirm = { [weak self] in self?.switcher?.confirmSelection() }
         input.onTapUnavailable = { [weak self] in
-            self?.tapIssue = "快捷键监听失败 · 当前使用原生 ⌘Tab"
+            self?.tapIssue = AppLanguage.text("快捷键监听失败 · 当前使用原生 ⌘Tab")
             self?.switcher?.setInputAvailable(false)
             self?.onStateChanged?(.windowSwitcher); self?.onStateChanged?(.kaomoji)
         }
@@ -188,7 +188,7 @@ final class ModuleCoordinator {
     func refreshSystemStatusDisplay() { systemStatus?.refreshDashboard() }
 
     func shortcutPicker(_ action: ShortcutAction, showsTitle: Bool = true) -> NSView {
-        let label=action == .wheel ? "唤起" : action.title
+        let label=action == .wheel ? AppLanguage.text("唤起") : action.title
         let picker = ShortcutPicker(title: showsTitle ? label : "",
             binding: shortcuts.binding(for: action), allowsDoubleTap: action == .wheel,
             recordingChanged: { [weak self] value in
@@ -200,15 +200,15 @@ final class ModuleCoordinator {
                 }
             },
             accepts: { [weak self] value in
-                guard let self else { return "请重试" }
+                guard let self else { return AppLanguage.text("请重试") }
                 return self.shortcuts.conflict(value, action: action,activeActions:Set(ShortcutAction.allCases.filter { self.isEnabled(Tool(rawValue:$0.moduleKey)!) })) ?? self.input.probe(value, for: action)
             }, didChange: { [weak self] value in
                 guard let self else { return }
                 self.shortcuts.set(value, for: action); self.configureInput()
                 self.onStateChanged?(Tool(rawValue:action.moduleKey)!)
             })
-        if action == .togglePins { picker.toolTip = "暂时隐藏或显示桌面的全部贴图，不会删除图片。" }
-        if action == .pin { picker.toolTip = "框选或标注时固定当前区域；其他时候贴出剪贴板内容。" }
+        if action == .togglePins { picker.toolTip = AppLanguage.text("暂时隐藏或显示桌面的全部贴图，不会删除图片。") }
+        if action == .pin { picker.toolTip = AppLanguage.text("框选或标注时固定当前区域；其他时候贴出剪贴板内容。") }
         return picker
     }
 
@@ -283,15 +283,15 @@ final class ModuleCoordinator {
 final class ModuleSettingsHeader: NSView {
     private let module: ModuleCoordinator
     private let tool: Tool
-    private let toggle = ModuleEnableButton(title:"功能",target:nil,action:nil)
-    private let accessibility = MinimalButton(title: "允许辅助功能", target: nil, action: nil, style: .standard)
-    private let screenCapture = MinimalButton(title: "屏幕权限", target: nil, action: nil, style: .standard)
+    private let toggle = ModuleEnableButton(title:AppLanguage.text("功能"),target:nil,action:nil)
+    private let accessibility = MinimalButton(title: AppLanguage.text("允许辅助功能"), target: nil, action: nil, style: .standard)
+    private let screenCapture = MinimalButton(title: AppLanguage.text("屏幕权限"), target: nil, action: nil, style: .standard)
     private let issue = NSTextField(wrappingLabelWithString: "")
 
     init(tool: Tool, module: ModuleCoordinator) {
         self.tool = tool; self.module = module
         super.init(frame: .zero)
-        toggle.target = self; toggle.action = #selector(changeEnabled); toggle.setAccessibilityLabel("启用\(tool.title)")
+        toggle.target = self; toggle.action = #selector(changeEnabled); toggle.setAccessibilityLabel(AppLanguage.text("启用{0}", String(describing: (tool.title))))
         addSubview(toggle)
         for button in [accessibility, screenCapture] { button.target = self; addSubview(button) }
         accessibility.action = #selector(allowAccessibility); screenCapture.action = #selector(allowScreenCapture)

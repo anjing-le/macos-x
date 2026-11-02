@@ -70,7 +70,7 @@ extension SystemStatusModule {
         try require(snapshot.disk == normal, "capacity survives the production accumulator")
         let card = SystemStatusDiskCard(frame: CGRect(x: 0, y: 0, width: 700, height: 98))
         card.update(.init(totalBytes: 100, availableBytes: 5), isEnabled: true, hasSample: true)
-        try require(labels(card).contains(where: { $0.contains("空间不足 10%") }), "low capacity is explained without opening another page")
+        try require(labels(card).contains(where: { $0.contains((AppLanguage.current == .english ? "Less than 10% free" : "空间不足 10%")) }), "low capacity is explained without opening another page")
     }
     @MainActor private static var checks = 0
     @MainActor private static func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
@@ -270,10 +270,10 @@ extension SystemStatusModule {
             layout(view, width: width)
             try assertBounds(view, name: "dashboard \(Int(width))")
             if width == 912 { try require(view.intrinsicContentSize.height < 510, "capacity strip and live cards fit the normal settings page") }
-            try require(labels(view).contains("硬盘") && labels(view).contains(where: { $0.contains("可用 125") }), "real capacity values appear alongside existing live charts")
+            try require(labels(view).contains("硬盘") && labels(view).contains(where: { $0.contains((AppLanguage.current == .english ? "Available 125" : "可用 125")) }), "real capacity values appear alongside existing live charts")
             let charts = descendants(view).compactMap { $0 as? SystemStatusHistoryChart }
             try require(charts.count == 3, "dashboard exposes three native metric charts")
-            try require(charts.allSatisfy { ($0.accessibilityLabel() ?? "").contains("最多 31 个采样点") },
+            try require(charts.allSatisfy { ($0.accessibilityLabel() ?? "").contains((AppLanguage.current == .english ? "up to 31 samples" : "最多 31 个采样点")) },
                         "UI histories also cap at 31 samples for oversized input")
             let fields = descendants(view).compactMap { $0 as? NSTextField }
             try require(fields.allSatisfy { !$0.isEditable }, "monitoring page shows live values rather than configuration inputs")
@@ -301,7 +301,7 @@ extension SystemStatusModule {
         view.update(snapshot: missing, history: history + [missing], isEnabled: true)
         layout(view, width: 312); try assertBounds(view, name: "nonfinite-data narrow")
         try require(labels(view).contains("更新时间不可用"), "nonfinite timestamps are not passed into DateFormatter")
-        let details = descendants(view).compactMap { $0 as? NSTextField }.filter { $0.stringValue.hasPrefix("接口 ") }
+        let details = descendants(view).compactMap { $0 as? NSTextField }.filter { $0.stringValue.hasPrefix((AppLanguage.current == .english ? "Interface " : "接口 ")) }
         try require(details.count == 1 && details[0].lineBreakMode == .byTruncatingTail && details[0].toolTip == details[0].stringValue,
                     "long interface names truncate within the card and keep complete tooltip")
         missing.timestamp = end
@@ -339,7 +339,7 @@ extension SystemStatusModule {
             throw NSError(domain: "memory history bitmap", code: 4)
         }
         chart.cacheDisplay(in: chart.bounds, to: bitmap)
-        try require((chart.accessibilityLabel() ?? "").contains("最大刻度 16.0 GB"),
+        try require((chart.accessibilityLabel() ?? "").contains((AppLanguage.current == .english ? "maximum 16.0 GB" : "最大刻度 16.0 GB")),
                     "missing latest memory retains the prior physical capacity axis, never 100%")
         try require(labels(card).contains("内存数据暂不可用") && labels(card).contains("—"),
                     "historical chart never invents a current memory reading")

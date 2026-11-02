@@ -1,9 +1,10 @@
 #!/bin/zsh
 set -euo pipefail
+source "$(dirname "$0")/localization/fixture-core.sh"
 shelf_repo="$(cd "$(dirname "$0")/.." && pwd)"
 shelf_dir="$(mktemp -d "${TMPDIR:-/tmp/}macos-x-shelf.XXXXXX")"
 trap 'rm -rf "$shelf_dir"' EXIT
-xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macos14.0" \
+xcrun swiftc -I "$localization_bin/Modules" "$localization_bin"/MacOSXCore.build/*.swift.o -swift-version 5 -target "$(uname -m)-apple-macos14.0" \
  "$shelf_repo/Sources/MacOSX/UI/SketchTheme.swift" \
  "$shelf_repo/Sources/MacOSX/Capture/CaptureShelfStore.swift" \
  "$shelf_repo/Sources/MacOSX/Capture/CaptureShelfLayout.swift" \

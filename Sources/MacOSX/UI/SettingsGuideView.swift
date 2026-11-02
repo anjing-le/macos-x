@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 
 /// Explanatory artwork, never a replacement for a live control or preview.
@@ -14,14 +15,14 @@ import AppKit
         let asset: String, titles: [String], help: String
         switch kind {
         case "capture":
-            asset = "GuideCapture"; titles = ["吸附窗口", "贴图白光", "区域录屏"]
-            help = "截图时指向窗口可吸附；贴图边缘可选；录屏先框选，再确认开始，再用同一快捷键结束。"
+            asset = "GuideCapture"; titles = [AppLanguage.text("吸附窗口"), AppLanguage.text("贴图白光"), AppLanguage.text("区域录屏")]
+            help = AppLanguage.text("截图时指向窗口可吸附；贴图边缘可选；录屏先框选，再确认开始，再用同一快捷键结束。")
         case "windowSwitcher":
-            asset = "GuideSwitcher"; titles = ["两行 · 分页", "全部 · 滚动"]
-            help = "两行显示页数；全部可滚动。Tab / 方向键选择，松开 ⌘ 切换；下方显示窗口总数。"
+            asset = "GuideSwitcher"; titles = [AppLanguage.text("两行 · 分页"), AppLanguage.text("全部 · 滚动")]
+            help = AppLanguage.text("两行显示页数；全部可滚动。Tab / 方向键选择，松开 ⌘ 切换；下方显示窗口总数。")
         default:
-            asset = "GuidePrompts"; titles = ["常用位置", "搜索标题", "复制内容"]
-            help = "下方是真实布局预览，点击位置编辑标题与内容；呼出后 ↑↓ 选择，Enter 复制。"
+            asset = "GuidePrompts"; titles = [AppLanguage.text("常用位置"), AppLanguage.text("搜索标题"), AppLanguage.text("复制内容")]
+            help = AppLanguage.text("下方是真实布局预览，点击位置编辑标题与内容；呼出后 ↑↓ 选择，Enter 复制。")
         }
         captions = titles.map {
             let label = NSTextField(labelWithString: $0)
@@ -31,7 +32,7 @@ import AppKit
         detail = NSTextField(wrappingLabelWithString: help)
         detail.font = .systemFont(ofSize: 12); detail.textColor = .secondaryLabelColor
         super.init(frame: CGRect(x: 0, y: 0, width: 540, height: 240))
-        if Self.images[asset] == nil, let url = Bundle.main.url(forResource: asset, withExtension: "png"),
+        if Self.images[asset] == nil, let url = AppLanguage.resource( asset, extension: "png"),
            let image = NSImage(contentsOf: url) { Self.images[asset] = image }
         artwork.image = Self.images[asset]; artwork.imageScaling = .scaleProportionallyUpOrDown
         artwork.setAccessibilityLabel(titles.joined(separator: "，"))

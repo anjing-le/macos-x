@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 
 enum Tool: String, CaseIterable, Hashable {
@@ -10,12 +11,12 @@ enum Tool: String, CaseIterable, Hashable {
 
     var title: String {
         switch self {
-        case .capture: return "截图录屏"
-        case .windowSwitcher: return "窗口切换"
-        case .kaomoji: return "提示词库"
-        case .windowLayout:return "窗口布局"
-        case .menuBarShelf:return "菜单栏收纳"
-        case .systemStatus:return "系统状态"
+        case .capture: return AppLanguage.text("截图录屏")
+        case .windowSwitcher: return AppLanguage.text("窗口切换")
+        case .kaomoji: return AppLanguage.text("提示词库")
+        case .windowLayout:return AppLanguage.text("窗口布局")
+        case .menuBarShelf:return AppLanguage.text("菜单栏收纳")
+        case .systemStatus:return AppLanguage.text("系统状态")
         }
     }
 
@@ -298,13 +299,13 @@ final class ToolboxWindowController: NSWindowController {
             homeCards[tool]=card
             return card
         }
-        cards.append(ToolCard(title: "功能池", symbol: "plus") { [weak self] in self?.showCatalog() })
+        cards.append(ToolCard(title: AppLanguage.text("功能池"), symbol: "plus") { [weak self] in self?.showCatalog() })
         content.showCards(cards)
     }
 
     private func showCatalog() {
         settingsHeader = nil
-        navigate(.catalog, title: "编辑功能")
+        navigate(.catalog, title: AppLanguage.text("编辑功能"))
         let editor = ModuleCatalogView(added: added.tools)
         editor.onToggle = { [weak self, weak editor] tool in
             guard let self else { return }
@@ -336,7 +337,7 @@ final class ToolboxWindowController: NSWindowController {
         case .windowSwitcher:
             let label = NSTextField(labelWithString: "⌘ Tab")
             label.font = .systemFont(ofSize:16); label.textColor = SketchPalette.ink; label.alignment = .center
-            label.toolTip = "Tab 选择 · Shift 反向 · 松开 Command 确认"
+            label.toolTip = AppLanguage.text("Tab 选择 · Shift 反向 · 松开 Command 确认")
             shortcuts = [label]
         case .systemStatus, .menuBarShelf: shortcuts = []
         }

@@ -152,7 +152,7 @@ public struct SystemStatusAccumulator: Sendable {
             reset()
             return .init(timestamp: 0, cpuPercent: nil, memory: memory,
                          network: network.map { .init(interfaceName: $0.interfaceName, downloadBytesPerSecond: nil, uploadBytesPerSecond: nil) },
-                         issues: issues + ["采样时间无效"], disk: disk)
+                         issues: issues + [AppLanguage.text("采样时间无效")], disk: disk)
         }
         let cpuPercent = readCPU(cpu, timestamp: timestamp)
         let networkStatus = readNetwork(network, timestamp: timestamp)

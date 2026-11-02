@@ -1,35 +1,36 @@
+import MacOSXCore
 import AppKit
 
 /// One paper surface, genuine accessible buttons, no embedded encoder settings.
 @MainActor final class RecordingStartBar: NSView {
     let startButton: MinimalButton
     let cancelButton: MinimalButton
-    let systemAudioButton = MinimalToggle(title: "系统声音", target: nil, action: nil)
-    let microphoneButton = MinimalToggle(title: "麦克风", target: nil, action: nil)
+    let systemAudioButton = MinimalToggle(title: AppLanguage.text("系统声音"), target: nil, action: nil)
+    let microphoneButton = MinimalToggle(title: AppLanguage.text("麦克风"), target: nil, action: nil)
     private let defaults: UserDefaults
-    private let label = NSTextField(labelWithString: "录屏")
+    private let label = NSTextField(labelWithString: AppLanguage.text("录屏"))
     init(target: AnyObject?, start: Selector, cancel: Selector, defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        startButton = MinimalButton(title: "开始录屏", target: target, action: start, style: .primary)
-        cancelButton = MinimalButton(title: "取消", target: target, action: cancel, style: .quiet)
+        startButton = MinimalButton(title: AppLanguage.text("开始录屏"), target: target, action: start, style: .primary)
+        cancelButton = MinimalButton(title: AppLanguage.text("取消"), target: target, action: cancel, style: .quiet)
         super.init(frame: .zero)
         label.font = SketchPalette.heading(16); label.textColor = SketchPalette.ink
-        startButton.setAccessibilityLabel("开始录屏")
-        cancelButton.setAccessibilityLabel("取消录屏选区")
+        startButton.setAccessibilityLabel(AppLanguage.text("开始录屏"))
+        cancelButton.setAccessibilityLabel(AppLanguage.text("取消录屏选区"))
         startButton.keyEquivalent = "\r"; startButton.keyEquivalentModifierMask = []
         cancelButton.keyEquivalent = "\u{1b}"; cancelButton.keyEquivalentModifierMask = []
-        startButton.toolTip = "Enter 开始"; cancelButton.toolTip = "Esc 取消"
+        startButton.toolTip = AppLanguage.text("Enter 开始"); cancelButton.toolTip = AppLanguage.text("Esc 取消")
         let options = RecordingAudioOptions(defaults: defaults)
         systemAudioButton.state = options.system ? .on : .off
         microphoneButton.state = options.microphone ? .on : .off
-        systemAudioButton.toolTip = "录制电脑播放的声音；记住本次选择"
-        microphoneButton.toolTip = "录制默认麦克风；开始录屏时才请求权限"
+        systemAudioButton.toolTip = AppLanguage.text("录制电脑播放的声音；记住本次选择")
+        microphoneButton.toolTip = AppLanguage.text("录制默认麦克风；开始录屏时才请求权限")
         for button in [systemAudioButton, microphoneButton] {
             button.target = self; button.action = #selector(audioChanged(_:))
             button.font = SketchPalette.heading(14)
         }
         for view in [label, startButton, cancelButton, systemAudioButton, microphoneButton] { addSubview(view) }
-        setAccessibilityLabel("录屏控制")
+        setAccessibilityLabel(AppLanguage.text("录屏控制"))
     }
     required init?(coder: NSCoder) { nil }
     override var acceptsFirstResponder: Bool { true }

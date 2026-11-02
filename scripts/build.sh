@@ -4,8 +4,8 @@ set -euo pipefail
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 configuration=release
 output_dir="$root_dir/dist"
-version=0.0.137
-build_number=139
+version=0.0.138
+build_number=140
 sign_identity="${MACOSX_SIGN_IDENTITY:-}"
 sign_keychain="${MACOSX_SIGN_KEYCHAIN:-}"
 local_signing=false
@@ -15,7 +15,7 @@ feed_url="${MACOSX_FEED_URL:-https://github.com/anjing-le/macos-x/releases/lates
 usage() {
     cat <<'USAGE'
 Usage: scripts/build.sh [--disable-updates] [--configuration debug|release]
-       [--version 0.0.137] [--build-number 139] [--output-dir path]
+       [--version 0.0.138] [--build-number 140] [--output-dir path]
        [--sign-identity pinned-certificate-SHA1 | "Apple Development: ..." | "Developer ID Application: ..."]
        [--sign-keychain path]
 Default: host architecture, OTA enabled; an explicit certificate identity is required.
@@ -147,6 +147,10 @@ cp "$root_dir/Resources/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
 for asset in HiddenBar-LICENSE.txt SketchFont.ttf SketchFont-OFL.txt SketchPaper.png CardArtwork.png CardSystemStatus.png GuideCapture.png GuideSwitcher.png GuidePrompts.png SettingsCaptureBoard.png SettingsSwitcherBoard.png SettingsPromptsBoard.png SettingsLayoutBoard.png SettingsMenuBarBoard.png; do
     cp "$root_dir/Resources/$asset" "$app/Contents/Resources/$asset"
 done
+for language in en zh-Hans; do
+    mkdir -p "$app/Contents/Resources/$language.lproj"
+    /usr/bin/ditto "$root_dir/Resources/$language.lproj" "$app/Contents/Resources/$language.lproj"
+done
 # ditto preserves framework symlinks and executable permissions.
 /usr/bin/ditto "$sparkle" "$app/Contents/Frameworks/Sparkle.framework"
 
@@ -165,7 +169,9 @@ info = {
     'LSMinimumSystemVersion': '14.0',
     'LSUIElement': True,
     'NSHighResolutionCapable': True,
-    'NSMicrophoneUsageDescription': '仅在你开启录屏麦克风并开始录制时，将麦克风声音保留在本机视频中。',
+    'CFBundleDevelopmentRegion': 'en',
+    'CFBundleLocalizations': ['en', 'zh-Hans'],
+    'NSMicrophoneUsageDescription': 'Microphone audio is saved only in your local video when you enable the microphone and start recording.',
     'MacOSXUpdatesEnabled': enabled == 'true',
     'SUEnableAutomaticChecks': enabled == 'true',
     'SUScheduledCheckInterval': 3600,

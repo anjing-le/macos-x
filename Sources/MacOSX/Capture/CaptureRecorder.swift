@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 @preconcurrency import AVFoundation
 @preconcurrency import ScreenCaptureKit
@@ -44,7 +45,7 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                finished: @escaping (URL?, Error?) -> Void) {
         queue.async { [self] in
             guard state == .idle else {
-                DispatchQueue.main.async { started(.failure(CaptureFailure.message("录屏正在开始或结束，请稍后。"))) }; return
+                DispatchQueue.main.async { started(.failure(CaptureFailure.message(AppLanguage.text("录屏正在开始或结束，请稍后。")))) }; return
             }
             session &+= 1; let expected = session
             state = .starting; lifetime = self; wantsStop = false; interrupted = nil
@@ -58,7 +59,7 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                         guard let self, self.session == expected, self.state == .starting else { return }
                         guard !self.wantsStop else { self.fail(CaptureFailure.cancelled); return }
                         guard allowed else {
-                            self.fail(CaptureFailure.message("麦克风未获授权。请在系统设置中允许麦克风，或关闭录屏的麦克风选项。")); return
+                            self.fail(CaptureFailure.message(AppLanguage.text("麦克风未获授权。请在系统设置中允许麦克风，或关闭录屏的麦克风选项。"))); return
                         }
                         self.acquire(screen: screen, region: region, destination: destination, expected: expected)
                     }
@@ -77,7 +78,7 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                     }
                     do {
                         guard let region = CaptureRecordingRegion(screen: screen, region: region ?? screen.frame) else {
-                            throw CaptureFailure.message("录屏区域无效，请在同一块屏幕内重新选择。")
+                            throw CaptureFailure.message(AppLanguage.text("录屏区域无效，请在同一块屏幕内重新选择。"))
                         }
                         let width = region.width, height = region.height
                         let temporary = CaptureRecordingFile.workingURL(for: destination)
@@ -87,10 +88,10 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                         let input = AVAssetWriterInput(mediaType: .video,
                             outputSettings: CaptureRecordingPreset.videoSettings(width: width, height: height))
                         input.expectsMediaDataInRealTime = true
-                        guard writer.canAdd(input) else { throw CaptureFailure.message("当前编码器无法写入 MP4。") }
+                        guard writer.canAdd(input) else { throw CaptureFailure.message(AppLanguage.text("当前编码器无法写入 MP4。")) }
                         writer.add(input)
                         if self.audioOptions.enabled { self.audio = try RecordingAudioWriter(writer: writer, options: self.audioOptions) }
-                        guard writer.startWriting() else { throw writer.error ?? CaptureFailure.message("无法创建录屏文件。") }
+                        guard writer.startWriting() else { throw writer.error ?? CaptureFailure.message(AppLanguage.text("无法创建录屏文件。")) }
                         self.temporaryURL = temporary; self.writer = writer; self.input = input
                         let configuration = SCStreamConfiguration()
                         configuration.sourceRect = region.source
@@ -233,7 +234,7 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
         guard state == .finishing, !finishStarted, !failureInProgress else { return }
         finishStarted = true
         guard writer != nil, input != nil, let firstTime, temporaryURL != nil, destination != nil else {
-            fail(interrupted ?? CaptureFailure.message("未收到画面，未保存空文件。"), streamAlreadyStopped: true); return
+            fail(interrupted ?? CaptureFailure.message(AppLanguage.text("未收到画面，未保存空文件。")), streamAlreadyStopped: true); return
         }
         // Native stream/device teardown can take hundreds of milliseconds. That
         // wait is not recorded time and must not extend the final frame/audio.
@@ -254,17 +255,17 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                     }
                     return
                 }
-                interrupted = writer?.error ?? CaptureFailure.message("音频编码未及时完成，已保留可用录屏。")
+                interrupted = writer?.error ?? CaptureFailure.message(AppLanguage.text("音频编码未及时完成，已保留可用录屏。"))
             }
         } catch { interrupted = writer?.error ?? error }
         if let audio, audio.droppedBlocks > 0 {
-            interrupted = interrupted ?? CaptureFailure.message("音频编码繁忙，部分声音未保留；录屏文件已保存。")
+            interrupted = interrupted ?? CaptureFailure.message(AppLanguage.text("音频编码繁忙，部分声音未保留；录屏文件已保存。"))
         }
         if audioOptions.system, audio?.receivedSources.contains(.system) != true {
-            interrupted = interrupted ?? CaptureFailure.message("未收到系统声音数据，已保留画面。")
+            interrupted = interrupted ?? CaptureFailure.message(AppLanguage.text("未收到系统声音数据，已保留画面。"))
         }
         if audioOptions.microphone, audio?.receivedSources.contains(.microphone) != true {
-            interrupted = interrupted ?? CaptureFailure.message("未收到麦克风数据，已保留画面。")
+            interrupted = interrupted ?? CaptureFailure.message(AppLanguage.text("未收到麦克风数据，已保留画面。"))
         }
         completeFile(endTime: endTime)
     }
@@ -300,7 +301,7 @@ final class CaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                     let result = CaptureRecordingFile.publish(temporaryURL, to: destination)
                     output = result.url
                     if let failure = result.error { error = failure }
-                } else { error = writer.error ?? CaptureFailure.message("MP4 封装失败。") }
+                } else { error = writer.error ?? CaptureFailure.message(AppLanguage.text("MP4 封装失败。")) }
                 let callback = self.onFinished
                 // Only incomplete encoder output may be discarded. A completed
                 // video survives destination errors and is surfaced to the user.

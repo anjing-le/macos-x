@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 import os
 
@@ -105,7 +106,7 @@ import os
         guard !self.frames.isEmpty else { finish(.cancel); return }
         for frame in self.frames {
             let panel = Panel(contentRect: frame.screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
-            panel.title = mode == .recording ? "选择录屏区域" : "截图"; panel.animationBehavior = .none
+            panel.title = mode == .recording ? AppLanguage.text("选择录屏区域") : AppLanguage.text("截图"); panel.animationBehavior = .none
             panel.onKey = { [weak self] in self?.keyDown($0) ?? false }
             panel.onCopy = { [weak self] in self?.copyPressed() }
             panel.onSelectAll = { [weak self] in self?.selectFullScreen() }
@@ -113,7 +114,7 @@ import os
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             panel.isReleasedWhenClosed = false; panel.acceptsMouseMovedEvents = true
             let view = SelectionView(frame: CGRect(origin: .zero, size: frame.screen.frame.size), snapshot: frame)
-            view.hint = mode == .recording ? "Enter 开始 · Esc 取消" : "点击编辑 · Enter / ⌘C 复制 · 拖动调整 · Esc 退出"
+            view.hint = mode == .recording ? AppLanguage.text("Enter 开始 · Esc 取消") : AppLanguage.text("点击编辑 · Enter / ⌘C 复制 · 拖动调整 · Esc 退出")
             view.recording = mode == .recording
             view.region = { [weak self] in self?.visibleRegion ?? .null }
             view.pointer = { [weak self] in self?.pointer ?? .zero }
@@ -453,7 +454,7 @@ import os
         if let existing = recordingControls { panel = existing }
         else {
             let control = Panel(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: false)
-            control.title = "开始录屏"; control.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
+            control.title = AppLanguage.text("开始录屏"); control.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
             control.animationBehavior = .none; control.isReleasedWhenClosed = false
             control.isOpaque = false; control.backgroundColor = .clear; control.hasShadow = false
             control.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]

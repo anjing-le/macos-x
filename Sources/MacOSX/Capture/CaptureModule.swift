@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 import os
 
@@ -14,7 +15,7 @@ final class CaptureModule: NSObject {
     private let recorder = CaptureRecorder()
     private let recordingPresentation = RecordingPresentation()
     private let work = DispatchQueue(label: "cc.anjing.macos-x.capture.actions", qos: .userInitiated)
-    private let status = NSTextField(wrappingLabelWithString: "未启用")
+    private let status = NSTextField(wrappingLabelWithString: AppLanguage.text("未启用"))
     private var editor: CaptureEditor?
     private var running = false
     private var generation: UInt64 = 0
@@ -48,7 +49,7 @@ final class CaptureModule: NSObject {
         shelf.onStatus = { [weak self] in self?.setStatus($0) }
         shelf.onPin = { [weak self] image, frame in
             guard let self else { return }
-            guard self.pins.canAdd else { self.shelf.showMessage("桌面最多 8 张贴图，请先关闭一张。"); return }
+            guard self.pins.canAdd else { self.shelf.showMessage(AppLanguage.text("桌面最多 8 张贴图，请先关闭一张。")); return }
             self.pins.add(image, at: frame)
         }
         recordingPresentation.onStop = { [weak self] in self?.toggleRecording() }
@@ -58,7 +59,7 @@ final class CaptureModule: NSObject {
         running = true
         shelf.start()
         recordingPresentation.resume()
-        setStatus(recordingState == .idle ? "已就绪" : "正在保存录屏…")
+        setStatus(recordingState == .idle ? AppLanguage.text("已就绪") : AppLanguage.text("正在保存录屏…"))
     }
     func stop() {
         running = false; generation &+= 1
@@ -73,7 +74,7 @@ final class CaptureModule: NSObject {
         if recordingState != .idle { recordingState = .finishing }
         recordingPresentation.dismiss()
         recorder.stop()
-        setStatus(recordingState == .idle ? "已停用" : "正在保存录屏…")
+        setStatus(recordingState == .idle ? AppLanguage.text("已停用") : AppLanguage.text("正在保存录屏…"))
     }
 
     /// AppDelegate should return terminateLater and reply only after this callback.
@@ -96,7 +97,7 @@ final class CaptureModule: NSObject {
         editorPending = false; pinAfterEditor = false
         let timing = CaptureTiming()
         let screens = screenDescriptors()
-        setStatus("正在截图…")
+        setStatus(AppLanguage.text("正在截图…"))
         let priority = screens.first { $0.frame.contains(NSEvent.mouseLocation) }?.id
         captureTicket = images.capture(screens, ownWindowIDs: CaptureImageService.localWindowIDs(),prioritizing: priority) { [weak self] result in
             MainActor.assumeIsolated {
@@ -106,7 +107,7 @@ final class CaptureModule: NSObject {
                 case .success(let frames):
                     timing.record("f1-pixels-ready")
                     self.hasConfirmedScreenCaptureAccess = true
-                    self.setStatus("⌘C 复制 · ⌥C 取色 · Esc 取消")
+                    self.setStatus(AppLanguage.text("⌘C 复制 · ⌥C 取色 · Esc 取消"))
                     self.selection.present(frames, previousRegion: self.lastRegion,
                                            windows: frames.first?.windows ?? []) { [weak self] result in
                         guard let self, self.running, self.generation == expected, self.captureRevision == captureRevision else { return }
@@ -137,19 +138,19 @@ final class CaptureModule: NSObject {
                                  generation expected: UInt64, revision: UInt64) {
         let region: CGRect
         switch result {
-        case .cancel: captureTicket?.cancel(); editor?.close(); editor = nil; captureInProgress = false; shelf.setSuspended(false); shelfAfterEditor = false; setStatus("已取消截图。"); return
+        case .cancel: captureTicket?.cancel(); editor?.close(); editor = nil; captureInProgress = false; shelf.setSuspended(false); shelfAfterEditor = false; setStatus(AppLanguage.text("已取消截图。")); return
         case .color(let value):
             editor?.close(); editor = nil
             captureInProgress = false
             shelf.setSuspended(false)
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(value, forType: .string)
-            setStatus("已复制 \(value)"); return
+            setStatus(AppLanguage.text("已复制 {0}", String(describing: (value)))); return
         case .copy(let rect), .pin(let rect), .shelf(let rect), .edit(let rect): region = rect
         }
         let ticket = captureTicket
         if case .edit = result { editorPending = true }
-        setStatus("正在处理…")
+        setStatus(AppLanguage.text("正在处理…"))
         work.async { [weak self] in
             guard ticket?.valid == true else { return }
             let image = autoreleasepool { CaptureImageService.composite(frames, selection: region) }
@@ -163,7 +164,7 @@ final class CaptureModule: NSObject {
                     self.captureInProgress = false; self.editorPending = false; self.pinAfterEditor = false; self.shelfAfterEditor = false
                     if case .copy = result {
                         self.captureInProgress = true
-                        self.selection.completeRangeCopy(error: "截图处理失败 · 可调整范围重试，Esc 退出")
+                        self.selection.completeRangeCopy(error: AppLanguage.text("截图处理失败 · 可调整范围重试，Esc 退出"))
                         self.handle(CaptureFailure.oversized); return
                     }
                     self.selection.dismiss(); self.shelf.setSuspended(false); self.handle(CaptureFailure.oversized); return
@@ -173,27 +174,27 @@ final class CaptureModule: NSObject {
                     self.captureInProgress = false
                     guard let data else {
                         self.captureInProgress = true
-                        self.selection.completeRangeCopy(error: "截图编码失败 · ⌘C 重试，Esc 退出")
-                        self.setStatus("截图编码失败，未修改剪贴板。"); return
+                        self.selection.completeRangeCopy(error: AppLanguage.text("截图编码失败 · ⌘C 重试，Esc 退出"))
+                        self.setStatus(AppLanguage.text("截图编码失败，未修改剪贴板。")); return
                     }
                     NSPasteboard.general.clearContents()
                     guard NSPasteboard.general.setData(data, forType: .png) else {
                         self.captureInProgress = true
-                        self.selection.completeRangeCopy(error: "复制失败 · ⌘C 重试，Esc 退出")
-                        self.setStatus("复制失败。"); return
+                        self.selection.completeRangeCopy(error: AppLanguage.text("复制失败 · ⌘C 重试，Esc 退出"))
+                        self.setStatus(AppLanguage.text("复制失败。")); return
                     }
                     self.copiedRegion = (NSPasteboard.general.changeCount, region)
                     self.lastRegion = region
                     self.logger.info("range copy written png_bytes=\(data.count,privacy: .public)")
                     self.selection.completeRangeCopy()
                     self.shelf.setSuspended(false)
-                    self.setStatus("已复制截图。")
+                    self.setStatus(AppLanguage.text("已复制截图。"))
                 case .pin:
                     self.lastRegion = region
                     self.pins.add(image, at: region) { [weak self] shown in
                         guard let self, self.running, self.generation == expected, self.captureRevision == revision else { return }
                         self.captureInProgress = false; self.selection.dismiss(); self.shelf.setSuspended(false)
-                        if !shown { self.setStatus("贴图创建失败。") }
+                        if !shown { self.setStatus(AppLanguage.text("贴图创建失败。")) }
                     }
                 case .shelf:
                     self.shelf.add(image) { [weak self] saved in
@@ -230,7 +231,7 @@ final class CaptureModule: NSObject {
         guard running, !terminating, recordingState != .choosing else { return }
         if shelf.focusIfAlreadyOpen() { return }
         guard shelf.canAdd else {
-            if !shelf.showForKeyboard() { shelf.showMessage("晾衣杆正在处理或已满，请稍后重试或整理。") }; return
+            if !shelf.showForKeyboard() { shelf.showMessage(AppLanguage.text("晾衣杆正在处理或已满，请稍后重试或整理。")) }; return
         }
         if editorPending { shelfAfterEditor = true; pinAfterEditor = false }
         else if let editor {
@@ -264,7 +265,7 @@ final class CaptureModule: NSObject {
         let html = toShelf ? nil : board.data(forType:.html).flatMap { $0.count <= CaptureTextDocument.maximumRichBytes ? $0 : nil }
         logger.info("clipboard candidates=\(candidates.count) image_bytes=\(bytes) text_characters=\(text?.count ?? 0) rtf_bytes=\(rich?.count ?? 0) html_bytes=\(html?.count ?? 0)")
         guard !candidates.isEmpty || text?.isEmpty == false || rich != nil || html != nil else {
-            if toShelf { if !shelf.showForKeyboard() { shelf.showMessage("剪贴板里没有可收纳的图片。") } }
+            if toShelf { if !shelf.showForKeyboard() { shelf.showMessage(AppLanguage.text("剪贴板里没有可收纳的图片。")) } }
             else { handle(CaptureFailure.emptyClipboard) }; return
         }
         clipboardInFlight = true
@@ -307,7 +308,7 @@ final class CaptureModule: NSObject {
     func toggleRecording() {
         guard running, !terminating else { return }
         if recordingState == .recording || recordingState == .starting {
-            recordingState = .finishing; recordingPresentation.saving(); setStatus("正在保存录屏…")
+            recordingState = .finishing; recordingPresentation.saving(); setStatus(AppLanguage.text("正在保存录屏…"))
             recorder.stop(); return
         }
         if recordingState == .choosing {
@@ -323,7 +324,7 @@ final class CaptureModule: NSObject {
         captureInProgress = false; editorPending = false; pinAfterEditor = false
         recordingState = .choosing; recordingRevision &+= 1
         let expected = generation, revision = recordingRevision
-        setStatus("选择录屏区域 · Esc 取消")
+        setStatus(AppLanguage.text("选择录屏区域 · Esc 取消"))
         captureTicket = images.capture([screen], ownWindowIDs: CaptureImageService.localWindowIDs()) { [weak self] result in
             MainActor.assumeIsolated {
                 guard let self, self.running, !self.terminating, self.generation == expected,
@@ -337,7 +338,7 @@ final class CaptureModule: NSObject {
                               self.recordingRevision == revision, self.recordingState == .choosing else { return }
                         self.selection.dismiss(); self.captureTicket = nil
                         guard case .edit(let region) = result else {
-                            self.recordingState = .idle; self.setStatus("已取消录屏。"); return
+                            self.recordingState = .idle; self.setStatus(AppLanguage.text("已取消录屏。")); return
                         }
                         self.startRecording(screen: screen, region: region, generation: expected, revision: revision)
                     }
@@ -349,14 +350,14 @@ final class CaptureModule: NSObject {
     private func startRecording(screen: CaptureScreen, region: CGRect, generation expected: UInt64, revision: UInt64) {
         // File-system work is deferred until explicit Start; never hold the UI
         // or create files while the user is only selecting a region.
-        setStatus("正在启动录屏…")
+        setStatus(AppLanguage.text("正在启动录屏…"))
         let folder = recordingPresentation.recordingDirectory
         let audioOptions = RecordingAudioOptions(defaults: .standard)
         work.async { [weak self] in
             let result: Swift.Result<URL, Error> = Swift.Result {
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                 let formatter = DateFormatter(); formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
-                return folder.appendingPathComponent("录屏 \(formatter.string(from: Date())) \(UUID().uuidString.prefix(6)).mp4")
+                return folder.appendingPathComponent(AppLanguage.text("录屏 {0} {1}.mp4", String(describing: (formatter.string(from: Date()))), String(describing: (UUID().uuidString.prefix(6)))))
             }
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.running, !self.terminating, self.generation == expected,
@@ -365,7 +366,7 @@ final class CaptureModule: NSObject {
                     self.recordingState = .idle
                     if case .failure(let error) = result { self.handle(error) }; return
                 }
-                self.recordingState = .starting; self.setStatus("正在启动录屏…")
+                self.recordingState = .starting; self.setStatus(AppLanguage.text("正在启动录屏…"))
                 self.recorder.start(screen: screen, region: region, destination: url, audioOptions: audioOptions, started: { [weak self] result in
                     MainActor.assumeIsolated {
                         guard let self, self.recordingRevision == revision else { return }
@@ -381,7 +382,7 @@ final class CaptureModule: NSObject {
                                 self.hasConfirmedScreenCaptureAccess = true
                                 self.recordingState = .recording
                                 self.recordingPresentation.began()
-                                self.setStatus("录屏中")
+                                self.setStatus(AppLanguage.text("录屏中"))
                             }
                         }
                     }
@@ -395,9 +396,9 @@ final class CaptureModule: NSObject {
                             self.hasConfirmedScreenCaptureAccess = false
                         }
                         if url != nil {
-                            if let error { self.setStatus("录屏已保留：\(error.localizedDescription)") }
-                            else { self.setStatus("已保存录屏") }
-                        } else { self.handle(error ?? CaptureFailure.message("录屏未生成可保存的画面。")) }
+                            if let error { self.setStatus(AppLanguage.text("录屏已保留：{0}", String(describing: (error.localizedDescription)))) }
+                            else { self.setStatus(AppLanguage.text("已保存录屏")) }
+                        } else { self.handle(error ?? CaptureFailure.message(AppLanguage.text("录屏未生成可保存的画面。"))) }
                     }
                 })
             }
@@ -429,7 +430,7 @@ final class CaptureModule: NSObject {
                 guard let self, self.running, self.generation == expected, self.captureRevision == revision,
                       let editor, self.editor === editor else { return }
                 editor.close()
-                if !shown { self.setStatus("贴图创建失败。") }
+                if !shown { self.setStatus(AppLanguage.text("贴图创建失败。")) }
             }
         }
         editor.colorAtPointer = { [weak self] rgb in self?.selection.color(at: NSEvent.mouseLocation, rgb: rgb) }
@@ -450,7 +451,7 @@ final class CaptureModule: NSObject {
         selection.onEditorCancel = { [weak editor] in editor?.close() }
         selection.onAdjustmentStarted = { [weak editor] in editor?.beginRegionAdjustment() }
         self.editor = editor; editor.present()
-        setStatus("Enter / ⌘C 复制")
+        setStatus(AppLanguage.text("Enter / ⌘C 复制"))
     }
     private func handle(_ error: Error) {
         let error = CaptureFailure.screenCaptureError(error)
@@ -460,7 +461,7 @@ final class CaptureModule: NSObject {
     }
     private func setStatus(_ value: String) {
         status.stringValue = value
-        status.isHidden = ["未启用", "已就绪", "已停用", "录屏中", "已保存录屏"].contains(value)
+        status.isHidden = [AppLanguage.text("未启用"), AppLanguage.text("已就绪"), AppLanguage.text("已停用"), AppLanguage.text("录屏中"), AppLanguage.text("已保存录屏")].contains(value)
         onStatusChange?(value)
     }
     private func screenDescriptors() -> [CaptureScreen] {
@@ -482,22 +483,22 @@ final class CaptureModule: NSObject {
     private func buildSettings() -> NSView {
         status.font = .systemFont(ofSize: 12); status.textColor = .secondaryLabelColor
         status.preferredMaxLayoutWidth = 600
-        status.isHidden = ["未启用", "已就绪", "已停用", "录屏中", "已保存录屏"].contains(status.stringValue)
-        let outline = MinimalToggle(title: "贴图白光边缘", target: self, action: #selector(setPinOutline(_:)))
+        status.isHidden = [AppLanguage.text("未启用"), AppLanguage.text("已就绪"), AppLanguage.text("已停用"), AppLanguage.text("录屏中"), AppLanguage.text("已保存录屏")].contains(status.stringValue)
+        let outline = MinimalToggle(title: AppLanguage.text("贴图白光边缘"), target: self, action: #selector(setPinOutline(_:)))
         outline.identifier = .init("capture-pin-outline")
         outline.state = pins.showsOutline ? .on : .off
-        let hint = NSTextField(wrappingLabelWithString: "开启后，贴图显示白色柔光边缘；复制与保存不带边缘。选中贴图后，空格切换编辑状态。")
+        let hint = NSTextField(wrappingLabelWithString: AppLanguage.text("开启后，贴图显示白色柔光边缘；复制与保存不带边缘。选中贴图后，空格切换编辑状态。"))
         hint.identifier = .init("capture-pin-help")
         hint.font = .systemFont(ofSize: 12); hint.textColor = .secondaryLabelColor
         hint.preferredMaxLayoutWidth = 600
         let options = RecordingAudioOptions(defaults: .standard)
-        let audioButtons = ["系统声音", "麦克风"].enumerated().map { index, title in
+        let audioButtons = [AppLanguage.text("系统声音"), AppLanguage.text("麦克风")].enumerated().map { index, title in
             let button = MinimalToggle(title: title, target: self, action: #selector(setRecordingAudio(_:)))
             button.tag = index; button.font = .systemFont(ofSize: 13)
             button.state = (index == 0 ? options.system : options.microphone) ? .on : .off
             button.identifier = .init(index == 0 ? "recording-system-audio" : "recording-microphone")
-            button.setAccessibilityLabel("录屏：保留\(title)")
-            button.toolTip = index == 0 ? "下次录屏保留电脑播放的声音；不包含麦克风。" : "下次录屏录制默认麦克风；开始录制时才请求授权。"
+            button.setAccessibilityLabel(AppLanguage.text("录屏：保留{0}", String(describing: (title))))
+            button.toolTip = index == 0 ? AppLanguage.text("下次录屏保留电脑播放的声音；不包含麦克风。") : AppLanguage.text("下次录屏录制默认麦克风；开始录制时才请求授权。")
             return button
         }
         let audioRow = NSStackView(views: audioButtons); audioRow.spacing = 12

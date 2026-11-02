@@ -37,10 +37,10 @@ import os
     private var settings: NSView?
     private weak var statusLabel: NSTextField?
     private weak var previewButton: NSButton?
-    private var status = "启用后即可使用 Command + Tab 切换窗口"
+    private var status = AppLanguage.text("启用后即可使用 Command + Tab 切换窗口")
     private var inputAvailable = false
-    private let readyStatus = "⌘Tab 监听已就绪 · 松开 ⌘ 确认 · Esc 取消"
-    private let permissionStatus = "辅助功能未生效 · 请检查系统授权后重试"
+    private let readyStatus = AppLanguage.text("⌘Tab 监听已就绪 · 松开 ⌘ 确认 · Esc 取消")
+    private let permissionStatus = AppLanguage.text("辅助功能未生效 · 请检查系统授权后重试")
 
     func setInputAvailable(_ value: Bool) {
         inputAvailable = value
@@ -69,20 +69,20 @@ import os
         if let settings { return settings }
         let label = NSTextField(wrappingLabelWithString: displayedStatus)
         label.font = SketchPalette.heading(16); label.textColor = .secondaryLabelColor
-        let preview = MinimalButton(title: "实际预览", target: self, action: #selector(previewPressed), style: .standard)
+        let preview = MinimalButton(title: AppLanguage.text("实际预览"), target: self, action: #selector(previewPressed), style: .standard)
         preview.isEnabled = isReady
         let thumbnailToggle = MinimalToggle(title: "", target: self, action: #selector(changeThumbnails(_:)))
         thumbnailToggle.state = thumbnailsEnabled ? .on : .off
-        thumbnailToggle.setAccessibilityLabel("窗口缩略图")
-        let thumbnailLabel = NSTextField(labelWithString: "窗口缩略图")
+        thumbnailToggle.setAccessibilityLabel(AppLanguage.text("窗口缩略图"))
+        let thumbnailLabel = NSTextField(labelWithString: AppLanguage.text("窗口缩略图"))
         thumbnailLabel.font = SketchPalette.heading(16); thumbnailLabel.textColor = .secondaryLabelColor
         let row = NSStackView(views: [thumbnailLabel, thumbnailToggle]); row.spacing = 14
         let mode = MinimalPopUpButton()
-        mode.addItems(withTitles: ["两行 · 分页", "全部 · 滚动"])
+        mode.addItems(withTitles: [AppLanguage.text("两行 · 分页"), AppLanguage.text("全部 · 滚动")])
         mode.selectItem(at: presentation == .all ? 1 : 0)
         mode.target = self; mode.action = #selector(changePresentation(_:))
-        mode.setAccessibilityLabel("窗口展示方式")
-        let modeLabel = NSTextField(labelWithString: "展示方式")
+        mode.setAccessibilityLabel(AppLanguage.text("窗口展示方式"))
+        let modeLabel = NSTextField(labelWithString: AppLanguage.text("展示方式"))
         modeLabel.font = SketchPalette.heading(16)
         let modeRow = NSStackView(views: [modeLabel, mode]); modeRow.spacing = 14
         modeRow.identifier = .init("switcher-presentation-row")
@@ -101,14 +101,14 @@ import os
             setReadiness(false); return
         }
         guard PrivateWindowBridge.isAvailable else {
-            setStatus("系统窗口映射不可用；当前使用 macOS 原生切换")
+            setStatus(AppLanguage.text("系统窗口映射不可用；当前使用 macOS 原生切换"))
             setReadiness(false); return
         }
         if !running {
             running = true; generation &+= 1
             inventory.start(); observeWorkspace()
         }
-        setStatus("正在准备窗口列表…")
+        setStatus(AppLanguage.text("正在准备窗口列表…"))
         scheduleRefresh(immediate: true)
     }
 
@@ -125,7 +125,7 @@ import os
         inventory.stop(); snapshot = .empty
         panel?.clear(); panel = nil
         queuedRenderToken = nil; setReadiness(false)
-        setStatus("窗口切换已停用")
+        setStatus(AppLanguage.text("窗口切换已停用"))
     }
 
     /// Input hot path: cached selection only, deferred drawing and no AX/CG calls.
@@ -167,7 +167,7 @@ import os
         inventory.focus(chosen) { [weak self] landed in
             MainActor.assumeIsolated {
                 guard let self, self.running, self.generation == expected else { return }
-                if !landed { self.setStatus("此窗口未能切换；请重试或使用原生切换") }
+                if !landed { self.setStatus(AppLanguage.text("此窗口未能切换；请重试或使用原生切换")) }
                 self.scheduleRefresh(immediate: true)
             }
         }
@@ -201,7 +201,7 @@ import os
 
     func showPreview() {
         guard running, snapshot.accessibilityTrusted, snapshot.mappingAvailable, !snapshot.windows.isEmpty else {
-            setStatus("窗口列表尚未就绪"); return
+            setStatus(AppLanguage.text("窗口列表尚未就绪")); return
         }
         cancel()
         logger.notice("preview windows=\(self.snapshot.windows.count)")
@@ -307,7 +307,7 @@ import os
                 guard let self, self.running, self.generation == expected, self.sessionToken == token else { return }
                 if case CaptureFailure.permission = CaptureFailure.screenCaptureError(error) {
                     self.hasConfirmedThumbnailAccess = false; self.thumbnailPermissionDenied = true
-                    self.setStatus("缩略图需要屏幕权限，仍可用图标切换。")
+                    self.setStatus(AppLanguage.text("缩略图需要屏幕权限，仍可用图标切换。"))
                     self.onPreviewSettingsChanged?()
                 }
             }
@@ -346,8 +346,8 @@ import os
         let ready = result.accessibilityTrusted && result.mappingAvailable && result.windows.count > 1
         setReadiness(ready)
         if !result.accessibilityTrusted { setStatus(permissionStatus) }
-        else if !result.mappingAvailable { setStatus("系统窗口映射不可用；当前使用 macOS 原生切换") }
-        else if result.windows.count < 2 { setStatus("可切换窗口不足两个 · 当前使用原生 ⌘Tab") }
+        else if !result.mappingAvailable { setStatus(AppLanguage.text("系统窗口映射不可用；当前使用 macOS 原生切换")) }
+        else if result.windows.count < 2 { setStatus(AppLanguage.text("可切换窗口不足两个 · 当前使用原生 ⌘Tab")) }
         else { setStatus(readyStatus) }
         thumbnails.retain(Set(result.windows.map { WindowThumbnailID(window: $0.id, process: $0.pid) }))
         if session != nil && sessionKind != .capture {
@@ -372,7 +372,7 @@ import os
     }
 
     private var displayedStatus: String {
-        status == readyStatus && !inputAvailable ? "窗口列表已就绪 · 快捷键监听尚未就绪" : status
+        status == readyStatus && !inputAvailable ? AppLanguage.text("窗口列表已就绪 · 快捷键监听尚未就绪") : status
     }
     private func setStatus(_ value: String) { status = value; statusLabel?.stringValue = displayedStatus }
 

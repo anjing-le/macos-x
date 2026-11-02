@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 
 enum UpdatePanelProgress {
@@ -82,7 +83,7 @@ private final class UpdatePanelContent: SketchSurface {
         detailText.autoresizingMask=[.width]; detailText.textContainer?.widthTracksTextView=true
         detailScroll.drawsBackground=false; detailScroll.hasVerticalScroller=true; detailScroll.autohidesScrollers=true
         detailScroll.scrollerStyle = .overlay; detailScroll.documentView=detailText
-        detailScroll.setAccessibilityLabel("更新详情，长内容可滚动并复制")
+        detailScroll.setAccessibilityLabel(AppLanguage.text("更新详情，长内容可滚动并复制"))
         detailScroll.translatesAutoresizingMaskIntoConstraints=false
         detailHeight=detailScroll.heightAnchor.constraint(equalToConstant:64); detailHeight.isActive=true
         for label in [titleLabel, detailLabel] {

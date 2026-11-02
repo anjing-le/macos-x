@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 
 /// Small native controls: handmade outlines are drawn once per UI redraw,
@@ -154,18 +155,18 @@ final class CaptureToolButton: NSButton {
         let points: [CGPoint] = [CGPoint(x: 35, y: 67), CGPoint(x: 45, y: 105), CGPoint(x: 83, y: 126),
             CGPoint(x: 129, y: 128), CGPoint(x: 177, y: 110), CGPoint(x: 157, y: 38), CGPoint(x: 121, y: 29), CGPoint(x: 70, y: 33)]
         for (index, color) in colors.enumerated() {
-            let button = CaptureToolButton(.swatch, title: ["黑", "红", "橙", "黄", "绿", "蓝", "紫", "白"][index], target: self, action: #selector(choosePaint(_:)))
+            let button = CaptureToolButton(.swatch, title: [AppLanguage.text("黑"), AppLanguage.text("红"), AppLanguage.text("橙"), AppLanguage.text("黄"), AppLanguage.text("绿"), AppLanguage.text("蓝"), AppLanguage.text("紫"), AppLanguage.text("白")][index], target: self, action: #selector(choosePaint(_:)))
             button.ink = color; button.tag = index; button.setButtonType(.momentaryPushIn)
             button.frame = CGRect(x: points[index].x - 17, y: points[index].y - 17, width: 34, height: 34)
             button.state = color.isEqual(selected) ? .on : .off
-            button.setAccessibilityValue(color.isEqual(selected) ? "当前颜色" : "")
+            button.setAccessibilityValue(color.isEqual(selected) ? AppLanguage.text("当前颜色") : "")
             addSubview(button)
         }
     }
     @objc private func choosePaint(_ sender: NSButton) {
         for button in subviews.compactMap({ $0 as? NSButton }) {
             button.state = button === sender ? .on : .off
-            button.setAccessibilityValue(button === sender ? "当前颜色" : "")
+            button.setAccessibilityValue(button === sender ? AppLanguage.text("当前颜色") : "")
         }
         if let colorTarget { NSApp.sendAction(colorAction, to: colorTarget, from: sender) }
     }

@@ -1,9 +1,10 @@
 #!/bin/zsh
 set -euo pipefail
+source "$(dirname "$0")/localization/fixture-core.sh"
 export_repo="$(cd "$(dirname "$0")/.." && pwd)"
 export_check_dir="$(mktemp -d "${TMPDIR:-/tmp/}macos-x-export.XXXXXX")"
 trap 'rm -rf "$export_check_dir"' EXIT
-xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macos14.0" \
+xcrun swiftc -I "$localization_bin/Modules" "$localization_bin"/MacOSXCore.build/*.swift.o -swift-version 5 -target "$(uname -m)-apple-macos14.0" \
   "$export_repo/Sources/MacOSX/Capture/CaptureSampling.swift" \
   "$export_repo/Sources/MacOSX/Capture/CaptureImageService.swift" \
   "$export_repo/Sources/MacOSX/Capture/CaptureAnnotations.swift" \

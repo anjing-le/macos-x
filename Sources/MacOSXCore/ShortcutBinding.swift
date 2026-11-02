@@ -28,8 +28,8 @@ public struct ShortcutBinding: Codable, Equatable, Sendable {
 
     public var displayName: String {
         if kind == .doubleModifier {
-            let names: [UInt16: String] = [58: "左 Option", 61: "右 Option", 59: "左 Control", 62: "右 Control"]
-            return "双击 " + (names[keyCode] ?? "修饰键")
+            let names: [UInt16: String] = [58: AppLanguage.text("左 Option"), 61: AppLanguage.text("右 Option"), 59: AppLanguage.text("左 Control"), 62: AppLanguage.text("右 Control")]
+            return AppLanguage.text("双击 ") + (names[keyCode] ?? AppLanguage.text("修饰键"))
         }
         return (modifiers & 1 != 0 ? "⌃" : "") + (modifiers & 2 != 0 ? "⌥" : "")
             + (modifiers & 4 != 0 ? "⇧" : "") + (modifiers & 8 != 0 ? "⌘" : "") + keyLabel

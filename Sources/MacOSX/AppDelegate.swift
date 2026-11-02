@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 
 @MainActor
@@ -59,29 +60,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let menuBar = NSMenu()
         let appItem = NSMenuItem()
         let appMenu = NSMenu(title: "macos-x")
-        let update = NSMenuItem(title: "检查更新…", action: #selector(checkUpdates), keyEquivalent: "")
+        let update = NSMenuItem(title: AppLanguage.text("检查更新…"), action: #selector(checkUpdates), keyEquivalent: "")
         update.target = self
         appMenu.addItem(update)
         appMenu.addItem(.separator())
-        let quit = NSMenuItem(title: "退出 macos-x", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quit = NSMenuItem(title: AppLanguage.text("退出 macos-x"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quit.target = NSApp
         appMenu.addItem(quit)
         appItem.submenu = appMenu
         menuBar.addItem(appItem)
         let editItem = NSMenuItem()
-        let edit = NSMenu(title: "编辑")
-        for (title, selector, key) in [("撤销", "undo:", "z"), ("剪切", "cut:", "x"),
-            ("复制", "copy:", "c"), ("粘贴", "paste:", "v"), ("全选", "selectAll:", "a")] {
+        let edit = NSMenu(title: AppLanguage.text("编辑"))
+        for (title, selector, key) in [(AppLanguage.text("撤销"), "undo:", "z"), (AppLanguage.text("剪切"), "cut:", "x"),
+            (AppLanguage.text("复制"), "copy:", "c"), (AppLanguage.text("粘贴"), "paste:", "v"), (AppLanguage.text("全选"), "selectAll:", "a")] {
             edit.addItem(NSMenuItem(title: title, action: Selector(selector), keyEquivalent: key))
         }
-        let redo = NSMenuItem(title: "重做", action: NSSelectorFromString("redo:"), keyEquivalent: "z")
+        let redo = NSMenuItem(title: AppLanguage.text("重做"), action: NSSelectorFromString("redo:"), keyEquivalent: "z")
         redo.keyEquivalentModifierMask = [.command, .shift]; edit.insertItem(redo, at: 1)
         editItem.submenu = edit; menuBar.addItem(editItem)
         let windowItem = NSMenuItem()
-        let windowMenu = NSMenu(title: "窗口")
+        let windowMenu = NSMenu(title: AppLanguage.text("窗口"))
         // Nil targets use AppKit's responder chain: operate on the active
         // window and respect panels that deliberately disallow closing.
-        windowMenu.addItem(NSMenuItem(title: "关闭", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
+        windowMenu.addItem(NSMenuItem(title: AppLanguage.text("关闭"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
         windowItem.submenu = windowMenu; menuBar.addItem(windowItem)
         NSApp.windowsMenu = windowMenu
         NSApp.mainMenu = menuBar

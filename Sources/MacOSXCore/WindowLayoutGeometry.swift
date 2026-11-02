@@ -4,9 +4,9 @@ public enum WindowLayoutAction: String, CaseIterable, Sendable {
     case left, right, top, bottom, maximize, restore, topLeft, topRight, bottomLeft, bottomRight
     public var title:String {
         switch self {
-        case .left:return "左半屏"; case .right:return "右半屏"; case .top:return "上半屏"; case .bottom:return "下半屏"
-        case .maximize:return "最大化"; case .restore:return "恢复原大小"
-        case .topLeft:return "左上角"; case .topRight:return "右上角"; case .bottomLeft:return "左下角"; case .bottomRight:return "右下角"
+        case .left:return AppLanguage.text("左半屏"); case .right:return AppLanguage.text("右半屏"); case .top:return AppLanguage.text("上半屏"); case .bottom:return AppLanguage.text("下半屏")
+        case .maximize:return AppLanguage.text("最大化"); case .restore:return AppLanguage.text("恢复原大小")
+        case .topLeft:return AppLanguage.text("左上角"); case .topRight:return AppLanguage.text("右上角"); case .bottomLeft:return AppLanguage.text("左下角"); case .bottomRight:return AppLanguage.text("右下角")
         }
     }
 }

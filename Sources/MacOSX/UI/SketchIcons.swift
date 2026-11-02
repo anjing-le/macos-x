@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 import ImageIO
 
@@ -146,10 +147,10 @@ final class SketchWindowHeader: SketchSurface {
         minimize.target = self; minimize.action = #selector(minimizeWindow)
         expand.target = self; expand.action = #selector(expandWindow)
         back.image = SketchIcons.image(.back, size: 18); back.imagePosition = .imageOnly
-        back.target = self; back.action = #selector(goBack); back.toolTip = "返回首页"; back.setAccessibilityLabel("返回首页")
+        back.target = self; back.action = #selector(goBack); back.toolTip = AppLanguage.text("返回首页"); back.setAccessibilityLabel(AppLanguage.text("返回首页"))
         update.style = .icon
         update.image = SketchIcons.image(.update, size: 28); update.imagePosition = .imageOnly
-        update.target = self; update.action = #selector(checkUpdates); update.toolTip = "检查更新"; update.setAccessibilityLabel("检查更新")
+        update.target = self; update.action = #selector(checkUpdates); update.toolTip = AppLanguage.text("检查更新"); update.setAccessibilityLabel(AppLanguage.text("检查更新"))
         back.isHidden = true
     }
     required init?(coder: NSCoder) { nil }
@@ -166,7 +167,14 @@ final class SketchWindowHeader: SketchSurface {
         accessory?.isHidden = compact
         accessory?.frame = NSRect(x: bounds.width - 140, y: (bounds.height - 30) / 2, width: 68, height: 30)
         let trailing = compact || update.isHidden ? bounds.width - 24 : (accessory?.frame.minX ?? update.frame.minX) - 12
-        let width = min(max(0, trailing - leading), ceil(titleLabel.intrinsicContentSize.width) + 12)
+        let available = max(0, trailing - leading)
+        // English module names need more room in narrow windows; preserve the full title.
+        var pointSize: CGFloat = 20
+        titleLabel.font = SketchPalette.heading(pointSize)
+        while pointSize > 12 && ceil(titleLabel.intrinsicContentSize.width) + 12 > available {
+            pointSize -= 1; titleLabel.font = SketchPalette.heading(pointSize)
+        }
+        let width = min(available, ceil(titleLabel.intrinsicContentSize.width) + 12)
         let x = min(max(leading, bounds.midX - width / 2), trailing - width)
         titleLabel.frame = NSRect(x: x, y: y - 2, width: width, height: 24)
     }
@@ -194,7 +202,7 @@ final class SketchWindowHeader: SketchSurface {
         let style: MinimalButton.Style = available ? .primary : .icon
         guard update.style != style else { return }
         update.style = style
-        let label = available ? "有新版本 · 点击更新" : "检查更新"
+        let label = available ? AppLanguage.text("有新版本 · 点击更新") : AppLanguage.text("检查更新")
         update.toolTip = label; update.setAccessibilityLabel(label)
     }
     @objc private func checkUpdates() { onUpdate?() }
@@ -208,7 +216,7 @@ final class SketchWindowHeader: SketchSurface {
         init(_ glyph: SketchIcons.Kind, color: NSColor) {
             self.glyph = glyph; self.color = color
             super.init(frame: .zero); title = ""; isBordered = false; setButtonType(.momentaryPushIn)
-            setAccessibilityLabel(glyph == .close ? "关闭窗口" : glyph == .minimize ? "最小化窗口" : "全屏窗口")
+            setAccessibilityLabel(glyph == .close ? AppLanguage.text("关闭窗口") : glyph == .minimize ? AppLanguage.text("最小化窗口") : AppLanguage.text("全屏窗口"))
         }
         required init?(coder: NSCoder) { nil }
         override func updateTrackingAreas() {
@@ -233,7 +241,7 @@ enum SketchCardArt {
     // One approved contact sheet, decoded once. Source rectangles exclude its
     // decorative card borders and captions; real card controls remain native.
     private static let images: [String: NSImage] = {
-        guard let url = Bundle.main.url(forResource: "CardArtwork", withExtension: "png"),
+        guard let url = AppLanguage.resource( "CardArtwork", extension: "png"),
               let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               properties[kCGImagePropertyPixelWidth] as? Int == 2048,
@@ -270,7 +278,7 @@ enum SketchCardArt {
         }
     }()
     private static let systemStatusImage: NSImage? = {
-        guard let url = Bundle.main.url(forResource: "CardSystemStatus", withExtension: "png"),
+        guard let url = AppLanguage.resource( "CardSystemStatus", extension: "png"),
               let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,

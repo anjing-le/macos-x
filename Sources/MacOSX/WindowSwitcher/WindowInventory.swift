@@ -301,7 +301,7 @@ final class WindowInventory: @unchecked Sendable {
                 let minimized = values[2] as? Bool == true
                 observed[id] = element
                 let rawTitle = values[3] as? String ?? ""
-                let name = application.localizedName ?? "应用"
+                let name = application.localizedName ?? AppLanguage.text("应用")
                 windows.append(.init(id: id, pid: pid, title: String((rawTitle.isEmpty ? name : rawTitle).prefix(200)),
                     applicationName: name, icon: application.icon, element: element, isMinimized: minimized,
                     isHidden: application.isHidden, isOnScreen: visible.contains(id)))

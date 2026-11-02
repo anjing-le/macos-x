@@ -23,6 +23,11 @@ import MacOSXCore
     @MainActor static func main() throws {
         _ = NSApplication.shared
         NSApp.appearance = NSAppearance(named: .aqua)
+        if AppLanguage.current == .english {
+            for name in ["SettingsCaptureBoard", "SettingsSwitcherBoard", "SettingsPromptsBoard", "SettingsMenuBarBoard", "CardArtwork"] {
+                precondition(AppLanguage.resource(name, extension: "png")?.path.contains("en.lproj") == true, "English artwork must be selected: " + name)
+            }
+        }
         let layout = SwitcherLayout(windowCount: 256, available: CGSize(width: 1440, height: 900), presentation: .all)
         let canvas = SwitcherCanvas()
         let scroll = NSScrollView(frame: CGRect(origin: .zero, size: CGSize(width: layout.size.width, height: layout.size.height - 38)))
@@ -166,7 +171,7 @@ import MacOSXCore
         try require(layoutActions.map(\.title) == ["左半屏", "右半屏", "上半屏", "下半屏"], "shortcut names match four directional halves")
         let layoutKeys: [NSView] = layoutActions.map {
             ShortcutPicker(title: "", binding: $0.defaultBinding, allowsDoubleTap: false,
-                recordingChanged: { _ in }, accepts: { $0.keyCode == 122 ? "与“截图”重复，请选择其他快捷键" : nil }, didChange: { _ in })
+                recordingChanged: { _ in }, accepts: { $0.keyCode == 122 ? AppLanguage.text("与“{0}”重复", ShortcutAction.capture.title) : nil }, didChange: { _ in })
         }
         let layoutBoard = SettingsBoardView(kind: "windowLayout", settings: layoutModule.settingsView, shortcuts: layoutKeys)
         for width: CGFloat in [840, 600] {
@@ -193,9 +198,12 @@ import MacOSXCore
             errorRecorder.performClick(nil); errorRecorder.keyDown(with:key(122))
             layoutBoard.frame.size.height=layoutBoard.intrinsicContentSize.height
             layoutBoard.needsLayout=true; layoutBoard.layoutSubtreeIfNeeded()
+            // Match the host Auto Layout pass after wrapped English text changes fitting height.
+            layoutBoard.frame.size.height=layoutBoard.intrinsicContentSize.height
+            layoutBoard.needsLayout=true; layoutBoard.layoutSubtreeIfNeeded()
             let error=layoutBoard.subviews.compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "shortcut-board-issue" }!
-            try require(!error.isHidden && error.frame.height > 15 && error.stringValue.contains("左半屏：与“截图”重复"),"real rejected keystroke has a visible full-width explanation")
-            try require(layoutBoard.bounds.contains(error.frame),"shortcut conflict explanation stays inside wide and narrow boards")
+            try require(!error.isHidden && error.frame.height > 15 && error.stringValue.contains(ShortcutAction.layoutLeft.title) && error.stringValue.contains(ShortcutAction.capture.title),"real rejected keystroke has a visible full-width explanation")
+try require(layoutBoard.bounds.contains(error.frame),"shortcut conflict explanation stays inside wide and narrow boards")
             try require(descendants(layoutKeys[0]).compactMap { $0 as? NSTextField }.allSatisfy(\.isHidden),"illustrated keycap does not retain a zero-height internal error")
             if let output,let bitmap=layoutBoard.bitmapImageRepForCachingDisplay(in:layoutBoard.bounds) {
                 layoutBoard.cacheDisplay(in:layoutBoard.bounds,to:bitmap)
@@ -205,14 +213,14 @@ import MacOSXCore
             try require(error.isHidden && layoutKeys[0] is ShortcutPicker,"accepted replacement clears the stale conflict explanation")
         }
         layoutModule.stop()
-        let promptKey=ShortcutPicker(title:"唤起",binding:ShortcutAction.capture.defaultBinding,allowsDoubleTap:true,recordingChanged:{ _ in },accepts:{ _ in "与“截图”重复" },didChange:{ _ in })
+        let promptKey=ShortcutPicker(title:"唤起",binding:ShortcutAction.capture.defaultBinding,allowsDoubleTap:true,recordingChanged:{ _ in },accepts:{ _ in AppLanguage.text("与“{0}”重复", ShortcutAction.capture.title) },didChange:{ _ in })
         let promptBoard=SettingsBoardView(kind:"kaomoji",settings:NSView(),shortcuts:[promptKey])
         promptBoard.frame.size=CGSize(width:312,height:848); promptBoard.layoutSubtreeIfNeeded()
         let promptRecorder=descendants(promptKey).compactMap { $0 as? NSButton }.first { !($0 is NSPopUpButton) }!
         promptRecorder.performClick(nil); promptRecorder.keyDown(with:key(120))
         promptBoard.frame.size.height=promptBoard.intrinsicContentSize.height; promptBoard.layoutSubtreeIfNeeded()
         let promptIssue=promptBoard.subviews.compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "shortcut-board-issue" }!
-        try require(!promptIssue.isHidden && promptIssue.stringValue.hasPrefix("提示词：") && promptBoard.bounds.contains(promptIssue.frame),"prompt shortcut conflict uses the correct module name and a visible external explanation")
+        try require(!promptIssue.isHidden && promptIssue.stringValue.hasPrefix(AppLanguage.text("提示词")) && promptBoard.bounds.contains(promptIssue.frame),"prompt shortcut conflict uses the correct module name and a visible external explanation")
         try require(descendants(promptKey).compactMap { $0 as? NSButton }.filter { !$0.isHiddenOrHasHiddenAncestor }.allSatisfy { promptKey.bounds.contains($0.convert($0.bounds,to:promptKey)) },"prompt trigger mode and chord fit a narrow board without a duplicate title")
         for tool in Tool.allCases {
             try require(SketchCardArt.image(tool.symbol) != nil, "every module entry illustration must load from its bundled resource")
@@ -245,7 +253,7 @@ import MacOSXCore
         defer { shortcutDefaults.removePersistentDomain(forName:shortcutDomain) }
         let shortcutStore=ShortcutStore(defaults:shortcutDefaults)
         shortcutStore.set(ShortcutAction.layoutLeft.defaultBinding,for:.capture)
-        let duplicate="与“左半屏”重复"
+        let duplicate=AppLanguage.text("与“{0}”重复", ShortcutAction.layoutLeft.title)
         try require(shortcutStore.conflict(ShortcutAction.layoutLeft.defaultBinding,action:.capture,activeActions:[.capture,.layoutLeft]) == duplicate,"enabled layout conflict is reported")
         try require(shortcutStore.conflict(ShortcutAction.layoutLeft.defaultBinding,action:.capture,activeActions:[.capture]) != duplicate,"unadded layout does not disable existing shortcuts")
         var opened=0, toggled=0, enabled=true
@@ -421,7 +429,7 @@ import MacOSXCore
                 let keys: [NSView]
                 if kind == "capture" {
                     keys = [ShortcutAction.capture,.pin,.togglePins,.recording,.shelf].map {
-                        ShortcutPicker(title:"",binding:$0.defaultBinding,allowsDoubleTap:false,recordingChanged:{ _ in },accepts:{ $0.keyCode == 120 ? "与“贴图”重复，请选择其他快捷键" : nil },didChange:{ _ in })
+                        ShortcutPicker(title:"",binding:$0.defaultBinding,allowsDoubleTap:false,recordingChanged:{ _ in },accepts:{ $0.keyCode == 120 ? AppLanguage.text("与“{0}”重复", ShortcutAction.pin.title) : nil },didChange:{ _ in })
                     }
                 } else { let key=NSTextField(labelWithString:"⌘ Tab"); key.alignment = .center; key.font = .systemFont(ofSize:16); keys = [key] }
                 let board=SettingsBoardView(kind:kind,settings:settings,shortcuts:keys)

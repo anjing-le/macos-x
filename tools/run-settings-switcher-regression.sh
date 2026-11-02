@@ -7,6 +7,7 @@ cd "$guide_repo"
 swift build --disable-keychain --target MacOSXCore
 guide_bin="$(swift build --disable-keychain --show-bin-path)"
 mkdir -p "$guide_dir/Preview.app/Contents/MacOS" "$guide_dir/Preview.app/Contents/Resources"
+cp -R Resources/en.lproj Resources/zh-Hans.lproj "$guide_dir/Preview.app/Contents/Resources/"
 cp Resources/Settings*Board.png Resources/Guide*.png Resources/Card*.png Resources/SketchFont.ttf Resources/SketchPaper.png "$guide_dir/Preview.app/Contents/Resources/"
 python3 - "$guide_repo" "$guide_dir" <<'PY'
 from pathlib import Path
@@ -18,9 +19,14 @@ g=(root/'Sources/MacOSX/Shared/GlobalInput.swift').read_text()
 (out/'ShortcutTypes.swift').write_text(g[:g.index('private enum InputAction')]+g[g.index('extension ShortcutBinding'):])
 m=(root/'Sources/MacOSX/Shared/ModuleCoordinator.swift').read_text()
 header=m[m.index('@MainActor\nfinal class ModuleSettingsHeader:'):].replace('ModuleCoordinator', 'SettingsHeaderFixtureModel')
-(out/'SettingsHeader.swift').write_text('import AppKit\n'+header)
+(out/'SettingsHeader.swift').write_text('import AppKit\nimport MacOSXCore\n'+header)
 t=(root/'Sources/MacOSX/UI/ToolboxWindowController.swift').read_text()
-(out/'RegistryAndFixture.swift').write_text(t[:t.index('@MainActor\nfinal class ToolboxWindowController:')]+(root/'tools/settings-switcher-regression.swift').read_text())
+fixture=(root/'tools/settings-switcher-regression.swift').read_text()
+if __import__('os').environ.get('MACOSX_TEST_LANGUAGE') == 'en':
+    sys.path.insert(0,str(root/'tools/localization'))
+    import extract
+    fixture=extract.process(fixture,'fixture',apply=True)
+(out/'RegistryAndFixture.swift').write_text(t[:t.index('@MainActor\nfinal class ToolboxWindowController:')]+fixture)
 (out/'Preview.app/Contents/Info.plist').write_text('<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>cc.anjing.macos-x.settings.fixture</string><key>CFBundleExecutable</key><string>Preview</string><key>CFBundlePackageType</key><string>APPL</string><key>LSUIElement</key><true/></dict></plist>')
 PY
 xcrun swiftc -I "$guide_bin/Modules" "$guide_bin"/MacOSXCore.build/*.swift.o \

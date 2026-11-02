@@ -163,10 +163,10 @@ private final class SystemStatusWorker: @unchecked Sendable {
         let network = readNetwork()
         let disk = diskCache.sample(at: timestamp)
         var issues: [String] = []
-        if cpu == nil { issues.append("CPU 数据暂不可用") }
-        if memory == nil { issues.append("内存数据暂不可用") }
-        if network == nil { issues.append("网络主接口暂不可用") }
-        if disk == nil { issues.append("硬盘容量暂不可用") }
+        if cpu == nil { issues.append(AppLanguage.text("CPU 数据暂不可用")) }
+        if memory == nil { issues.append(AppLanguage.text("内存数据暂不可用")) }
+        if network == nil { issues.append(AppLanguage.text("网络主接口暂不可用")) }
+        if disk == nil { issues.append(AppLanguage.text("硬盘容量暂不可用")) }
         return .init(timestamp: timestamp, cpu: cpu, memory: memory, network: network, issues: issues, disk: disk)
     }
 

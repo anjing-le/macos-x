@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 
 /// A non-activating shelf on each screen. Tracking areas, rather than a global
@@ -44,7 +45,7 @@ import AppKit
         else if running { rebuildPanels() }
     }
     func add(_ image: CGImage, completion: @escaping (Bool) -> Void) {
-        guard canAdd else { showMessage(busy || !loaded ? "收纳正在处理，请稍后再试。" : "晾衣杆已满，请先整理。"); completion(false); return }
+        guard canAdd else { showMessage(busy || !loaded ? AppLanguage.text("收纳正在处理，请稍后再试。") : AppLanguage.text("晾衣杆已满，请先整理。")); completion(false); return }
         busy = true; let expected = epoch, store = store, known = Set(thumbnails.keys)
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }?.frame
         queue.async { [weak self] in
@@ -61,7 +62,7 @@ import AppKit
                     self.thumbnails = self.thumbnails.filter { available.contains($0.key) }
                     self.thumbnails.merge(thumbs) { _, new in new }
                     self.rebuildPanels()
-                    self.onStatus?("已收纳 · 鼠标移到屏幕顶部查看")
+                    self.onStatus?(AppLanguage.text("已收纳 · 鼠标移到屏幕顶部查看"))
                     completion(true)
                     self.reveal(item.id, keyboard: true, on: screen)
                 case .failure(let error): self.showMessage(error.localizedDescription); completion(false)
@@ -94,7 +95,7 @@ import AppKit
                 guard let self, self.running, self.epoch == expected else { return }
                 switch result {
                 case .success(let items): self.loaded = true; self.records = items; self.thumbnails = thumbs; self.rebuildPanels()
-                case .failure(let error): self.loaded = false; self.onStatus?("收纳读取失败：\(error.localizedDescription)")
+                case .failure(let error): self.loaded = false; self.onStatus?(AppLanguage.text("收纳读取失败：{0}", String(describing: (error.localizedDescription))))
                 }
             }
         }
@@ -131,7 +132,7 @@ import AppKit
         guard running, !busy else {
             if case .place = action {
                 panel.shelfView.applySavedItems(records,preserveLayout:false)
-                onStatus?("收纳正在处理，位置未修改。")
+                onStatus?(AppLanguage.text("收纳正在处理，位置未修改。"))
             }
             return
         }
@@ -148,11 +149,11 @@ import AppKit
                     guard let self else { return }; self.busy = false
                     guard self.running, self.epoch == expected else { return }
                     defer { panel?.interactionOccurred() }
-                    guard let image else { self.onStatus?("图片读取失败，原记录已保留。"); return }
+                    guard let image else { self.onStatus?(AppLanguage.text("图片读取失败，原记录已保留。")); return }
                     if copy {
-                        guard let data else { self.onStatus?("图片编码失败。"); return }
+                        guard let data else { self.onStatus?(AppLanguage.text("图片编码失败。")); return }
                         NSPasteboard.general.clearContents()
-                        self.onStatus?(NSPasteboard.general.setData(data, forType: .png) ? "已复制收纳原图。" : "复制失败。")
+                        self.onStatus?(NSPasteboard.general.setData(data, forType: .png) ? AppLanguage.text("已复制收纳原图。") : AppLanguage.text("复制失败。"))
                     } else {
                         self.onPin?(image, nil)
                     }
@@ -362,13 +363,13 @@ enum ShelfRope {
            let uuid=CGDisplayCreateUUIDFromDisplayID(id)?.takeRetainedValue() {
             shelfView.displayKey=CFUUIDCreateString(nil,uuid) as String
         }
-        title = "截图晾衣杆"; isReleasedWhenClosed = false; contentView = shelfView
+        title = AppLanguage.text("截图晾衣杆"); isReleasedWhenClosed = false; contentView = shelfView
         backgroundColor = .clear; isOpaque = false; hasShadow = false; hidesOnDeactivate = false
         level = .floating; collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         animationBehavior = .none; acceptsMouseMovedEvents = true
         let rail = ShelfRailPanel(contentRect: CGRect(x: screenFrame.minX,y: top-6,width: screenFrame.width,height: 6),
                            styleMask: [.borderless,.nonactivatingPanel],backing: .buffered,defer: false)
-        rail.title = "截图晾衣杆细线"; rail.isReleasedWhenClosed = false
+        rail.title = AppLanguage.text("截图晾衣杆细线"); rail.isReleasedWhenClosed = false
         rail.backgroundColor = .clear; rail.isOpaque = false; rail.hasShadow = false
         rail.hidesOnDeactivate = false; rail.level = .floating; rail.collectionBehavior = collectionBehavior
         rail.animationBehavior = .none; rail.acceptsMouseMovedEvents = true
@@ -646,9 +647,9 @@ enum ShelfRope {
     init(records: [CaptureShelfStore.Item], thumbnails: [UUID: NSImage]) {
         self.records = records; self.thumbnails = thumbnails; selected = records.first?.id
         super.init(frame: .zero)
-        toolTip = "单击选中 · 双击贴出 · 拖动调整位置 · 离开 3 秒收起 · 左右键选择 · Esc 收起 · Option＋方向键排序 · ⌘C 复制 · ⌘⌫ / Delete 删除 · ⌘Z 撤销"
+        toolTip = AppLanguage.text("单击选中 · 双击贴出 · 拖动调整位置 · 离开 3 秒收起 · 左右键选择 · Esc 收起 · Option＋方向键排序 · ⌘C 复制 · ⌘⌫ / Delete 删除 · ⌘Z 撤销")
         setAccessibilityElement(true); setAccessibilityRole(.group)
-        setAccessibilityLabel("截图晾衣杆，左右选择，回车贴图，Command C 复制，Delete 删除，Command Z 撤销")
+        setAccessibilityLabel(AppLanguage.text("截图晾衣杆，左右选择，回车贴图，Command C 复制，Delete 删除，Command Z 撤销"))
     }
     required init?(coder: NSCoder) { nil }
     override func accessibilityChildren() -> [Any]? {
@@ -656,14 +657,14 @@ enum ShelfRope {
         prepareLayout()
         var children: [Any] = records.indices.filter { $0 >= offset && $0 < offset+capacity }.map { index in
             let item = records[index]
-            return ShelfAccessibleItem(view: self, rect: swungBounds(cardRect(index),index:index), title: "贴出图片 \(index+1)，\(item.width) × \(item.height)") { [weak self] in
+            return ShelfAccessibleItem(view: self, rect: swungBounds(cardRect(index),index:index), title: AppLanguage.text("贴出图片 {0}，{1} × {2}", String(describing: (index+1)), String(describing: (item.width)), String(describing: (item.height)))) { [weak self] in
                 self?.onAction?(.pin(item.id))
             }
         }
         if let selected, let index = records.firstIndex(where: { $0.id == selected }), index >= offset, index < offset+capacity {
-            children.append(ShelfAccessibleItem(view: self,rect: swungBounds(closeRect(index),index:index),title: "删除选中的图片，可撤销") { [weak self] in self?.onAction?(.remove(selected)) })
+            children.append(ShelfAccessibleItem(view: self,rect: swungBounds(closeRect(index),index:index),title: AppLanguage.text("删除选中的图片，可撤销")) { [weak self] in self?.onAction?(.remove(selected)) })
         }
-        children.append(ShelfAccessibleItem(view: self,rect: CGRect(x: 16,y: ShelfRope.footerY,width: 52,height: 24),title: "撤销删除") { [weak self] in self?.onAction?(.undo) })
+        children.append(ShelfAccessibleItem(view: self,rect: CGRect(x: 16,y: ShelfRope.footerY,width: 52,height: 24),title: AppLanguage.text("撤销删除")) { [weak self] in self?.onAction?(.undo) })
         return children
     }
     private var capacity: Int { ShelfRope.capacity(bounds.width) }
@@ -974,12 +975,12 @@ enum ShelfRope {
             drawFramedImage(image,in:ghost,opacity:0.95,attachment:CGPoint(x:anchor.x,y:anchor.y+13),selected:true)
             drawClip(at:anchor,selected:true)
         }
-        if records.isEmpty { pill("没有图片 · ⌘Z 撤销删除",in: CGRect(x: max(16,bounds.midX-110),y: 78,width: min(220,bounds.width-32),height: 28),size: 13) }
-        pill("撤销",in: CGRect(x: 16,y: ShelfRope.footerY,width: 52,height: 24),size: 11)
-        if bounds.width > 430 { pill("← → 选择 · ⌘C 复制 · Esc 收起",in: CGRect(x: 82,y: ShelfRope.footerY,width: 225,height: 24),size: 11) }
+        if records.isEmpty { pill(AppLanguage.text("没有图片 · ⌘Z 撤销删除"),in: CGRect(x: max(16,bounds.midX-110),y: 78,width: min(220,bounds.width-32),height: 28),size: 13) }
+        pill(AppLanguage.text("撤销"),in: CGRect(x: 16,y: ShelfRope.footerY,width: 52,height: 24),size: 11)
+        if bounds.width > 430 { pill(AppLanguage.text("← → 选择 · ⌘C 复制 · Esc 收起"),in: CGRect(x: 82,y: ShelfRope.footerY,width: 225,height: 24),size: 11) }
         if records.count > capacity {
-            pill("\(offset+1)–\(min(records.count,offset+capacity))/\(records.count) · 横向滚动",in: CGRect(x: bounds.width-155,y: ShelfRope.footerY,width: 139,height: 24),size: 11)
-        } else { pill("\(records.count) 张",in: CGRect(x: bounds.width-63,y: ShelfRope.footerY,width: 47,height: 24),size: 11) }
+            pill(AppLanguage.text("{0}–{1}/{2} · 横向滚动", String(describing: (offset+1)), String(describing: (min(records.count,offset+capacity))), String(describing: (records.count))),in: CGRect(x: bounds.width-155,y: ShelfRope.footerY,width: 139,height: 24),size: 11)
+        } else { pill(AppLanguage.text("{0} 张", String(describing: (records.count))),in: CGRect(x: bounds.width-63,y: ShelfRope.footerY,width: 47,height: 24),size: 11) }
         if let preview, bounds.height > ShelfRope.detailHeight {
             let area = CGRect(x:16,y:ShelfRope.detailHeight+8,width:bounds.width-32,height:bounds.height-ShelfRope.detailHeight-24)
             drawFramedImage(preview,in: area,selected:selected != nil)

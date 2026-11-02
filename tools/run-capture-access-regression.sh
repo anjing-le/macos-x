@@ -1,5 +1,6 @@
 #!/bin/zsh
 set -euo pipefail
+source "$(dirname "$0")/localization/fixture-core.sh"
 access_repo="$(cd "$(dirname "$0")/.." && pwd)"
 access_check_dir="$(mktemp -d "${TMPDIR:-/tmp/}macos-x-capture-access.XXXXXX")"
 trap 'rm -rf "$access_check_dir"' EXIT
@@ -14,7 +15,7 @@ for filename in ['CaptureImageService.swift', 'CaptureRecorder.swift', 'CaptureM
     text = text.replace('@preconcurrency import ScreenCaptureKit\n', '')
     (destination / filename).write_text(text)
 PY
-xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macos14.0" \
+xcrun swiftc -I "$localization_bin/Modules" "$localization_bin"/MacOSXCore.build/*.swift.o -swift-version 5 -target "$(uname -m)-apple-macos14.0" \
   "$access_check_dir/CaptureImageService.swift" \
   "$access_check_dir/CaptureRecorder.swift" \
   "$access_repo/Sources/MacOSX/Capture/CaptureRecordingFile.swift" \

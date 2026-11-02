@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 import ImageIO
 import UniformTypeIdentifiers
@@ -109,7 +110,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
     private var toolButtons = [CaptureToolButton]()
     private let canvas: CaptureCanvas
     private let queue = DispatchQueue(label: "cc.anjing.macos-x.capture.render", qos: .userInitiated)
-    private let status = NSTextField(labelWithString: "Enter / ⌘C 复制")
+    private let status = NSTextField(labelWithString: AppLanguage.text("Enter / ⌘C 复制"))
     private var colorButton: CaptureToolButton!
     private var recognitionButton: CaptureToolButton!
     private var colorPopover: NSPopover?
@@ -171,7 +172,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         toolbar = ToolbarPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         super.init()
         window.appearance = NSAppearance(named: .aqua); toolbar.appearance = NSAppearance(named: .aqua)
-        window.title = "截图标注"; toolbar.title = "标注工具"
+        window.title = AppLanguage.text("截图标注"); toolbar.title = AppLanguage.text("标注工具")
         let level = editingPin ? NSWindow.Level.floating.rawValue : NSWindow.Level.screenSaver.rawValue
         window.level = NSWindow.Level(rawValue: level + 1)
         toolbar.level = NSWindow.Level(rawValue: level + 2)
@@ -185,15 +186,15 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         let background = CaptureToolbarSurface()
         toolbar.isOpaque = false; toolbar.backgroundColor = .clear; toolbar.hasShadow = false
         let row = NSStackView(); row.spacing = 4
-        for (tool, glyph, title) in [(CaptureTool.rectangle, CaptureToolButton.Glyph.rectangle, "矩形 · 1"),
-            (.arrow, .arrow, "箭头 · 2"), (.pen, .pen, "画笔 · 3"), (.text, .text, "文字 · 4"), (.mosaic, .mosaic, "马赛克 · 5")] {
+        for (tool, glyph, title) in [(CaptureTool.rectangle, CaptureToolButton.Glyph.rectangle, AppLanguage.text("矩形 · 1")),
+            (.arrow, .arrow, AppLanguage.text("箭头 · 2")), (.pen, .pen, AppLanguage.text("画笔 · 3")), (.text, .text, AppLanguage.text("文字 · 4")), (.mosaic, .mosaic, AppLanguage.text("马赛克 · 5"))] {
             let button = CaptureToolButton(glyph, title: title, target: self, action: #selector(changeTool(_:)))
             button.tag = tool.rawValue; button.setButtonType(.toggle)
             row.addArrangedSubview(button); toolButtons.append(button)
         }
-        recognitionButton = CaptureToolButton(.recognition, title: editingPin ? "提取文字 · 6 / ⇧⌘C" : "提取文字 · ⌘T", target: self, action: #selector(copyRecognizedText))
+        recognitionButton = CaptureToolButton(.recognition, title: editingPin ? AppLanguage.text("提取文字 · 6 / ⇧⌘C") : AppLanguage.text("提取文字 · ⌘T"), target: self, action: #selector(copyRecognizedText))
         row.addArrangedSubview(recognitionButton)
-        colorButton = CaptureToolButton(.color, title: "共用颜色 · 7", target: self, action: #selector(showColors))
+        colorButton = CaptureToolButton(.color, title: AppLanguage.text("共用颜色 · 7"), target: self, action: #selector(showColors))
         applyColor(colorIndex); row.addArrangedSubview(colorButton)
         status.font = .systemFont(ofSize: 10); status.textColor = NSColor(calibratedWhite: 0.3, alpha: 1)
         status.stringValue = ""; status.isHidden = true
@@ -336,8 +337,8 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
             guard diameter != canvas.mosaicDiameter else { return }
             canvas.mosaicDiameter = diameter
             defaults.set(Double(diameter), forKey: "capture.editor.mosaic-diameter")
-            status.stringValue = "笔刷 \(Int(diameter)) · 滚轮调节"; status.isHidden = false
-            toolButtons.forEach { $0.setAccessibilityValue("笔刷直径 \(Int(diameter))") }
+            status.stringValue = AppLanguage.text("笔刷 {0} · 滚轮调节", String(describing: (Int(diameter)))); status.isHidden = false
+            toolButtons.forEach { $0.setAccessibilityValue(AppLanguage.text("笔刷直径 {0}", String(describing: (Int(diameter))))) }
             if window.isVisible { positionToolbar() }
             return
         }
@@ -345,8 +346,8 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         guard width != canvas.lineWidth else { return }
         canvas.lineWidth = width
         defaults.set(Double(width), forKey: "capture.editor.line-width")
-        status.stringValue = "粗细 \(Int(width)) · 滚轮调节"; status.isHidden = false
-        toolButtons.forEach { $0.setAccessibilityValue("粗细 \(Int(width))") }
+        status.stringValue = AppLanguage.text("粗细 {0} · 滚轮调节", String(describing: (Int(width)))); status.isHidden = false
+        toolButtons.forEach { $0.setAccessibilityValue(AppLanguage.text("粗细 {0}", String(describing: (Int(width))))) }
         if window.isVisible { positionToolbar() }
     }
     func copyCurrentImage() { guard !adjustingRegion else { return }; copyImage(closeAfter: !editingPin) }
@@ -431,13 +432,13 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         guard !closed, !exporting, !adjustingRegion, !annotationEditingSuspended else { return }
         finishText(commit: true); canvas.cancelDraft(); wheelRemainder = 0
         canvas.tool = canvas.tool == tool ? nil : tool
-        if status.stringValue.hasPrefix("笔刷 ") || (status.stringValue.hasPrefix("粗细 ") && (canvas.tool == nil || canvas.tool == .text || canvas.tool == .mosaic || canvas.tool == .blur || canvas.tool == .eraser)) {
+        if status.stringValue.hasPrefix(AppLanguage.text("笔刷 ")) || (status.stringValue.hasPrefix(AppLanguage.text("粗细 ")) && (canvas.tool == nil || canvas.tool == .text || canvas.tool == .mosaic || canvas.tool == .blur || canvas.tool == .eraser)) {
             status.stringValue = ""; status.isHidden = true
         }
         updateToolButtons(); updateSelectionInput()
         if editingPin { window.makeFirstResponder(canvas) }
     }
-    private static let colorNames = ["黑", "红", "橙", "黄", "绿", "蓝", "紫", "白"]
+    private static let colorNames = [AppLanguage.text("黑"), AppLanguage.text("红"), AppLanguage.text("橙"), AppLanguage.text("黄"), AppLanguage.text("绿"), AppLanguage.text("蓝"), AppLanguage.text("紫"), AppLanguage.text("白")]
     private static let colors: [NSColor] = [SketchPalette.ink, SketchPalette.coral, SketchPalette.orange, SketchPalette.yellow, SketchPalette.green, SketchPalette.blue, SketchPalette.purple, .white]
     @objc private func showColors() {
         if colorPopover?.isShown == true { colorPopover?.close(); return }
@@ -460,7 +461,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
     }
     private func applyColor(_ index: Int) {
         let ink = Self.colors[index]; canvas.ink = CaptureInk(ink); colorButton.ink = ink
-        let description = "调色盘 · 当前：\(Self.colorNames[index]) · 7"
+        let description = AppLanguage.text("调色盘 · 当前：{0} · 7", String(describing: (Self.colorNames[index])))
         colorButton.toolTip = description; colorButton.setAccessibilityLabel(description)
         toolButtons.forEach { $0.ink = ink }
     }
@@ -486,7 +487,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         canvas.commitDraft()
         let request = CaptureTextRecognition.request(), base = canvas.base, marks = annotations, lifetime = lifetime, recognize = textRecognizer
         recognition = request; recognitionButton.isEnabled = false
-        showStatus("正在提取文字…")
+        showStatus(AppLanguage.text("正在提取文字…"))
         queue.async { [weak self] in
             let result: Result<String, Error> = autoreleasepool {
                 guard lifetime.valid else { return .failure(CaptureFailure.cancelled) }
@@ -504,11 +505,11 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
                 switch result {
                 case .success(let text) where !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty:
                     self.clipboard.clearContents()
-                    guard self.clipboard.setString(text, forType: .string) else { self.showStatus("复制失败"); return }
-                    self.showStatus("文字已复制")
+                    guard self.clipboard.setString(text, forType: .string) else { self.showStatus(AppLanguage.text("复制失败")); return }
+                    self.showStatus(AppLanguage.text("文字已复制"))
                     if !self.editingPin { self.close() }
-                case .success: self.showStatus("未识别到文字")
-                case .failure: self.showStatus("文字提取失败，请重试")
+                case .success: self.showStatus(AppLanguage.text("未识别到文字"))
+                case .failure: self.showStatus(AppLanguage.text("文字提取失败，请重试"))
                 }
             }
         }
@@ -517,7 +518,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
 
     private func remember() { undo.append(annotations); if undo.count > 60 { undo.removeFirst() }; redo.removeAll() }
     private func append(_ annotation: CaptureAnnotation) {
-        guard annotations.count < 256 else { showStatus("标注数量已达 256，请撤销部分标注。"); return }
+        guard annotations.count < 256 else { showStatus(AppLanguage.text("标注数量已达 256，请撤销部分标注。")); return }
         remember(); annotations.append(annotation); refresh()
     }
     private func erase(_ point: CGPoint, _ radius: CGFloat) {
@@ -543,12 +544,12 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         input.defaultParagraphStyle = layout.attributes[.paragraphStyle] as? NSParagraphStyle
         input.typingAttributes = layout.attributes
         input.insertionPointColor = input.textColor ?? .black
-        input.delegate = self; input.setAccessibilityLabel("截图文字")
+        input.delegate = self; input.setAccessibilityLabel(AppLanguage.text("截图文字"))
         canvas.addSubview(input); textInput = input; textLayout = layout; textAnnotation = annotation; textFirstLineHeight = lineHeight
         let frameView = TextEditingFrame(frame: .zero)
         frameView.canTrackPointer = { [weak canvas] in canvas?.pointerActive == true && canvas?.inputEnabled == true }
-        frameView.toolTip = "拖动边框移动文字 · 点击框外完成编辑"
-        frameView.setAccessibilityLabel("文字编辑边框，可拖动")
+        frameView.toolTip = AppLanguage.text("拖动边框移动文字 · 点击框外完成编辑")
+        frameView.setAccessibilityLabel(AppLanguage.text("文字编辑边框，可拖动"))
         frameView.onBegin = { [weak self] point in
             guard let self, let anchor = self.textAnnotation?.points.first else { return }
             self.textDrag = (point, anchor)
@@ -650,7 +651,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
     private func cancelRecognition() {
         let wasRecognizing = recognition != nil
         recognition?.cancel(); recognition = nil; recognitionButton.isEnabled = true
-        if wasRecognizing, status.stringValue == "正在提取文字…" { showStatus("") }
+        if wasRecognizing, status.stringValue == AppLanguage.text("正在提取文字…") { showStatus("") }
     }
     private func render(ticket: CaptureImageService.Ticket? = nil, onFailure: (() -> Void)? = nil,
                         _ completion: @escaping (CGImage) -> Void) {
@@ -664,7 +665,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
             DispatchQueue.main.async { [weak self] in
                 guard let self, !self.closed, ticket?.valid != false else { return }
                 if let image { completion(image) }
-                else { self.showStatus("渲染失败，请缩小截图。"); onFailure?() }
+                else { self.showStatus(AppLanguage.text("渲染失败，请缩小截图。")); onFailure?() }
             }
         }
     }
@@ -679,10 +680,10 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
                 DispatchQueue.main.async { [weak self] in
                     guard let self, !self.closed else { return }
                     self.exporting = false; self.updateSelectionInput()
-                    guard let data else { self.showStatus("图像编码失败，未修改剪贴板。"); return }
+                    guard let data else { self.showStatus(AppLanguage.text("图像编码失败，未修改剪贴板。")); return }
                     self.clipboard.clearContents()
-                    guard self.clipboard.setData(data, forType: .png) else { self.showStatus("复制失败。"); return }
-                    self.onCopied?(); self.onExport?(); self.showStatus("已复制。")
+                    guard self.clipboard.setData(data, forType: .png) else { self.showStatus(AppLanguage.text("复制失败。")); return }
+                    self.onCopied?(); self.onExport?(); self.showStatus(AppLanguage.text("已复制。"))
                     if closeAfter { self.close() }
                 }
             }
@@ -702,7 +703,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
                 guard let self, !self.closed else { return }
                 self.exporting = false; self.updateSelectionInput()
                 if saved { self.onExport?(); self.close() }
-                else { self.showStatus("收纳失败，图片已保留，可重试。") }
+                else { self.showStatus(AppLanguage.text("收纳失败，图片已保留，可重试。")) }
             }
         }
     }
@@ -710,7 +711,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         guard beginExport() else { return }
         render(onFailure: { [weak self] in self?.exporting = false; self?.updateSelectionInput() }) { [weak self] image in
             guard let self else { return }
-            guard let pin = self.onPin else { self.exporting = false; self.updateSelectionInput(); self.showStatus("贴图不可用。"); return }
+            guard let pin = self.onPin else { self.exporting = false; self.updateSelectionInput(); self.showStatus(AppLanguage.text("贴图不可用。")); return }
             // The owner closes us after the new pin is on screen, keeping the
             // frozen desktop in place through render/downsample/presentation.
             pin(image); self.onExport?()
@@ -725,10 +726,10 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
     }
     @objc private func saveImage() {
         guard beginExport() else { return }
-        let panel = NSSavePanel(); panel.allowedContentTypes = [.png]; panel.nameFieldStringValue = "截图.png"
+        let panel = NSSavePanel(); panel.allowedContentTypes = [.png]; panel.nameFieldStringValue = AppLanguage.text("截图.png")
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self, !self.closed else { return }
-            guard response == .OK, let url = panel.url else { self.exporting = false; self.updateSelectionInput(); self.showStatus("已取消。"); return }
+            guard response == .OK, let url = panel.url else { self.exporting = false; self.updateSelectionInput(); self.showStatus(AppLanguage.text("已取消。")); return }
             self.render(onFailure: { [weak self] in self?.exporting = false; self?.updateSelectionInput() }) { [weak self] image in
                 guard let self else { return }
                 let lifetime = self.lifetime
@@ -738,7 +739,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
                     DispatchQueue.main.async { [weak self] in
                         guard let self, !self.closed else { return }
                         self.exporting = false; self.updateSelectionInput()
-                        self.showStatus(saved ? "已保存。" : "保存失败，请检查目标文件夹。")
+                        self.showStatus(saved ? AppLanguage.text("已保存。") : AppLanguage.text("保存失败，请检查目标文件夹。"))
                         if saved { self.onExport?() }
                     }
                 }

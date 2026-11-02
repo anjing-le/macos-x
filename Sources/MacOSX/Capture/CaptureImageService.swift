@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 import os
 @preconcurrency import ScreenCaptureKit
@@ -47,11 +48,11 @@ enum CaptureFailure: LocalizedError {
     }
     var errorDescription: String? {
         switch self {
-        case .permission: return "需要屏幕录制权限；授权后再试。"
-        case .cancelled: return "已取消。"
-        case .unavailable: return "当前没有可捕获的显示器。"
-        case .oversized: return "图像超过内存上限，请选择较小区域。"
-        case .emptyClipboard: return "剪贴板没有可贴出的图像或文字。"
+        case .permission: return AppLanguage.text("需要屏幕录制权限；授权后再试。")
+        case .cancelled: return AppLanguage.text("已取消。")
+        case .unavailable: return AppLanguage.text("当前没有可捕获的显示器。")
+        case .oversized: return AppLanguage.text("图像超过内存上限，请选择较小区域。")
+        case .emptyClipboard: return AppLanguage.text("剪贴板没有可贴出的图像或文字。")
         case .message(let value): return value
         }
     }
@@ -225,7 +226,7 @@ final class CaptureImageService {
     private func captureWindow(_ request: Request, target: CaptureWindow, content: SCShareableContent) {
         guard let window = content.windows.first(where: { $0.windowID == target.id }) else {
             request.timing.record("window-target-missing")
-            finish(request, .failure(CaptureFailure.message("窗口已关闭，请重新截图。"))); return
+            finish(request, .failure(CaptureFailure.message(AppLanguage.text("窗口已关闭，请重新截图。")))); return
         }
         let top = request.screens.first?.frame.maxY ?? 0
         let current = CGRect(x: window.frame.minX, y: top - window.frame.maxY,
@@ -234,7 +235,7 @@ final class CaptureImageService {
               abs(current.width - target.frame.width) < 1, abs(current.height - target.frame.height) < 1,
               let screen = request.screens.first(where: { $0.frame.contains(CGPoint(x: current.midX, y: current.midY)) }) ?? request.screens.first else {
             request.timing.record("window-target-moved")
-            finish(request, .failure(CaptureFailure.message("窗口位置已变化，请重新截图。"))); return
+            finish(request, .failure(CaptureFailure.message(AppLanguage.text("窗口位置已变化，请重新截图。")))); return
         }
         let outputRegion = request.frozenFrames == nil ? current : target.frame
         var scale = min(screen.scale, sqrt(8_000_000 / max(1, outputRegion.width * outputRegion.height)))

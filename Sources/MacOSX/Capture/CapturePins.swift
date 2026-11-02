@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 import UniformTypeIdentifiers
 
@@ -23,18 +24,18 @@ final class CapturePins {
     var canAdd: Bool { entries.count + pending.count + (adding ? 1 : 0) < 8 }
 
     func add(_ image: CGImage, at frame: CGRect? = nil, onPresent: ((Bool) -> Void)? = nil) {
-        guard canAdd else { onStatus?("最多 8 张贴图。"); onPresent?(false); return }
+        guard canAdd else { onStatus?(AppLanguage.text("最多 8 张贴图。")); onPresent?(false); return }
         recovered = nil
         pending.append(Request(content: .image(image), frame: frame, onPresent: onPresent))
         addNext()
     }
     func add(_ document: CaptureTextDocument) {
-        guard canAdd else { onStatus?("最多 8 张贴图，请先关闭一张。"); return }
+        guard canAdd else { onStatus?(AppLanguage.text("最多 8 张贴图，请先关闭一张。")); return }
         recovered = nil
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
         let available = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1100, height: 800)
         pending.append(Request(content: .text(document, available), frame: nil, onPresent: nil))
-        onStatus?("正在生成完整长图…")
+        onStatus?(AppLanguage.text("正在生成完整长图…"))
         addNext()
     }
     private func addNext() {
@@ -62,7 +63,7 @@ final class CapturePins {
                     self.insert(PinEntry(image: image, frame: frame, queue: self.queue))
                     request.onPresent?(true)
                 } else {
-                    if self.generation == expected, ticket.valid { self.onStatus?("贴图生成失败，内容未截断，请重试。") }
+                    if self.generation == expected, ticket.valid { self.onStatus?(AppLanguage.text("贴图生成失败，内容未截断，请重试。")) }
                     request.onPresent?(false)
                 }
                 self.addNext()
@@ -75,12 +76,12 @@ final class CapturePins {
             guard let self, let entry, self.entries.contains(where: { $0 === entry }) else { return }
             self.recovered = (entry.recovery, NSPasteboard.general.changeCount)
             self.entries.removeAll { $0 === entry }
-            self.onStatus?("贴图 \(self.entries.count)/8")
+            self.onStatus?(AppLanguage.text("贴图 {0}/8", String(describing: (self.entries.count))))
         }
         entry.onStatus = { [weak self] in self?.onStatus?($0) }
         entry.setOutline(showsOutline)
         entries.append(entry); entry.present(focus:true)
-        onStatus?("贴图 \(entries.count)/8 · ⌘C 复制 · ⌘W 关闭")
+        onStatus?(AppLanguage.text("贴图 {0}/8 · ⌘C 复制 · ⌘W 关闭", String(describing: (entries.count))))
     }
     func restoreLastClosed() -> Bool {
         guard let (snapshot, changeCount) = recovered else { return false }
@@ -102,10 +103,10 @@ final class CapturePins {
     }
     func applyActiveEdit() -> Bool { entries.contains { $0.applyEditIfKey() } }
     func toggleAll() { entries.contains(where: { $0.window.isVisible }) ? hideAll() : showAll() }
-    func hideAll() { entries.forEach { $0.window.orderOut(nil) }; onStatus?("贴图已隐藏 · ⇧F3 显示") }
+    func hideAll() { entries.forEach { $0.window.orderOut(nil) }; onStatus?(AppLanguage.text("贴图已隐藏 · ⇧F3 显示")) }
     func showAll() {
         entries.forEach { $0.window.ignoresMouseEvents = false; $0.present(focus: false) }
-        onStatus?("已显示贴图。")
+        onStatus?(AppLanguage.text("已显示贴图。"))
     }
     func closeAll() {
         generation &+= 1; ticket.cancel(); ticket = CaptureImageService.Ticket()
@@ -166,7 +167,7 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
                                       width: baseSize.width, height: baseSize.height)
         window = Panel(contentRect: rect, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         super.init()
-        window.title = "贴图"; window.isReleasedWhenClosed = false; window.delegate = self
+        window.title = AppLanguage.text("贴图"); window.isReleasedWhenClosed = false; window.delegate = self
         window.animationBehavior = .none
         window.acceptsMouseMovedEvents = true
         window.level = .floating; window.isOpaque = false; window.backgroundColor = .clear
@@ -180,7 +181,7 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
         view.onColor = { [weak self] color in
             guard let self, !self.closed else { return }
             NSPasteboard.general.clearContents(); NSPasteboard.general.setString(color, forType: .string)
-            self.onStatus?("已复制 \(color)")
+            self.onStatus?(AppLanguage.text("已复制 {0}", String(describing: (color))))
         }
     }
     convenience init(snapshot: PinSnapshot, queue: DispatchQueue) {
@@ -208,7 +209,7 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
             let image = lifetime.valid ? transform.render(original) : nil
             DispatchQueue.main.async { [weak self] in
                 guard let self, !self.closed, lifetime.valid else { return }
-                guard let image else { self.exporting = false; self.onStatus?("贴图收纳失败。"); return }
+                guard let image else { self.exporting = false; self.onStatus?(AppLanguage.text("贴图收纳失败。")); return }
                 save(image) { [weak self] saved in
                     guard let self, !self.closed else { return }
                     self.exporting = false
@@ -301,7 +302,7 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
             DispatchQueue.main.async { [weak self] in
                 guard let self, !self.closed, lifetime.valid else { return }
                 self.preparingEditor = false
-                guard let rendered else { self.onStatus?("贴图编辑失败。"); return }
+                guard let rendered else { self.onStatus?(AppLanguage.text("贴图编辑失败。")); return }
                 let editor = CaptureEditor(image: rendered, selectionFrame: self.window.frame, editingPin: true)
                 self.editor = editor
                 editor.onApply = { [weak self] result in
@@ -328,7 +329,7 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
     @objc private func saveImage() {
         guard !closed, !exporting else { return }
         exporting = true
-        let panel = NSSavePanel(); panel.allowedContentTypes = [.png]; panel.nameFieldStringValue = "贴图.png"
+        let panel = NSSavePanel(); panel.allowedContentTypes = [.png]; panel.nameFieldStringValue = AppLanguage.text("贴图.png")
         savePanel = panel
         panel.begin { [weak self] response in
             guard let self, !self.closed else { return }
@@ -351,11 +352,11 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
             DispatchQueue.main.async { [weak self] in
                 guard let self, !self.closed, lifetime.valid else { return }
                 self.exporting = false
-                guard let data else { self.onStatus?("贴图导出失败。"); return }
-                if url != nil { self.onStatus?(didSave ? "已保存贴图。" : "贴图保存失败。") }
+                guard let data else { self.onStatus?(AppLanguage.text("贴图导出失败。")); return }
+                if url != nil { self.onStatus?(didSave ? AppLanguage.text("已保存贴图。") : AppLanguage.text("贴图保存失败。")) }
                 else {
                     NSPasteboard.general.clearContents(); NSPasteboard.general.setData(data, forType: .png)
-                    self.onStatus?("已复制贴图。")
+                    self.onStatus?(AppLanguage.text("已复制贴图。"))
                 }
             }
         }
@@ -365,19 +366,19 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
         case 1: perform(.zoom(1.2)); case 2: perform(.zoom(1 / 1.2))
         case 3: perform(.rotate(true)); case 4: perform(.rotate(false))
         case 5: perform(.horizontal); case 6: perform(.vertical); case 7: perform(.thumbnail)
-        case 8: window.ignoresMouseEvents = true; onStatus?("已穿透 · 隐藏后再显示可恢复交互")
+        case 8: window.ignoresMouseEvents = true; onStatus?(AppLanguage.text("已穿透 · 隐藏后再显示可恢复交互"))
         case 9: perform(.close)
         default: break
         }
     }
     private func menu() -> NSMenu {
         let menu = NSMenu()
-        for (title, selector, key) in [("复制", #selector(copyImage), "c"), ("编辑", #selector(editImage), "e"), ("另存为…", #selector(saveImage), "s")] {
+        for (title, selector, key) in [(AppLanguage.text("复制"), #selector(copyImage), "c"), (AppLanguage.text("编辑"), #selector(editImage), "e"), (AppLanguage.text("另存为…"), #selector(saveImage), "s")] {
             let item = NSMenuItem(title: title, action: selector, keyEquivalent: key); item.target = self; menu.addItem(item)
         }
         menu.addItem(.separator())
-        for (tag, title) in [(1, "放大"), (2, "缩小"), (3, "顺时针旋转"), (4, "逆时针旋转"),
-                             (5, "水平翻转"), (6, "垂直翻转"), (7, thumbnail ? "恢复尺寸" : "缩略图"), (8, "点击穿透"), (9, "关闭")] {
+        for (tag, title) in [(1, AppLanguage.text("放大")), (2, AppLanguage.text("缩小")), (3, AppLanguage.text("顺时针旋转")), (4, AppLanguage.text("逆时针旋转")),
+                             (5, AppLanguage.text("水平翻转")), (6, AppLanguage.text("垂直翻转")), (7, thumbnail ? AppLanguage.text("恢复尺寸") : AppLanguage.text("缩略图")), (8, AppLanguage.text("点击穿透")), (9, AppLanguage.text("关闭"))] {
             let item = NSMenuItem(title: title, action: #selector(menuCommand(_:)), keyEquivalent: "")
             item.tag = tag; item.target = self; menu.addItem(item)
         }
@@ -405,7 +406,7 @@ private final class PinView: NSView {
     private var drag: CapturePinDrag?
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    init(image: CGImage) { self.image = image; super.init(frame: .zero); setAccessibilityLabel("贴图"); setAccessibilityRole(.image) }
+    init(image: CGImage) { self.image = image; super.init(frame: .zero); setAccessibilityLabel(AppLanguage.text("贴图")); setAccessibilityRole(.image) }
     required init?(coder: NSCoder) { nil }
     func showZoom(_ scale: CGFloat) {
         zoomLabel = "\(Int((scale * 100).rounded()))%"

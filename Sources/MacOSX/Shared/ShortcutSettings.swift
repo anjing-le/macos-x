@@ -19,26 +19,26 @@ final class ShortcutStore {
     private func key(_ action: ShortcutAction) -> String { "shortcut.\(action.rawValue)" }
 
     func conflict(_ candidate: ShortcutBinding, action: ShortcutAction, activeActions:Set<ShortcutAction>?=nil) -> String? {
-        guard candidate.isValid else { return "请使用 F1–F20，或 Control / Command 组合键" }
+        guard candidate.isValid else { return AppLanguage.text("请使用 F1–F20，或 Control / Command 组合键") }
         for other in ShortcutAction.allCases where other != action && (activeActions?.contains(other) ?? true) {
-            if candidate.conflicts(with: binding(for: other)) { return "与“\(other.title)”重复" }
+            if candidate.conflicts(with: binding(for: other)) { return AppLanguage.text("与“{0}”重复", String(describing: (other.title))) }
         }
         if candidate.kind == .doubleModifier {
             // Modifier-only system gestures do not expose an exclusive Carbon
             // registration. Keep Control double-taps away from Dictation.
-            return [59, 62].contains(candidate.keyCode) ? "请用 Option 双击或组合键，避免听写冲突" : nil
+            return [59, 62].contains(candidate.keyCode) ? AppLanguage.text("请用 Option 双击或组合键，避免听写冲突") : nil
         }
         // App-menu shortcuts are not returned by CopySymbolicHotKeys. Keep
         // common typing/navigation combinations out of the global registrar.
         if !candidate.isFunctionKey && (candidate.modifiers == 8 || candidate.modifiers == 12) {
-            return "这是系统或应用常用组合，请换一个"
+            return AppLanguage.text("这是系统或应用常用组合，请换一个")
         }
         if candidate.keyCode == 53 && candidate.modifiers == 10 {
-            return "与系统强制退出快捷键冲突"
+            return AppLanguage.text("与系统强制退出快捷键冲突")
         }
         var catalog: Unmanaged<CFArray>?
         guard CopySymbolicHotKeys(&catalog) == noErr, let array = catalog?.takeRetainedValue() as? [[String: Any]] else {
-            return "暂时无法检查系统快捷键，请重试"
+            return AppLanguage.text("暂时无法检查系统快捷键，请重试")
         }
         // Fn-bearing symbolic hotkeys must not be mistaken for the same chord
         // without Fn; our assignable binding format intentionally has no Fn bit.
@@ -47,7 +47,7 @@ final class ShortcutStore {
             guard let code = item[kHISymbolicHotKeyCode as String] as? NSNumber,
                 let modifiers = item[kHISymbolicHotKeyModifiers as String] as? NSNumber else { continue }
             if code.uint16Value == candidate.keyCode && modifiers.uint32Value & mask == candidate.carbonModifiers {
-                return "与系统快捷键冲突"
+                return AppLanguage.text("与系统快捷键冲突")
             }
         }
         return nil
@@ -69,15 +69,15 @@ private final class ShortcutRecorder: MinimalButton {
         super.init(frame: .zero)
         font = SketchPalette.heading(16)
         target = self; action = #selector(begin)
-        toolTip = "点击后按下新快捷键；Escape 取消"
-        setAccessibilityLabel("编辑快捷键")
+        toolTip = AppLanguage.text("点击后按下新快捷键；Escape 取消")
+        setAccessibilityLabel(AppLanguage.text("编辑快捷键"))
     }
     required init?(coder: NSCoder) { nil }
     deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }
 
     @objc private func begin() {
         guard !recording else { finish(); return }
-        previousTitle = title; recording = true; title = illustrated ? "按键…" : "按下快捷键…"
+        previousTitle = title; recording = true; title = illustrated ? AppLanguage.text("按键…") : AppLanguage.text("按下快捷键…")
         window?.makeFirstResponder(self)
         onRecording?(true)
         if let window {
@@ -107,7 +107,7 @@ private final class ShortcutRecorder: MinimalButton {
             123: "←", 124: "→", 125: "↓", 126: "↑", 122: "F1", 120: "F2", 99: "F3", 118: "F4",
             96: "F5", 97: "F6", 98: "F7", 100: "F8", 101: "F9", 109: "F10", 103: "F11", 111: "F12",
             105: "F13", 107: "F14", 113: "F15", 106: "F16", 64: "F17", 79: "F18", 80: "F19", 90: "F20"]
-        let name = labels[event.keyCode] ?? (event.charactersIgnoringModifiers?.uppercased() ?? "键 \(event.keyCode)")
+        let name = labels[event.keyCode] ?? (event.charactersIgnoringModifiers?.uppercased() ?? AppLanguage.text("键 {0}", String(describing: (event.keyCode))))
         let binding = ShortcutBinding(keyCode: event.keyCode, modifiers: modifiers, keyLabel: name)
         finish(); onBinding?(binding)
     }
@@ -146,9 +146,9 @@ final class ShortcutPicker: NSStackView {
             row.addArrangedSubview(label)
         }
         if allowsDoubleTap {
-            mode.addItems(withTitles: ["双击右 Option", "双击左 Option", "组合键"])
+            mode.addItems(withTitles: [AppLanguage.text("双击右 Option"), AppLanguage.text("双击左 Option"), AppLanguage.text("组合键")])
             mode.target = self; mode.action = #selector(selectTriggerMode)
-            mode.setAccessibilityLabel("唤起方式")
+            mode.setAccessibilityLabel(AppLanguage.text("唤起方式"))
             row.addArrangedSubview(mode)
         }
         row.addArrangedSubview(recorder)
@@ -165,7 +165,7 @@ final class ShortcutPicker: NSStackView {
         addArrangedSubview(notice)
         recorder.onRecording = recordingChanged
         recorder.onBinding = { [weak self] value in self?.propose(value) }
-        recorder.toolTip = "点击修改；功能键可能需要同时按 Fn，Escape 取消"
+        recorder.toolTip = AppLanguage.text("点击修改；功能键可能需要同时按 Fn，Escape 取消")
         refresh()
     }
     required init?(coder: NSCoder) { nil }
@@ -174,8 +174,8 @@ final class ShortcutPicker: NSStackView {
         // A board already groups this under its module title. Keeping the
         // duplicate name beside both the trigger mode and chord crowds a narrow page.
         nameLabel.isHidden=presentsIssueExternally && allowsDoubleTap
-        recorder.title = editingChord ? "设置快捷键…" : binding.displayName
-        recorder.toolTip = "\(binding.displayName) · 点击修改；功能键可能需要同时按 Fn，Escape 取消"
+        recorder.title = editingChord ? AppLanguage.text("设置快捷键…") : binding.displayName
+        recorder.toolTip = AppLanguage.text("{0} · 点击修改；功能键可能需要同时按 Fn，Escape 取消", String(describing: (binding.displayName)))
         recorder.isHidden = binding.kind == .doubleModifier && !editingChord
         if binding.kind == .doubleModifier && !editingChord {
             mode.selectItem(at: [UInt16(61), 58].firstIndex(of: binding.keyCode) ?? 0)

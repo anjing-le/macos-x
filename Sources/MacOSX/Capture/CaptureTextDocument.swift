@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 
 enum CaptureClipboardContent {
@@ -46,7 +47,7 @@ struct CaptureTextDocument {
             safe.enumerateAttribute(.attachment, in: NSRange(location:0,length:safe.length)) { value, range, _ in
                 if value != nil { attachments.append(range) }
             }
-            for range in attachments.reversed() { safe.replaceCharacters(in:range,with:"[附件]") }
+            for range in attachments.reversed() { safe.replaceCharacters(in:range,with:AppLanguage.text("[附件]")) }
             return .init(attributed:safe,source:text ?? safe.string)
         }
         guard let text, !text.isEmpty else { return nil }
@@ -226,7 +227,7 @@ private enum CaptureClipboardHTML {
                     lists[lists.count-1].index += 1; output += "\n\(lists[lists.count-1].index). "
                 } else { output += "\n- " }
             case "blockquote": output += closing ? "\n" : "\n> "
-            case "img": output += "[图片]"
+            case "img": output += AppLanguage.text("[图片]")
             default: break
             }
         }

@@ -53,7 +53,7 @@ import MacOSXCore
     init() {
         panel = Panel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.appearance = NSAppearance(named: .aqua)
-        panel.title = "窗口切换"; panel.animationBehavior = .none
+        panel.title = AppLanguage.text("窗口切换"); panel.animationBehavior = .none
         panel.level = .popUpMenu; panel.isOpaque = false; panel.backgroundColor = .clear
         panel.hasShadow = true; panel.hidesOnDeactivate = false; panel.acceptsMouseMovedEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
@@ -67,7 +67,7 @@ import MacOSXCore
             button.target = self; button.action = #selector(changePage(_:)); backdrop.addSubview(button)
         }
         previous.tag = -1; next.tag = 1
-        previous.setAccessibilityLabel("上一页窗口"); next.setAccessibilityLabel("下一页窗口")
+        previous.setAccessibilityLabel(AppLanguage.text("上一页窗口")); next.setAccessibilityLabel(AppLanguage.text("下一页窗口"))
         scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
             object: scroll.contentView, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
@@ -85,13 +85,13 @@ import MacOSXCore
         if canvas.layout.presentation == .all {
             let indices = canvas.visibleIndices
             let range = indices.first.map { "\($0 + 1)–\((indices.last ?? $0) + 1)" } ?? "0"
-            footer.stringValue = "共 \(count) 个窗口 · 当前 \(range)" + (canvas.frame.height > scroll.contentView.bounds.height ? " · 滚动查看更多" : "")
+            footer.stringValue = AppLanguage.text("共 {0} 个窗口 · 当前 {1}", String(describing: (count)), String(describing: (range))) + (canvas.frame.height > scroll.contentView.bounds.height ? AppLanguage.text(" · 滚动查看更多") : "")
             previous.isHidden = true; next.isHidden = true
         } else {
             let capacity = canvas.layout.capacity
             let page = canvas.currentPageStart / capacity + 1
             let pages = max(1, (count + capacity - 1) / capacity)
-            footer.stringValue = "共 \(count) 个窗口 · 第 \(page) / \(pages) 页" + (pages > 1 ? " · Tab 继续切换" : "")
+            footer.stringValue = AppLanguage.text("共 {0} 个窗口 · 第 {1} / {2} 页", String(describing: (count)), String(describing: (page)), String(describing: (pages))) + (pages > 1 ? AppLanguage.text(" · Tab 继续切换") : "")
             previous.isHidden = pages == 1; next.isHidden = pages == 1
         }
     }
@@ -172,7 +172,7 @@ import MacOSXCore
         })
         updateChoices()
         needsDisplay = true
-        setAccessibilityLabel("窗口切换")
+        setAccessibilityLabel(AppLanguage.text("窗口切换"))
         setAccessibilityValue(windows.first { $0.id == selectedID }.map { $0.applicationName + "，" + $0.title })
     }
     func updateChoices() {
@@ -192,7 +192,7 @@ import MacOSXCore
             button.frame = layout.card(at: indices[index])
             button.tag = Int(window.id); button.toolTip = window.title
             button.setAccessibilityLabel(window.applicationName + "，" + window.title)
-            button.setAccessibilityValue(window.id == selectedID ? "已选中" : "")
+            button.setAccessibilityValue(window.id == selectedID ? AppLanguage.text("已选中") : "")
         }
     }
     func clearImages() { images.removeAll() }
@@ -235,7 +235,7 @@ import MacOSXCore
             text(window.title == window.applicationName ? "" : window.title,
                  rect: CGRect(x: rect.minX + 32, y: rect.maxY - 19, width: rect.width - 42, height: 13),
                  font: .systemFont(ofSize: 10), color: .secondaryLabelColor)
-            let badge = window.isMinimized ? "最小化" : window.isHidden ? "隐藏" : !window.isOnScreen ? "未显示" : ""
+            let badge = window.isMinimized ? AppLanguage.text("最小化") : window.isHidden ? AppLanguage.text("隐藏") : !window.isOnScreen ? AppLanguage.text("未显示") : ""
             if !badge.isEmpty {
                 text(badge, rect: CGRect(x: picture.minX + 4, y: picture.minY + 2, width: picture.width - 8, height: 16),
                      font: .systemFont(ofSize: 9), color: .secondaryLabelColor)

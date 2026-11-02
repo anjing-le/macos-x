@@ -1,0 +1,5346 @@
+{
+  "检查更新…": [
+    {
+      "file": "Sources/MacOSX/AppDelegate.swift",
+      "line": 62,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Shared/MenuBarController.swift",
+      "line": 21,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "退出 macos-x": [
+    {
+      "file": "Sources/MacOSX/AppDelegate.swift",
+      "line": 66,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Shared/MenuBarController.swift",
+      "line": 26,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "编辑": [
+    {
+      "file": "Sources/MacOSX/AppDelegate.swift",
+      "line": 72,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 375,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "撤销": [
+    {
+      "file": "Sources/MacOSX/AppDelegate.swift",
+      "line": 73,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 978,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "剪切": [
+    {
+      "file": "Sources/MacOSX/AppDelegate.swift",
+      "line": 73,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "复制": [
+    {
+      "file": "Sources/MacOSX/AppDelegate.swift",
+      "line": 74,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 375,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "粘贴": [
+    {
+      "file": "Sources/MacOSX/AppDelegate.swift",
+      "line": 74,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "全选": [
+    {
+      "file": "Sources/MacOSX/AppDelegate.swift",
+      "line": 74,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "重做": [
+    {
+      "file": "Sources/MacOSX/AppDelegate.swift",
+      "line": 77,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "窗口": [
+    {
+      "file": "Sources/MacOSX/AppDelegate.swift",
+      "line": 81,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "关闭": [
+    {
+      "file": "Sources/MacOSX/UI/ToolCard.swift",
+      "line": 1,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "Enter / ⌘C 复制": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 112,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 453,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "截图标注": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 174,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "标注工具": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 174,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "矩形 · 1": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 188,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "箭头 · 2": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 189,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "画笔 · 3": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 189,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "文字 · 4": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 189,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "马赛克 · 5": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 189,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "提取文字 · 6 / ⇧⌘C": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 194,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "提取文字 · ⌘T": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 194,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "共用颜色 · 7": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 196,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "笔刷 {0} · 滚轮调节": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 339,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "笔刷直径 {0}": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 340,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "粗细 {0} · 滚轮调节": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 348,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "粗细 {0}": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 349,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "笔刷 ": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 434,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "粗细 ": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 434,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "黑": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 440,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureToolbar.swift",
+      "line": 157,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "红": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 440,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureToolbar.swift",
+      "line": 157,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "橙": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 440,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureToolbar.swift",
+      "line": 157,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "黄": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 440,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureToolbar.swift",
+      "line": 157,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "绿": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 440,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureToolbar.swift",
+      "line": 157,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "蓝": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 440,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureToolbar.swift",
+      "line": 157,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "紫": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 440,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureToolbar.swift",
+      "line": 157,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "白": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 440,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureToolbar.swift",
+      "line": 157,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "调色盘 · 当前：{0} · 7": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 463,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在提取文字…": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 489,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 653,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "复制失败": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 507,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "文字已复制": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 508,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "未识别到文字": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 510,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "文字提取失败，请重试": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 511,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "标注数量已达 256，请撤销部分标注。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 520,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "截图文字": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 546,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "拖动边框移动文字 · 点击框外完成编辑": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 550,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "文字编辑边框，可拖动": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 551,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "渲染失败，请缩小截图。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 667,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "图像编码失败，未修改剪贴板。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 682,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "复制失败。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 684,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 183,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 155,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已复制。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 685,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "收纳失败，图片已保留，可重试。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 705,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "贴图不可用。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 713,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "截图.png": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 728,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已取消。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 731,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureImageService.swift",
+      "line": 51,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已保存。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 741,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "保存失败，请检查目标文件夹。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureEditor.swift",
+      "line": 741,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "需要屏幕录制权限；授权后再试。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureImageService.swift",
+      "line": 50,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "当前没有可捕获的显示器。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureImageService.swift",
+      "line": 52,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "图像超过内存上限，请选择较小区域。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureImageService.swift",
+      "line": 53,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "剪贴板没有可贴出的图像或文字。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureImageService.swift",
+      "line": 54,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "窗口已关闭，请重新截图。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureImageService.swift",
+      "line": 228,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "窗口位置已变化，请重新截图。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureImageService.swift",
+      "line": 237,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "未启用": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 17,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 463,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 485,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "桌面最多 8 张贴图，请先关闭一张。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 51,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已就绪": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 61,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 463,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 485,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在保存录屏…": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 61,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 76,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 310,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已停用": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 76,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 463,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 485,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在截图…": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 99,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "⌘C 复制 · ⌥C 取色 · Esc 取消": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 109,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已取消截图。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 140,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已复制 {0}": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 147,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 183,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在处理…": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 152,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "截图处理失败 · 可调整范围重试，Esc 退出": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 166,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "截图编码失败 · ⌘C 重试，Esc 退出": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 176,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "截图编码失败，未修改剪贴板。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 177,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "复制失败 · ⌘C 重试，Esc 退出": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 182,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已复制截图。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 190,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "贴图创建失败。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 196,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 432,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "晾衣杆正在处理或已满，请稍后重试或整理。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 233,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "剪贴板里没有可收纳的图片。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 267,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "选择录屏区域 · Esc 取消": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 326,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已取消录屏。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 340,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在启动录屏…": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 352,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 368,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "录屏 {0} {1}.mp4": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 359,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "录屏中": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 384,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 463,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 485,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "录屏已保留：{0}": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 398,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已保存录屏": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 399,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 463,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 485,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "录屏未生成可保存的画面。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 400,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "贴图白光边缘": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 486,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "开启后，贴图显示白色柔光边缘；复制与保存不带边缘。选中贴图后，空格切换编辑状态。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 489,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "系统声音": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 494,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/RecordingStartBar.swift",
+      "line": 7,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "麦克风": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 494,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/RecordingStartBar.swift",
+      "line": 8,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "录屏：保留{0}": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 499,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 318,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "下次录屏保留电脑播放的声音；不包含麦克风。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 500,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "下次录屏录制默认麦克风；开始录制时才请求授权。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureModule.swift",
+      "line": 500,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "最多 8 张贴图。": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 26,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "最多 8 张贴图，请先关闭一张。": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 32,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在生成完整长图…": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 37,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "贴图生成失败，内容未截断，请重试。": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 65,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "贴图 {0}/8": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 78,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "贴图 {0}/8 · ⌘C 复制 · ⌘W 关闭": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 83,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "贴图已隐藏 · ⇧F3 显示": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 105,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已显示贴图。": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 108,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "贴图": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 169,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 408,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Shared/GlobalInput.swift",
+      "line": 15,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 379,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "贴图收纳失败。": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 211,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "贴图编辑失败。": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 304,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "贴图.png": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 331,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "贴图导出失败。": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 354,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已保存贴图。": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 355,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "贴图保存失败。": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 355,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已复制贴图。": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 358,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已穿透 · 隐藏后再显示可恢复交互": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 368,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "另存为…": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 375,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "放大": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 379,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "缩小": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 379,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "顺时针旋转": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 379,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "逆时针旋转": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 379,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "水平翻转": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 380,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "垂直翻转": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 380,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "恢复尺寸": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 380,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "缩略图": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 380,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "点击穿透": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 380,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "录屏正在开始或结束，请稍后。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureRecorder.swift",
+      "line": 47,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "麦克风未获授权。请在系统设置中允许麦克风，或关闭录屏的麦克风选项。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureRecorder.swift",
+      "line": 61,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "录屏区域无效，请在同一块屏幕内重新选择。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureRecorder.swift",
+      "line": 80,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "当前编码器无法写入 MP4。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureRecorder.swift",
+      "line": 90,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "无法创建录屏文件。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureRecorder.swift",
+      "line": 93,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "未收到画面，未保存空文件。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureRecorder.swift",
+      "line": 236,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "音频编码未及时完成，已保留可用录屏。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureRecorder.swift",
+      "line": 257,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "音频编码繁忙，部分声音未保留；录屏文件已保存。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureRecorder.swift",
+      "line": 261,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "未收到系统声音数据，已保留画面。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureRecorder.swift",
+      "line": 264,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "未收到麦克风数据，已保留画面。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureRecorder.swift",
+      "line": 267,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "MP4 封装失败。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureRecorder.swift",
+      "line": 303,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "选择录屏区域": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureSelection.swift",
+      "line": 108,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "截图": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureSelection.swift",
+      "line": 108,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Shared/GlobalInput.swift",
+      "line": 14,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 379,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "Enter 开始 · Esc 取消": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureSelection.swift",
+      "line": 116,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "点击编辑 · Enter / ⌘C 复制 · 拖动调整 · Esc 退出": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureSelection.swift",
+      "line": 116,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "开始录屏": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureSelection.swift",
+      "line": 456,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/RecordingStartBar.swift",
+      "line": 13,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/RecordingStartBar.swift",
+      "line": 17,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "收纳正在处理，请稍后再试。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 47,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "晾衣杆已满，请先整理。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 47,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已收纳 · 鼠标移到屏幕顶部查看": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 64,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "收纳读取失败：{0}": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 97,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "收纳正在处理，位置未修改。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 134,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "图片读取失败，原记录已保留。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 151,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "图片编码失败。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 153,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelfStore.swift",
+      "line": 57,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已复制收纳原图。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 155,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "截图晾衣杆": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 365,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Shared/GlobalInput.swift",
+      "line": 16,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "截图晾衣杆细线": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 371,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "单击选中 · 双击贴出 · 拖动调整位置 · 离开 3 秒收起 · 左右键选择 · Esc 收起 · Option＋方向键排序 · ⌘C 复制 · ⌘⌫ / Delete 删除 · ⌘Z 撤销": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 649,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "截图晾衣杆，左右选择，回车贴图，Command C 复制，Delete 删除，Command Z 撤销": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 651,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "贴出图片 {0}，{1} × {2}": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 659,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "删除选中的图片，可撤销": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 664,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "撤销删除": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 666,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 129,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "没有图片 · ⌘Z 撤销删除": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 977,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "← → 选择 · ⌘C 复制 · Esc 收起": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 979,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "{0}–{1}/{2} · 横向滚动": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 981,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "{0} 张": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 982,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "收纳目录索引过大，未加载。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelfStore.swift",
+      "line": 32,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "收纳索引无效，未加载。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelfStore.swift",
+      "line": 40,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "晾衣杆已满（40 张），请先整理。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelfStore.swift",
+      "line": 54,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "图片超过 1600 万像素，请缩小范围后收纳。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelfStore.swift",
+      "line": 55,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "收纳空间已满（128 MB），请先整理。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelfStore.swift",
+      "line": 60,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "收纳位置无效，原位置已保留。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelfStore.swift",
+      "line": 92,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已保存的显示器位置过多，原位置已保留。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelfStore.swift",
+      "line": 99,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "晾衣杆已满，请先腾出位置再撤销。": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelfStore.swift",
+      "line": 114,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "[附件]": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureTextDocument.swift",
+      "line": 49,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "[图片]": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureTextDocument.swift",
+      "line": 229,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "当前颜色": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureToolbar.swift",
+      "line": 161,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/CaptureToolbar.swift",
+      "line": 168,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "当前编码器无法写入录屏声音。": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingAudio.swift",
+      "line": 83,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "无法读取录屏声音数据。": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingAudio.swift",
+      "line": 103,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "当前音频设备的格式无法录制。": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingAudio.swift",
+      "line": 109,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "录屏声音转换失败。": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingAudio.swift",
+      "line": 121,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "录屏声音写入失败。": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingAudio.swift",
+      "line": 145,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "未找到可用麦克风，请关闭麦克风选项或连接设备。": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingMicrophone.swift",
+      "line": 26,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "当前麦克风无法录制。": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingMicrophone.swift",
+      "line": 33,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "麦克风录制中断。": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingMicrophone.swift",
+      "line": 41,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "麦克风未能启动。": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingMicrophone.swift",
+      "line": 45,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "选择文件夹": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingPresentation.swift",
+      "line": 22,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "复制路径": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingPresentation.swift",
+      "line": 23,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "播放": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingPresentation.swift",
+      "line": 24,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "在 Finder 中显示": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingPresentation.swift",
+      "line": 33,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "保存位置": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingPresentation.swift",
+      "line": 35,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Capture/RecordingPresentation.swift",
+      "line": 206,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "停止录屏": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingPresentation.swift",
+      "line": 101,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "保存中…": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingPresentation.swift",
+      "line": 113,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "✓ 已复制路径": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingPresentation.swift",
+      "line": 123,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已复制录屏路径 · 点击在 Finder 中显示": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingPresentation.swift",
+      "line": 125,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在录屏 · 点击结束录制": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingPresentation.swift",
+      "line": 142,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "更改录屏保存目录，{0}": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingPresentation.swift",
+      "line": 179,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "选择": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingPresentation.swift",
+      "line": 186,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 621,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/MinimalControls.swift",
+      "line": 220,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "最近录屏": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingPresentation.swift",
+      "line": 197,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "录屏完成后在这里查看": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingPresentation.swift",
+      "line": 198,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "录屏": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingStartBar.swift",
+      "line": 10,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Shared/GlobalInput.swift",
+      "line": 17,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 379,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "取消": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingStartBar.swift",
+      "line": 14,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 132,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 31,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 54,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 106,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 144,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "取消录屏选区": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingStartBar.swift",
+      "line": 18,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "Enter 开始": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingStartBar.swift",
+      "line": 21,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "Esc 取消": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingStartBar.swift",
+      "line": 21,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "录制电脑播放的声音；记住本次选择": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingStartBar.swift",
+      "line": 25,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "录制默认麦克风；开始录屏时才请求权限": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingStartBar.swift",
+      "line": 26,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "录屏控制": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingStartBar.swift",
+      "line": 32,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "图标实时读取中断，请重新展开重试。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarDrawer.swift",
+      "line": 141,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "当前系统的隐藏接口暂不可用，已保留全部图标。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarDrawer.swift",
+      "line": 194,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "拖动监听暂不可用；可在下面点击图标收纳。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarDrawer.swift",
+      "line": 197,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "菜单栏抽屉": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarDrawer.swift",
+      "line": 241,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "需要辅助功能权限来读取和操作真实菜单栏图标。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarDrawer.swift",
+      "line": 318,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "原图标读取超时，已保留当前收纳状态；可点击读取图标重试。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarDrawer.swift",
+      "line": 338,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "原图或当前位置尚未确认，已保留菜单栏图标；请重新读取。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarDrawer.swift",
+      "line": 409,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "当前系统暂不支持抽屉隐藏，图标已全部恢复。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarDrawer.swift",
+      "line": 450,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "请先授予辅助功能权限。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarDrawer.swift",
+      "line": 450,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarDrawer.swift",
+      "line": 531,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "原图标暂不可读取，已保留真实菜单栏；可点击读取图标重试。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarDrawer.swift",
+      "line": 474,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "需要屏幕录制权限读取原菜单栏图标；未读到的图标保持显示。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarDrawer.swift",
+      "line": 474,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "系统隐藏响应超时，图标已恢复；可重试。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarDrawer.swift",
+      "line": 491,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "系统未能收纳，图标已恢复；请重试。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarDrawer.swift",
+      "line": 501,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "本次操作未完成，请重试。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarDrawer.swift",
+      "line": 539,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "这个应用的菜单栏入口暂不可读，已保留收纳状态。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarDrawer.swift",
+      "line": 564,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "暂时无法保持菜单栏画面，已保留收纳状态；请检查屏幕录制权限后重试。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarDrawer.swift",
+      "line": 579,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "应用未响应本次操作，已保留收纳状态；可重试。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarDrawer.swift",
+      "line": 625,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "系统恢复收纳超时，已恢复原生入口；请重新收纳。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarDrawer.swift",
+      "line": 634,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "⌘ 拖入图标，收纳在这里": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarDrawer.swift",
+      "line": 747,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarDrawerView.swift",
+      "line": 30,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarShelfDashboard.swift",
+      "line": 74,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "点击打开 · ⌘ 拖动排序，拖出恢复": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarDrawer.swift",
+      "line": 747,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarShelfDashboard.swift",
+      "line": 74,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "请在系统设置中授权辅助功能，返回后重试。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarNativeShelf.swift",
+      "line": 107,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "当前系统暂不能收纳，已保留原生图标。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarNativeShelf.swift",
+      "line": 237,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "需要辅助功能权限，原生图标保持显示。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarNativeShelf.swift",
+      "line": 237,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "收纳核验超时，原生图标保持显示。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarNativeShelf.swift",
+      "line": 245,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "未确认全部菜单栏位置，原生图标保持显示。请重试。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarNativeShelf.swift",
+      "line": 251,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "系统未能收纳，原生图标保持显示。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarNativeShelf.swift",
+      "line": 268,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "系统收纳影响了保留图标，已恢复全部显示。请重试。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarNativeShelf.swift",
+      "line": 277,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "请先在系统设置中授予辅助功能权限。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarNativeShelf.swift",
+      "line": 475,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "读取应用超时，已保留收纳名单。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarNativeShelf.swift",
+      "line": 480,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "请先授权辅助功能；原生图标保持显示。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarNativeShelf.swift",
+      "line": 535,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "未确认苹果位置，原生图标保持显示；请重试。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarNativeShelf.swift",
+      "line": 539,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "未确认当前屏幕的菜单栏，原生图标保持显示。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarNativeShelf.swift",
+      "line": 542,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "位置读取超时，原生图标保持显示；请重试。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarNativeShelf.swift",
+      "line": 550,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "未读到稳定位置，原生图标保持显示；请重试。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarNativeShelf.swift",
+      "line": 564,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "按住 Command，把应用图标拖到我们的苹果左侧，松手自动收纳；拖到右侧保持常驻。悬停苹果展开原生图标，移开后自动收起。同一应用的多个图标请放在同一侧。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarNativeShelfDashboard.swift",
+      "line": 29,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "同一应用的多个图标请放在同一侧；单击、双击仍由原应用处理。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarNativeShelfDashboard.swift",
+      "line": 30,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "需要辅助功能权限，授权后即可使用菜单栏收纳。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarNativeShelfDashboard.swift",
+      "line": 44,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "授权辅助功能": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarNativeShelfDashboard.swift",
+      "line": 48,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "重试": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarNativeShelfDashboard.swift",
+      "line": 48,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "全部显示": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarShelfDashboard.swift",
+      "line": 17,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "收纳": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarShelfDashboard.swift",
+      "line": 18,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "展开后 10 秒自动收起": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarShelfDashboard.swift",
+      "line": 19,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "读取图标": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarShelfDashboard.swift",
+      "line": 22,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "打开抽屉": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarShelfDashboard.swift",
+      "line": 23,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "苹果下面，放下不常用的图标": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarShelfDashboard.swift",
+      "line": 24,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "悬停苹果展开 · 按住 ⌘ 拖入收纳，拖出恢复 · 抽屉内左右换位置": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarShelfDashboard.swift",
+      "line": 25,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "收纳在抽屉": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarShelfDashboard.swift",
+      "line": 26,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "留在菜单栏": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarShelfDashboard.swift",
+      "line": 27,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "点击收纳 · 或按住 ⌘ 拖到上方": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarShelfDashboard.swift",
+      "line": 75,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "开启模块后，从顶部苹果进入。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarShelfDashboard.swift",
+      "line": 84,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在更新收纳…": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarShelfDashboard.swift",
+      "line": 84,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "图标按应用收纳 · 顺序自动保存": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarShelfDashboard.swift",
+      "line": 84,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "按住 ⌘ 将图标拖到收纳箭头左侧，再点击收纳。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarShelfDashboard.swift",
+      "line": 84,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "展开抽屉时实时显示原生图标，收起后停止取图。\n⌘ 拖动排序，拖出恢复；系统图标和苹果入口保留。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarShelfDashboard.swift",
+      "line": 85,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "当前系统使用原生菜单栏分隔方式；抽屉拖入功能需要 macOS 27。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarShelfDashboard.swift",
+      "line": 85,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "按住 ⌘，把竖线放在收纳箭头左侧，再试一次。": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarShelfModule.swift",
+      "line": 101,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "菜单栏收纳": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarShelfModule.swift",
+      "line": 120,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/ToolboxWindowController.swift",
+      "line": 17,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "点击收起／展开 · 按住 ⌘ 拖动图标分组": [
+    {
+      "file": "Sources/MacOSX/MenuBarShelf/MenuBarShelfModule.swift",
+      "line": 122,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "标题与内容": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 108,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "点左侧常用位置进行编辑；全部提示词可搜索、分配到常用位置。": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 109,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "常用": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 125,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "全部": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 126,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "删除": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 128,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "导出 JSON": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 130,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "导入 JSON": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 131,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 596,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 610,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "格式": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 133,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "预览": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 134,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "轮盘": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 138,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 163,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 167,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "清单": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 139,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 163,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 167,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "从提示词库删除选中内容": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 156,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "删除内容及常用位置；可撤销最近一次删除": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 156,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "撤销最近一次删除": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 157,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "导出完整提示词库 JSON": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 157,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "撤销最近一次删除（非输入文字时可按 ⌘Z）": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 158,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "导出完整库、常用位置和草稿；JSON 上限 4 MB": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 159,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "提示词展示样式": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 165,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "轮盘常用数量": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 173,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "清单常用数量": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 173,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "0：仅搜索；减少数量不会删除提示词": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 175,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "复制给 AI 使用的 JSON 协议": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 180,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "复制 AI 导入格式": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 180,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "新增提示词": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 181,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "此位置的提示词": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 183,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "转盘位置": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 184,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "标题": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 185,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "提示词标题": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 186,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "提示词内容": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 189,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "搜索标题": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 192,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/SettingsGuideView.swift",
+      "line": 23,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "搜索库中提示词": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 192,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "全部提示词": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 195,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "提示词唤起快捷键": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 210,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "拖到常用位置；已有位置可互换。": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 240,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 323,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "+ 新建": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 244,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "空位": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 326,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "未命名": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 327,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 523,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 541,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelPanel.swift",
+      "line": 13,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "仅搜索": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 329,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "位置 {0}": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 330,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "先完成文字输入，再调整位置": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 403,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已放到位置 {0}": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 418,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "拖到常用位置；松开完成，Esc 取消": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 429,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "提示词库超过 4 MB": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 456,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 464,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 517,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSXCore/PromptCollection.swift",
+      "line": 76,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "提示词库最多 500 条": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 460,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSXCore/PromptCollection.swift",
+      "line": 143,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已删除；可撤销最近一次删除": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 477,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已恢复到库中；常用位置保持当前内容": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 491,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已恢复内容与原位置": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 491,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "提示词.json": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 572,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "导出": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 572,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已导出 {0} 条，包含常用位置和草稿": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 584,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "无法保存 JSON 文件": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 585,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "AI 导入格式已复制": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 591,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已导入 {0} 条": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 597,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "选择 JSON 文件": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 602,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "粘贴 JSON": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 602,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "剪贴板没有 JSON": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 614,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在读取 JSON…": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 635,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "无法读取 JSON 文件": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 646,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "JSON 超过 4 MB": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 651,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSXCore/PromptCollection.swift",
+      "line": 20,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在校验 JSON…": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 654,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "确认导入": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 662,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "{0} 条 · 新增 {1} · 更新 {2} · 转盘位置 {3} 个": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelModule.swift",
+      "line": 667,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "位置 {0}：{1}": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelPanel.swift",
+      "line": 92,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelPanel.swift",
+      "line": 444,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "提示词库": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelPanel.swift",
+      "line": 159,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelPanel.swift",
+      "line": 306,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Shared/GlobalInput.swift",
+      "line": 13,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/ToolboxWindowController.swift",
+      "line": 15,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "Enter 复制": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelPanel.swift",
+      "line": 258,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "无匹配": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelPanel.swift",
+      "line": 260,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "搜索提示词标题": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelPanel.swift",
+      "line": 309,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "提示词内容预览": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelPanel.swift",
+      "line": 315,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已选提示词": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelPanel.swift",
+      "line": 318,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "+ 空位置": [
+    {
+      "file": "Sources/MacOSX/PhraseWheel/PhraseWheelPanel.swift",
+      "line": 440,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "显示 / 隐藏": [
+    {
+      "file": "Sources/MacOSX/Shared/GlobalInput.swift",
+      "line": 18,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "左半屏": [
+    {
+      "file": "Sources/MacOSX/Shared/GlobalInput.swift",
+      "line": 19,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 293,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 380,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSXCore/WindowLayoutGeometry.swift",
+      "line": 7,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "右半屏": [
+    {
+      "file": "Sources/MacOSX/Shared/GlobalInput.swift",
+      "line": 19,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 293,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 380,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSXCore/WindowLayoutGeometry.swift",
+      "line": 7,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "上半屏": [
+    {
+      "file": "Sources/MacOSX/Shared/GlobalInput.swift",
+      "line": 19,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 293,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 380,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSXCore/WindowLayoutGeometry.swift",
+      "line": 7,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "下半屏": [
+    {
+      "file": "Sources/MacOSX/Shared/GlobalInput.swift",
+      "line": 19,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 293,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 380,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSXCore/WindowLayoutGeometry.swift",
+      "line": 7,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "快捷键监听不可用，请重新打开应用": [
+    {
+      "file": "Sources/MacOSX/Shared/GlobalInput.swift",
+      "line": 242,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Shared/GlobalInput.swift",
+      "line": 272,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "快捷键已被占用，请换一个": [
+    {
+      "file": "Sources/MacOSX/Shared/GlobalInput.swift",
+      "line": 248,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "快捷键存在排他登记占用，请换一个": [
+    {
+      "file": "Sources/MacOSX/Shared/GlobalInput.swift",
+      "line": 282,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "暂时无法核对快捷键，请重试": [
+    {
+      "file": "Sources/MacOSX/Shared/GlobalInput.swift",
+      "line": 282,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "打开 macos-x": [
+    {
+      "file": "Sources/MacOSX/Shared/MenuBarController.swift",
+      "line": 21,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "macos-x · 双击打开，右键菜单": [
+    {
+      "file": "Sources/MacOSX/Shared/MenuBarController.swift",
+      "line": 44,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "macos-x，双击打开主界面，右键打开菜单": [
+    {
+      "file": "Sources/MacOSX/Shared/MenuBarController.swift",
+      "line": 45,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "快捷键监听失败 · 当前使用原生 ⌘Tab": [
+    {
+      "file": "Sources/MacOSX/Shared/ModuleCoordinator.swift",
+      "line": 57,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "唤起": [
+    {
+      "file": "Sources/MacOSX/Shared/ModuleCoordinator.swift",
+      "line": 191,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "请重试": [
+    {
+      "file": "Sources/MacOSX/Shared/ModuleCoordinator.swift",
+      "line": 203,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "暂时隐藏或显示桌面的全部贴图，不会删除图片。": [
+    {
+      "file": "Sources/MacOSX/Shared/ModuleCoordinator.swift",
+      "line": 210,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "框选或标注时固定当前区域；其他时候贴出剪贴板内容。": [
+    {
+      "file": "Sources/MacOSX/Shared/ModuleCoordinator.swift",
+      "line": 211,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "功能": [
+    {
+      "file": "Sources/MacOSX/Shared/ModuleCoordinator.swift",
+      "line": 286,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "允许辅助功能": [
+    {
+      "file": "Sources/MacOSX/Shared/ModuleCoordinator.swift",
+      "line": 287,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "屏幕权限": [
+    {
+      "file": "Sources/MacOSX/Shared/ModuleCoordinator.swift",
+      "line": 288,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "启用{0}": [
+    {
+      "file": "Sources/MacOSX/Shared/ModuleCoordinator.swift",
+      "line": 294,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/ToolCard.swift",
+      "line": 367,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "请使用 F1–F20，或 Control / Command 组合键": [
+    {
+      "file": "Sources/MacOSX/Shared/ShortcutSettings.swift",
+      "line": 22,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "与“{0}”重复": [
+    {
+      "file": "Sources/MacOSX/Shared/ShortcutSettings.swift",
+      "line": 24,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "请用 Option 双击或组合键，避免听写冲突": [
+    {
+      "file": "Sources/MacOSX/Shared/ShortcutSettings.swift",
+      "line": 29,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "这是系统或应用常用组合，请换一个": [
+    {
+      "file": "Sources/MacOSX/Shared/ShortcutSettings.swift",
+      "line": 34,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "与系统强制退出快捷键冲突": [
+    {
+      "file": "Sources/MacOSX/Shared/ShortcutSettings.swift",
+      "line": 37,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "暂时无法检查系统快捷键，请重试": [
+    {
+      "file": "Sources/MacOSX/Shared/ShortcutSettings.swift",
+      "line": 41,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "与系统快捷键冲突": [
+    {
+      "file": "Sources/MacOSX/Shared/ShortcutSettings.swift",
+      "line": 50,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "点击后按下新快捷键；Escape 取消": [
+    {
+      "file": "Sources/MacOSX/Shared/ShortcutSettings.swift",
+      "line": 72,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "编辑快捷键": [
+    {
+      "file": "Sources/MacOSX/Shared/ShortcutSettings.swift",
+      "line": 73,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "按键…": [
+    {
+      "file": "Sources/MacOSX/Shared/ShortcutSettings.swift",
+      "line": 80,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "按下快捷键…": [
+    {
+      "file": "Sources/MacOSX/Shared/ShortcutSettings.swift",
+      "line": 80,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "键 {0}": [
+    {
+      "file": "Sources/MacOSX/Shared/ShortcutSettings.swift",
+      "line": 110,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "双击右 Option": [
+    {
+      "file": "Sources/MacOSX/Shared/ShortcutSettings.swift",
+      "line": 149,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "双击左 Option": [
+    {
+      "file": "Sources/MacOSX/Shared/ShortcutSettings.swift",
+      "line": 149,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "组合键": [
+    {
+      "file": "Sources/MacOSX/Shared/ShortcutSettings.swift",
+      "line": 149,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "唤起方式": [
+    {
+      "file": "Sources/MacOSX/Shared/ShortcutSettings.swift",
+      "line": 151,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "点击修改；功能键可能需要同时按 Fn，Escape 取消": [
+    {
+      "file": "Sources/MacOSX/Shared/ShortcutSettings.swift",
+      "line": 168,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "设置快捷键…": [
+    {
+      "file": "Sources/MacOSX/Shared/ShortcutSettings.swift",
+      "line": 177,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "{0} · 点击修改；功能键可能需要同时按 Fn，Escape 取消": [
+    {
+      "file": "Sources/MacOSX/Shared/ShortcutSettings.swift",
+      "line": 178,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "等待首次采样": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 7,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 68,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "每 2 秒刷新 · 最近 1 分钟 · 本机读取": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 9,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "曲线每 2 秒 · 硬盘每 30 秒 · 本机读取": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 42,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "开启后显示实时状态与硬盘容量": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 42,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已关闭 · 开启后开始监控": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 55,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在监控": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 60,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "部分数据暂不可用": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 60,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "更新于 ": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 65,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "更新时间不可用": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 65,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 66,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在读取 CPU、内存、网络和硬盘数据": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 70,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "硬盘": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 145,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 177,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "启动磁盘的文件系统容量，每 30 秒刷新。已占用包含 APFS 其他卷及快照占用；可用空间不含系统可清理内容，不扫描文件。": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 161,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "可用 ": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 169,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "启动磁盘 · 已占用 ": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 170,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  " / 共 ": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 170,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  " · 空间不足 10%": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 171,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "开启后显示硬盘容量": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 174,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "硬盘容量暂不可用": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 174,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusSampler.swift",
+      "line": 169,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在读取启动磁盘": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 174,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "最近 1 分钟": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 227,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "↓ 下载": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 229,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "↑ 上传": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 230,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "内存": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 239,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "网络": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 239,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "等待数据": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 268,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "监控已关闭": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 268,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "CPU 总负载": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 280,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "建立采样基线": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 282,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "CPU 暂不可用": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 282,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "所有核心的平均负载": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 283,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已用 / 共 ": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 294,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "压缩 ": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 295,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  " · 交换 ": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 295,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "内存数据暂不可用": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 297,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusSampler.swift",
+      "line": 167,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "网络接口不可用": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 312,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "接口 ": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 312,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  " · 建立网速基线": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 313,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "网络数据暂不可用": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 320,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "开启后显示实时曲线": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 329,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "暂无有效曲线": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 329,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "等待采样形成曲线": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 329,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 454,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "下载 ": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 332,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "上传 ": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 333,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "最近一分钟趋势，最大刻度 {0}，最多 {1} 个采样点": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 463,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "−60 秒": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 482,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "现在": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 483,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "CPU 数据暂不可用": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusSampler.swift",
+      "line": 166,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "网络主接口暂不可用": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusSampler.swift",
+      "line": 168,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "选项列表": [
+    {
+      "file": "Sources/MacOSX/UI/MinimalControls.swift",
+      "line": 292,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "搜索选项": [
+    {
+      "file": "Sources/MacOSX/UI/MinimalControls.swift",
+      "line": 298,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已添加 · 拖动调整首页顺序": [
+    {
+      "file": "Sources/MacOSX/UI/ModuleCatalogView.swift",
+      "line": 10,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/ModuleCatalogView.swift",
+      "line": 36,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "可添加": [
+    {
+      "file": "Sources/MacOSX/UI/ModuleCatalogView.swift",
+      "line": 11,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/ModuleCatalogView.swift",
+      "line": 37,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "移除保留设置和内容 · 功能设置从首页进入": [
+    {
+      "file": "Sources/MacOSX/UI/ModuleCatalogView.swift",
+      "line": 12,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已添加 · 暂无，选择下方功能开始": [
+    {
+      "file": "Sources/MacOSX/UI/ModuleCatalogView.swift",
+      "line": 36,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "全部功能已添加": [
+    {
+      "file": "Sources/MacOSX/UI/ModuleCatalogView.swift",
+      "line": 37,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "− 移除": [
+    {
+      "file": "Sources/MacOSX/UI/ModuleCatalogView.swift",
+      "line": 107,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "＋ 添加": [
+    {
+      "file": "Sources/MacOSX/UI/ModuleCatalogView.swift",
+      "line": 107,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "前移{0}": [
+    {
+      "file": "Sources/MacOSX/UI/ModuleCatalogView.swift",
+      "line": 109,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "后移{0}": [
+    {
+      "file": "Sources/MacOSX/UI/ModuleCatalogView.swift",
+      "line": 110,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "拖动调整首页位置，也可用左右按钮或方向键": [
+    {
+      "file": "Sources/MacOSX/UI/ModuleCatalogView.swift",
+      "line": 116,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "点击添加按钮加入首页": [
+    {
+      "file": "Sources/MacOSX/UI/ModuleCatalogView.swift",
+      "line": 116,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "白光边缘": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 61,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 331,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "无边缘": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 61,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 331,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "晾衣杆": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 167,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 379,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "收纳图片 · 顶部悬停查看": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 168,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "收纳当前选区、选中的贴图或剪贴板图片；顶部悬停查看。左右键选择，⌘C 复制，⌘⌫ 删除，Esc 收起。": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 176,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "截图晾衣杆：将图片收纳到屏幕顶部": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 177,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "晾衣杆收纳快捷键": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 178,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "⌘T 提取文字": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 239,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "框选后 Enter 开始录屏": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 239,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "截图 · 指向窗口吸附": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 327,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "贴图 · 白光边缘": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 327,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "录屏 · 框选后 Enter": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 327,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "贴图显示白光边缘": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 333,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "贴图不显示边缘": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 333,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "贴图：{0}": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 333,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "两行 · 分页": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 340,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/SettingsGuideView.swift",
+      "line": 20,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/WindowSwitcherModule.swift",
+      "line": 81,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "全部 · 滚动": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 340,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/SettingsGuideView.swift",
+      "line": 20,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/WindowSwitcherModule.swift",
+      "line": 81,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "显示／隐藏贴图": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 379,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "窗口切换": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 381,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/ToolboxWindowController.swift",
+      "line": 14,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/SwitcherPanel.swift",
+      "line": 56,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/SwitcherPanel.swift",
+      "line": 175,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "提示词": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 382,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "吸附窗口": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsGuideView.swift",
+      "line": 17,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "贴图白光": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsGuideView.swift",
+      "line": 17,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "区域录屏": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsGuideView.swift",
+      "line": 17,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "截图时指向窗口可吸附；贴图边缘可选；录屏先框选，再确认开始，再用同一快捷键结束。": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsGuideView.swift",
+      "line": 18,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "两行显示页数；全部可滚动。Tab / 方向键选择，松开 ⌘ 切换；下方显示窗口总数。": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsGuideView.swift",
+      "line": 21,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "常用位置": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsGuideView.swift",
+      "line": 23,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "复制内容": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsGuideView.swift",
+      "line": 23,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "下方是真实布局预览，点击位置编辑标题与内容；呼出后 ↑↓ 选择，Enter 复制。": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsGuideView.swift",
+      "line": 24,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "返回首页": [
+    {
+      "file": "Sources/MacOSX/UI/SketchIcons.swift",
+      "line": 149,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/SketchIcons.swift",
+      "line": 149,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "检查更新": [
+    {
+      "file": "Sources/MacOSX/UI/SketchIcons.swift",
+      "line": 152,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/SketchIcons.swift",
+      "line": 152,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/UI/SketchIcons.swift",
+      "line": 197,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 31,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "有新版本 · 点击更新": [
+    {
+      "file": "Sources/MacOSX/UI/SketchIcons.swift",
+      "line": 197,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "关闭窗口": [
+    {
+      "file": "Sources/MacOSX/UI/SketchIcons.swift",
+      "line": 211,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "最小化窗口": [
+    {
+      "file": "Sources/MacOSX/UI/SketchIcons.swift",
+      "line": 211,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "全屏窗口": [
+    {
+      "file": "Sources/MacOSX/UI/SketchIcons.swift",
+      "line": 211,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "移除": [
+    {
+      "file": "Sources/MacOSX/UI/ModuleCatalogView.swift",
+      "line": 1,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "移除{0}，保留设置": [
+    {
+      "file": "Sources/MacOSX/UI/ToolCard.swift",
+      "line": 25,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已关闭": [
+    {
+      "file": "Sources/MacOSX/UI/ToolCard.swift",
+      "line": 66,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "开启": [
+    {
+      "file": "Sources/MacOSX/UI/ToolCard.swift",
+      "line": 1,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "打开{0}设置": [
+    {
+      "file": "Sources/MacOSX/UI/ToolCard.swift",
+      "line": 398,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "截图录屏": [
+    {
+      "file": "Sources/MacOSX/UI/ToolboxWindowController.swift",
+      "line": 13,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "窗口布局": [
+    {
+      "file": "Sources/MacOSX/UI/ToolboxWindowController.swift",
+      "line": 16,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "系统状态": [
+    {
+      "file": "Sources/MacOSX/UI/ToolboxWindowController.swift",
+      "line": 18,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "功能池": [
+    {
+      "file": "Sources/MacOSX/UI/ToolboxWindowController.swift",
+      "line": 301,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "编辑功能": [
+    {
+      "file": "Sources/MacOSX/UI/ToolboxWindowController.swift",
+      "line": 307,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "Tab 选择 · Shift 反向 · 松开 Command 确认": [
+    {
+      "file": "Sources/MacOSX/UI/ToolboxWindowController.swift",
+      "line": 339,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "更新详情，长内容可滚动并复制": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdatePanel.swift",
+      "line": 85,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "自动检查更新": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 22,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "安装前仍由你确认": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 22,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "允许": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 22,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "手动检查": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 22,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "更新说明": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 46,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "查看": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 46,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "重要更新": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 53,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "有新版本": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 53,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "安装并重启": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 54,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 144,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "更新": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 54,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "稍后": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 54,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已是最新版本": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 73,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "无需更新": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 76,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "需要更新 macOS": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 79,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "当前系统不支持此版本": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 80,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "暂无兼容更新": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 83,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "当前 Mac 不支持此版本": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 84,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "未找到可用更新": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 86,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "好": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 89,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 99,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 163,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "网络连接失败，请稍后重试": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 97,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "更新失败": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 99,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在下载": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 106,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "准备安装": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 134,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "更新已就绪": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 144,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在安装": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 154,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "重试退出": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 155,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "更新完成": [
+    {
+      "file": "Sources/MacOSX/Updates/UpdateUserDriver.swift",
+      "line": 163,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "需要辅助功能权限": [
+    {
+      "file": "Sources/MacOSX/WindowLayout/WindowLayoutModule.swift",
+      "line": 33,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "请先允许辅助功能权限": [
+    {
+      "file": "Sources/MacOSX/WindowLayout/WindowLayoutModule.swift",
+      "line": 114,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "当前窗口不支持调整": [
+    {
+      "file": "Sources/MacOSX/WindowLayout/WindowLayoutModule.swift",
+      "line": 117,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/WindowLayout/WindowLayoutModule.swift",
+      "line": 123,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "当前窗口没有可恢复的大小": [
+    {
+      "file": "Sources/MacOSX/WindowLayout/WindowLayoutModule.swift",
+      "line": 131,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "应用未接受窗口调整，请重试": [
+    {
+      "file": "Sources/MacOSX/WindowLayout/WindowLayoutModule.swift",
+      "line": 150,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "拖到边缘，松手落位": [
+    {
+      "file": "Sources/MacOSX/WindowLayout/WindowLayoutModule.swift",
+      "line": 157,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "左、右、上、下边缘：对应半屏\n四个角：四分之一屏　·　预览出现后松手": [
+    {
+      "file": "Sources/MacOSX/WindowLayout/WindowLayoutModule.swift",
+      "line": 159,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "上一页窗口": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/SwitcherPanel.swift",
+      "line": 70,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "下一页窗口": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/SwitcherPanel.swift",
+      "line": 70,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "共 {0} 个窗口 · 当前 {1}": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/SwitcherPanel.swift",
+      "line": 88,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  " · 滚动查看更多": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/SwitcherPanel.swift",
+      "line": 88,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "共 {0} 个窗口 · 第 {1} / {2} 页": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/SwitcherPanel.swift",
+      "line": 94,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  " · Tab 继续切换": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/SwitcherPanel.swift",
+      "line": 94,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已选中": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/SwitcherPanel.swift",
+      "line": 195,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "最小化": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/SwitcherPanel.swift",
+      "line": 238,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "隐藏": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/SwitcherPanel.swift",
+      "line": 238,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "未显示": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/SwitcherPanel.swift",
+      "line": 238,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "应用": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/WindowInventory.swift",
+      "line": 304,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "启用后即可使用 Command + Tab 切换窗口": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/WindowSwitcherModule.swift",
+      "line": 40,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "⌘Tab 监听已就绪 · 松开 ⌘ 确认 · Esc 取消": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/WindowSwitcherModule.swift",
+      "line": 42,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "辅助功能未生效 · 请检查系统授权后重试": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/WindowSwitcherModule.swift",
+      "line": 43,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "实际预览": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/WindowSwitcherModule.swift",
+      "line": 72,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "窗口缩略图": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/WindowSwitcherModule.swift",
+      "line": 76,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/WindowSwitcherModule.swift",
+      "line": 77,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "窗口展示方式": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/WindowSwitcherModule.swift",
+      "line": 84,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "展示方式": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/WindowSwitcherModule.swift",
+      "line": 85,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "系统窗口映射不可用；当前使用 macOS 原生切换": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/WindowSwitcherModule.swift",
+      "line": 104,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/WindowSwitcherModule.swift",
+      "line": 349,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在准备窗口列表…": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/WindowSwitcherModule.swift",
+      "line": 111,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "窗口切换已停用": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/WindowSwitcherModule.swift",
+      "line": 128,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "此窗口未能切换；请重试或使用原生切换": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/WindowSwitcherModule.swift",
+      "line": 170,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "窗口列表尚未就绪": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/WindowSwitcherModule.swift",
+      "line": 204,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "缩略图需要屏幕权限，仍可用图标切换。": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/WindowSwitcherModule.swift",
+      "line": 310,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "可切换窗口不足两个 · 当前使用原生 ⌘Tab": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/WindowSwitcherModule.swift",
+      "line": 350,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "窗口列表已就绪 · 快捷键监听尚未就绪": [
+    {
+      "file": "Sources/MacOSX/WindowSwitcher/WindowSwitcherModule.swift",
+      "line": 375,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "需要 version: 1 和 prompts 数组，每项包含 title、content": [
+    {
+      "file": "Sources/MacOSXCore/PromptCollection.swift",
+      "line": 23,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "仅支持 version: 1": [
+    {
+      "file": "Sources/MacOSXCore/PromptCollection.swift",
+      "line": 24,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "每次导入最多 500 条": [
+    {
+      "file": "Sources/MacOSXCore/PromptCollection.swift",
+      "line": 25,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "标题和内容不能为空；导出的草稿须保留 id 和 draft: true": [
+    {
+      "file": "Sources/MacOSXCore/PromptCollection.swift",
+      "line": 30,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "id 不能为空、重复或超过 64 字节": [
+    {
+      "file": "Sources/MacOSXCore/PromptCollection.swift",
+      "line": 32,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "slot 必须是 1–10，且不能重复": [
+    {
+      "file": "Sources/MacOSXCore/PromptCollection.swift",
+      "line": 34,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "{\"version\":1,\"prompts\":[\n  {\"id\":\"summary\",\"title\":\"总结\",\"content\":\"请总结以下内容：\",\"slot\":1},\n  {\"id\":\"rewrite\",\"title\":\"润色\",\"content\":\"请保留原意，简洁自然地润色以下文字：\"}\n]}": [
+    {
+      "file": "Sources/MacOSXCore/PromptCollection.swift",
+      "line": 38,
+      "raw": false,
+      "multiline": true
+    }
+  ],
+  "请把我的提示词整理成纯 JSON，不要 Markdown 代码块。协议：根对象 version 为 1，prompts 为数组；每项 title 是简短标题，content 是完整内容（字符串换行用 \\n）。可选 id 为稳定且唯一的字符串，用于再次导入时更新同一条；省略 id 时按相同标题和内容去重。可选 slot 为 1–10，表示转盘位置，从正上方开始顺时针；省略 slot 仅加入可搜索的库。一次最多 500 条，标题最多 64 字，内容最多 16384 字 / 64 KiB，整个 JSON 最多 4 MB。同一次导入 id 和 slot 均不能重复。\n示例：\n{0}": [
+    {
+      "file": "Sources/MacOSXCore/PromptCollection.swift",
+      "line": 44,
+      "raw": false,
+      "multiline": true
+    }
+  ],
+  "标题最多 64 字，内容最多 16384 字 / 64 KiB": [
+    {
+      "file": "Sources/MacOSXCore/PromptCollection.swift",
+      "line": 68,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "提示词库最多 500 条，转盘固定 10 个位置": [
+    {
+      "file": "Sources/MacOSXCore/PromptCollection.swift",
+      "line": 71,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "提示词 id 无效或重复": [
+    {
+      "file": "Sources/MacOSXCore/PromptCollection.swift",
+      "line": 73,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "转盘位置引用无效": [
+    {
+      "file": "Sources/MacOSXCore/PromptCollection.swift",
+      "line": 75,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "相同 id 的提示词已存在，不能覆盖": [
+    {
+      "file": "Sources/MacOSXCore/PromptCollection.swift",
+      "line": 110,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "导出 JSON 超过 4 MB": [
+    {
+      "file": "Sources/MacOSXCore/PromptCollection.swift",
+      "line": 130,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "总结": [
+    {
+      "file": "Sources/MacOSXCore/PromptLibrary.swift",
+      "line": 32,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "请总结以下内容，保留关键结论、依据和待办事项：\n\n": [
+    {
+      "file": "Sources/MacOSXCore/PromptLibrary.swift",
+      "line": 32,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "润色": [
+    {
+      "file": "Sources/MacOSXCore/PromptLibrary.swift",
+      "line": 33,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "请在保留原意的前提下润色以下文字，使表达清晰、简洁、自然。只输出修改后的内容：\n\n": [
+    {
+      "file": "Sources/MacOSXCore/PromptLibrary.swift",
+      "line": 33,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "翻译": [
+    {
+      "file": "Sources/MacOSXCore/PromptLibrary.swift",
+      "line": 34,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "请将以下内容翻译成中文，保留专有名词、结构和原意：\n\n": [
+    {
+      "file": "Sources/MacOSXCore/PromptLibrary.swift",
+      "line": 34,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "提取待办": [
+    {
+      "file": "Sources/MacOSXCore/PromptLibrary.swift",
+      "line": 35,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "请从以下内容中提取待办事项，列出负责人和时间；未明确的信息标注为待确认：\n\n": [
+    {
+      "file": "Sources/MacOSXCore/PromptLibrary.swift",
+      "line": 35,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "邮件回复": [
+    {
+      "file": "Sources/MacOSXCore/PromptLibrary.swift",
+      "line": 36,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "请根据以下内容起草一封简洁、礼貌的回复，不补充未经确认的事实：\n\n": [
+    {
+      "file": "Sources/MacOSXCore/PromptLibrary.swift",
+      "line": 36,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "左 Option": [
+    {
+      "file": "Sources/MacOSXCore/ShortcutBinding.swift",
+      "line": 31,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "右 Option": [
+    {
+      "file": "Sources/MacOSXCore/ShortcutBinding.swift",
+      "line": 31,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "左 Control": [
+    {
+      "file": "Sources/MacOSXCore/ShortcutBinding.swift",
+      "line": 31,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "右 Control": [
+    {
+      "file": "Sources/MacOSXCore/ShortcutBinding.swift",
+      "line": 31,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "双击 ": [
+    {
+      "file": "Sources/MacOSXCore/ShortcutBinding.swift",
+      "line": 32,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "修饰键": [
+    {
+      "file": "Sources/MacOSXCore/ShortcutBinding.swift",
+      "line": 32,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "采样时间无效": [
+    {
+      "file": "Sources/MacOSXCore/SystemStatusMetrics.swift",
+      "line": 155,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "最大化": [
+    {
+      "file": "Sources/MacOSXCore/WindowLayoutGeometry.swift",
+      "line": 8,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "恢复原大小": [
+    {
+      "file": "Sources/MacOSXCore/WindowLayoutGeometry.swift",
+      "line": 8,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "左上角": [
+    {
+      "file": "Sources/MacOSXCore/WindowLayoutGeometry.swift",
+      "line": 9,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "右上角": [
+    {
+      "file": "Sources/MacOSXCore/WindowLayoutGeometry.swift",
+      "line": 9,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "左下角": [
+    {
+      "file": "Sources/MacOSXCore/WindowLayoutGeometry.swift",
+      "line": 9,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "右下角": [
+    {
+      "file": "Sources/MacOSXCore/WindowLayoutGeometry.swift",
+      "line": 9,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "快捷键": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 1,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "添加": [
+    {
+      "file": "Sources/MacOSX/UI/ModuleCatalogView.swift",
+      "line": 1,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已添加": [
+    {
+      "file": "Sources/MacOSX/UI/ModuleCatalogView.swift",
+      "line": 1,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "未添加": [
+    {
+      "file": "Sources/MacOSX/UI/ModuleCatalogView.swift",
+      "line": 1,
+      "raw": false,
+      "multiline": false
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 
 /// This page uses the same actionable drawer as the status-item entry, rather
@@ -14,17 +15,17 @@ import AppKit
     var onPreview: (() -> Void)?
     let drawer = MenuBarDrawerView(frame: .zero)
     let visible = MenuBarDrawerView(frame: .zero)
-    let expanded = MinimalButton(title: "全部显示", target: nil, action: nil)
-    let collapsed = MinimalButton(title: "收纳", target: nil, action: nil)
-    let automatic = MinimalToggle(title: "展开后 10 秒自动收起", target: nil, action: nil)
+    let expanded = MinimalButton(title: AppLanguage.text("全部显示"), target: nil, action: nil)
+    let collapsed = MinimalButton(title: AppLanguage.text("收纳"), target: nil, action: nil)
+    let automatic = MinimalToggle(title: AppLanguage.text("展开后 10 秒自动收起"), target: nil, action: nil)
     private let drawerScroll = NSScrollView()
     private let visibleScroll = NSScrollView()
-    private let refresh = MinimalButton(title: "读取图标", target: nil, action: nil)
-    private let preview = MinimalButton(title: "打开抽屉", target: nil, action: nil)
-    private let heading = NSTextField(labelWithString: "苹果下面，放下不常用的图标")
-    private let instruction = NSTextField(wrappingLabelWithString: "悬停苹果展开 · 按住 ⌘ 拖入收纳，拖出恢复 · 抽屉内左右换位置")
-    private let drawerLabel = NSTextField(labelWithString: "收纳在抽屉")
-    private let visibleLabel = NSTextField(labelWithString: "留在菜单栏")
+    private let refresh = MinimalButton(title: AppLanguage.text("读取图标"), target: nil, action: nil)
+    private let preview = MinimalButton(title: AppLanguage.text("打开抽屉"), target: nil, action: nil)
+    private let heading = NSTextField(labelWithString: AppLanguage.text("苹果下面，放下不常用的图标"))
+    private let instruction = NSTextField(wrappingLabelWithString: AppLanguage.text("悬停苹果展开 · 按住 ⌘ 拖入收纳，拖出恢复 · 抽屉内左右换位置"))
+    private let drawerLabel = NSTextField(labelWithString: AppLanguage.text("收纳在抽屉"))
+    private let visibleLabel = NSTextField(labelWithString: AppLanguage.text("留在菜单栏"))
     private let status = NSTextField(wrappingLabelWithString: "")
     private let note = NSTextField(wrappingLabelWithString: "")
     private var native = true
@@ -71,8 +72,8 @@ import AppKit
         // Keep one compact row here. Every item remains reachable through the
         // horizontal scroll views; runtime drawer wraps all saved entries.
         self.drawer.items = drawer; self.visible.items = visible
-        self.drawer.message = drawer.isEmpty ? "⌘ 拖入图标，收纳在这里" : "点击打开 · ⌘ 拖动排序，拖出恢复"
-        self.visible.message = "点击收纳 · 或按住 ⌘ 拖到上方"
+        self.drawer.message = drawer.isEmpty ? AppLanguage.text("⌘ 拖入图标，收纳在这里") : AppLanguage.text("点击打开 · ⌘ 拖动排序，拖出恢复")
+        self.visible.message = AppLanguage.text("点击收纳 · 或按住 ⌘ 拖到上方")
         needsLayout = true
     }
     func update(active: Bool, state: MenuBarShelfModule.State, auto: Bool, issue: String?, count: Int, native: Bool) {
@@ -81,8 +82,8 @@ import AppKit
         expanded.isEnabled = active; collapsed.isEnabled = active && state != .reading
         refresh.isEnabled = active; preview.isEnabled = active && native
         automatic.isHidden = native; automatic.isEnabled = active; automatic.state = auto ? .on : .off
-        status.stringValue = issue ?? (!active ? "开启模块后，从顶部苹果进入。" : state == .reading ? "正在更新收纳…" : native ? "图标按应用收纳 · 顺序自动保存" : "按住 ⌘ 将图标拖到收纳箭头左侧，再点击收纳。")
-        note.stringValue = native ? "展开抽屉时实时显示原生图标，收起后停止取图。\n⌘ 拖动排序，拖出恢复；系统图标和苹果入口保留。" : "当前系统使用原生菜单栏分隔方式；抽屉拖入功能需要 macOS 27。"
+        status.stringValue = issue ?? (!active ? AppLanguage.text("开启模块后，从顶部苹果进入。") : state == .reading ? AppLanguage.text("正在更新收纳…") : native ? AppLanguage.text("图标按应用收纳 · 顺序自动保存") : AppLanguage.text("按住 ⌘ 将图标拖到收纳箭头左侧，再点击收纳。"))
+        note.stringValue = native ? AppLanguage.text("展开抽屉时实时显示原生图标，收起后停止取图。\n⌘ 拖动排序，拖出恢复；系统图标和苹果入口保留。") : AppLanguage.text("当前系统使用原生菜单栏分隔方式；抽屉拖入功能需要 macOS 27。")
         needsLayout = true
     }
     override func draw(_ dirtyRect: NSRect) { SketchPalette.paper.setFill(); dirtyRect.fill() }

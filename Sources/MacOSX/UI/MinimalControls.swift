@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 
 /// Neutral surfaces; AppKit still owns tracking, actions, keyboard activation and accessibility.
@@ -217,7 +218,7 @@ final class MinimalPopUpButton: NSPopUpButton {
     override func draw(_ dirtyRect: NSRect) {
         MinimalSurface.draw(in:bounds,fill:SketchPalette.paper,border:SketchPalette.line.withAlphaComponent(isEnabled ? 0.8 : 0.35))
         let paragraph=NSMutableParagraphStyle(); paragraph.lineBreakMode = .byTruncatingTail
-        let text=NSAttributedString(string:titleOfSelectedItem ?? "选择",attributes:[.font:NSFont.systemFont(ofSize:14),.foregroundColor:isEnabled ? SketchPalette.ink : NSColor.disabledControlTextColor,.paragraphStyle:paragraph])
+        let text=NSAttributedString(string:titleOfSelectedItem ?? AppLanguage.text("选择"),attributes:[.font:NSFont.systemFont(ofSize:14),.foregroundColor:isEnabled ? SketchPalette.ink : NSColor.disabledControlTextColor,.paragraphStyle:paragraph])
         text.draw(in:CGRect(x:10,y:(bounds.height-18)/2,width:max(0,bounds.width-34),height:18))
         let arrow=NSBezierPath(); arrow.move(to:CGPoint(x:bounds.width-23,y:bounds.midY-2)); arrow.line(to:CGPoint(x:bounds.width-18,y:bounds.midY+2)); arrow.line(to:CGPoint(x:bounds.width-13,y:bounds.midY-2))
         SketchPencil.stroke(arrow,color:SketchPalette.muted,width:1.3)
@@ -289,13 +290,13 @@ private final class MinimalFocusObserver {
         table.rowHeight=32; table.intercellSpacing=CGSize(width:0,height:2); table.backgroundColor = .clear
         table.dataSource=self; table.delegate=self; table.target=self; table.action=#selector(clicked)
         table.selectionHighlightStyle = .regular
-        table.setAccessibilityLabel("选项列表")
+        table.setAccessibilityLabel(AppLanguage.text("选项列表"))
         table.frame=CGRect(x:0,y:0,width:width-16,height:CGFloat(items.count)*34)
         table.autoresizingMask=[.width]
         table.tableColumns[0].width=width-20; scroll.documentView=table; surface.addSubview(scroll)
         if searchable {
             search.frame=CGRect(x:10,y:height-36,width:width-20,height:28)
-            search.placeholderString="搜索选项"; search.delegate=self; search.sendsSearchStringImmediately=true
+            search.placeholderString=AppLanguage.text("搜索选项"); search.delegate=self; search.sendsSearchStringImmediately=true
             surface.addSubview(search)
         }
         table.reloadData(); selectInitial()

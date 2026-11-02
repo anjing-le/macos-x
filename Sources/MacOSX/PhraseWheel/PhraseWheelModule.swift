@@ -105,8 +105,8 @@ import MacOSXCore
     private var rows: [Int] = []
     private var pending: PromptImport?
     private var importDropdown:SketchDropdown?
-    private let editorHeading=NSTextField(labelWithString:"标题与内容")
-    private let editorHint=NSTextField(wrappingLabelWithString:"点左侧常用位置进行编辑；全部提示词可搜索、分配到常用位置。")
+    private let editorHeading=NSTextField(labelWithString:AppLanguage.text("标题与内容"))
+    private let editorHint=NSTextField(wrappingLabelWithString:AppLanguage.text("点左侧常用位置进行编辑；全部提示词可搜索、分配到常用位置。"))
     private var loading = false
     private var wasCompact = false
     private let dragContext = PromptDragContext()
@@ -122,21 +122,21 @@ import MacOSXCore
     private var settingsShortcut: NSView?
     private let presentationHost = NSView()
     private var presentationPreview: PromptWheelView?
-    private let wheelTab = MinimalButton(title: "常用", target: nil, action: nil, style: .quiet)
-    private let libraryTab = MinimalButton(title: "全部", target: nil, action: nil, style: .quiet)
+    private let wheelTab = MinimalButton(title: AppLanguage.text("常用"), target: nil, action: nil, style: .quiet)
+    private let libraryTab = MinimalButton(title: AppLanguage.text("全部"), target: nil, action: nil, style: .quiet)
     private let add = MinimalButton(title: "+", target: nil, action: nil, style: .quiet)
-    private let delete = MinimalButton(title: "删除", target: nil, action: nil, style: .quiet)
-    private let undoDelete = MinimalButton(title: "撤销删除", target: nil, action: nil, style: .quiet)
-    private let exporter = MinimalButton(title: "导出 JSON", target: nil, action: nil, style: .quiet)
-    private let importer = MinimalButton(title: "导入 JSON", target: nil, action: nil, style: .quiet)
-    private let cancelImport = MinimalButton(title: "取消", target: nil, action: nil, style: .quiet)
-    private let format = MinimalButton(title: "格式", target: nil, action: nil, style: .quiet)
-    private let preview = MinimalButton(title: "预览", target: nil, action: nil, style: .quiet)
+    private let delete = MinimalButton(title: AppLanguage.text("删除"), target: nil, action: nil, style: .quiet)
+    private let undoDelete = MinimalButton(title: AppLanguage.text("撤销删除"), target: nil, action: nil, style: .quiet)
+    private let exporter = MinimalButton(title: AppLanguage.text("导出 JSON"), target: nil, action: nil, style: .quiet)
+    private let importer = MinimalButton(title: AppLanguage.text("导入 JSON"), target: nil, action: nil, style: .quiet)
+    private let cancelImport = MinimalButton(title: AppLanguage.text("取消"), target: nil, action: nil, style: .quiet)
+    private let format = MinimalButton(title: AppLanguage.text("格式"), target: nil, action: nil, style: .quiet)
+    private let preview = MinimalButton(title: AppLanguage.text("预览"), target: nil, action: nil, style: .quiet)
     private let displayStyle = MinimalPopUpButton()
     private var styleButtons: [IllustratedSettingChoice] = []
     private let ringCount = MinimalPopUpButton(), listCount = MinimalPopUpButton()
-    private let ringCountLabel = NSTextField(labelWithString: "轮盘")
-    private let listCountLabel = NSTextField(labelWithString: "清单")
+    private let ringCountLabel = NSTextField(labelWithString: AppLanguage.text("轮盘"))
+    private let listCountLabel = NSTextField(labelWithString: AppLanguage.text("清单"))
     private let picker = MinimalPopUpButton()
     private let placement = MinimalPopUpButton()
     private let titleField = SketchTextField()
@@ -153,46 +153,46 @@ import MacOSXCore
         for (button, action) in [(wheelTab,#selector(showWheel)),(libraryTab,#selector(showLibrary)),(add,#selector(addPrompt)),(delete,#selector(deletePrompt)),(undoDelete,#selector(restorePrompt)),(exporter,#selector(exportPressed)),(importer,#selector(importPressed)),(format,#selector(copyFormat)),(cancelImport,#selector(cancelPendingImport)),(preview,#selector(previewPressed))] { button.target = self; button.action = action; addSubview(button) }
         dragContext.owner = self
         dragContext.onEnd = { [weak self] in self?.finishLibraryDrag() }
-        delete.setAccessibilityLabel("从提示词库删除选中内容"); delete.toolTip = "删除内容及常用位置；可撤销最近一次删除"
-        undoDelete.setAccessibilityLabel("撤销最近一次删除"); exporter.setAccessibilityLabel("导出完整提示词库 JSON")
-        undoDelete.toolTip = "撤销最近一次删除（非输入文字时可按 ⌘Z）"
-        exporter.toolTip = "导出完整库、常用位置和草稿；JSON 上限 4 MB"
+        delete.setAccessibilityLabel(AppLanguage.text("从提示词库删除选中内容")); delete.toolTip = AppLanguage.text("删除内容及常用位置；可撤销最近一次删除")
+        undoDelete.setAccessibilityLabel(AppLanguage.text("撤销最近一次删除")); exporter.setAccessibilityLabel(AppLanguage.text("导出完整提示词库 JSON"))
+        undoDelete.toolTip = AppLanguage.text("撤销最近一次删除（非输入文字时可按 ⌘Z）")
+        exporter.toolTip = AppLanguage.text("导出完整库、常用位置和草稿；JSON 上限 4 MB")
         delete.identifier = .init("prompt-delete"); undoDelete.identifier = .init("prompt-undo-delete"); exporter.identifier = .init("prompt-export")
         displayStyle.identifier = .init("prompt-presentation")
         ringCount.identifier = .init("prompt-ring-count"); listCount.identifier = .init("prompt-list-count")
-        displayStyle.addItems(withTitles: ["轮盘", "清单"])
+        displayStyle.addItems(withTitles: [AppLanguage.text("轮盘"), AppLanguage.text("清单")])
         displayStyle.selectItem(at: presentation.style == .ring ? 0 : 1)
-        displayStyle.setAccessibilityLabel("提示词展示样式")
+        displayStyle.setAccessibilityLabel(AppLanguage.text("提示词展示样式"))
         displayStyle.isHidden = true
-        for (index,title) in ["轮盘", "清单"].enumerated() {
+        for (index,title) in [AppLanguage.text("轮盘"), AppLanguage.text("清单")].enumerated() {
             let button = IllustratedSettingChoice(title:title,asset:"",
                 slice:CGRect(x:CGFloat(index)/3,y:0,width:1/3,height:1),target:self,action:#selector(chooseStyle(_:)))
             button.promptList=index == 1; button.tag=index; button.state=index == displayStyle.indexOfSelectedItem ? .on : .off
             styleButtons.append(button); addSubview(button)
         }
-        for (control,label,count) in [(ringCount,"轮盘常用数量",presentation.wheelCount),(listCount,"清单常用数量",presentation.listCount)] {
+        for (control,label,count) in [(ringCount,AppLanguage.text("轮盘常用数量"),presentation.wheelCount),(listCount,AppLanguage.text("清单常用数量"),presentation.listCount)] {
             control.addItems(withTitles: (0...10).map(String.init)); control.selectItem(at: count)
-            control.setAccessibilityLabel(label); control.toolTip = "0：仅搜索；减少数量不会删除提示词"
+            control.setAccessibilityLabel(label); control.toolTip = AppLanguage.text("0：仅搜索；减少数量不会删除提示词")
         }
         for control in [displayStyle,ringCount,listCount] { control.target = self; control.action = #selector(presentationChanged); addSubview(control) }
         for label in [ringCountLabel,listCountLabel] { label.font = .systemFont(ofSize:12); label.textColor = SketchPalette.muted; addSubview(label) }
         cancelImport.isHidden = true
-        format.toolTip = "复制给 AI 使用的 JSON 协议"; format.setAccessibilityLabel("复制 AI 导入格式")
-        add.setAccessibilityLabel("新增提示词")
+        format.toolTip = AppLanguage.text("复制给 AI 使用的 JSON 协议"); format.setAccessibilityLabel(AppLanguage.text("复制 AI 导入格式"))
+        add.setAccessibilityLabel(AppLanguage.text("新增提示词"))
         presentationHost.identifier = .init("prompt-presentation-preview"); addSubview(presentationHost)
-        picker.target = self; picker.action = #selector(pickExisting); picker.setAccessibilityLabel("此位置的提示词")
-        placement.target = self; placement.action = #selector(changePlacement); placement.setAccessibilityLabel("转盘位置")
-        titleField.placeholderString = "标题"; titleField.delegate = self; titleField.isBezeled = false; titleField.drawsBackground = false
-        titleField.font = .systemFont(ofSize:16,weight:.medium); titleField.focusRingType = .none; titleField.setAccessibilityLabel("提示词标题")
+        picker.target = self; picker.action = #selector(pickExisting); picker.setAccessibilityLabel(AppLanguage.text("此位置的提示词"))
+        placement.target = self; placement.action = #selector(changePlacement); placement.setAccessibilityLabel(AppLanguage.text("转盘位置"))
+        titleField.placeholderString = AppLanguage.text("标题"); titleField.delegate = self; titleField.isBezeled = false; titleField.drawsBackground = false
+        titleField.font = .systemFont(ofSize:16,weight:.medium); titleField.focusRingType = .none; titleField.setAccessibilityLabel(AppLanguage.text("提示词标题"))
         body.isRichText = false; body.allowsUndo = true; body.isAutomaticQuoteSubstitutionEnabled = false; body.isAutomaticDashSubstitutionEnabled = false
         body.font = .systemFont(ofSize:15); body.textColor = SketchPalette.ink; body.delegate = self; body.drawsBackground = false; body.textContainerInset = NSSize(width:10,height:10)
-        body.isHorizontallyResizable = false; body.autoresizingMask = [.width]; body.textContainer?.widthTracksTextView = true; body.setAccessibilityLabel("提示词内容")
+        body.isHorizontallyResizable = false; body.autoresizingMask = [.width]; body.textContainer?.widthTracksTextView = true; body.setAccessibilityLabel(AppLanguage.text("提示词内容"))
         scroll.documentView = body; scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.drawsBackground = false
         scroll.wantsLayer = true; scroll.layer?.cornerRadius = 10
-        search.placeholderString = "搜索标题"; search.delegate = self; search.sendsSearchStringImmediately = true; search.setAccessibilityLabel("搜索库中提示词")
+        search.placeholderString = AppLanguage.text("搜索标题"); search.delegate = self; search.sendsSearchStringImmediately = true; search.setAccessibilityLabel(AppLanguage.text("搜索库中提示词"))
         let column = NSTableColumn(identifier: .init("title")); table.addTableColumn(column); table.headerView = nil
         table.dataSource = self; table.delegate = self; table.rowHeight = 32; table.selectionHighlightStyle = .regular; table.backgroundColor = .clear
-        table.setAccessibilityLabel("全部提示词")
+        table.setAccessibilityLabel(AppLanguage.text("全部提示词"))
         table.setDraggingSourceOperationMask(.move, forLocal: true)
         table.setDraggingSourceOperationMask([], forLocal: false)
         listScroll.documentView = table; listScroll.hasVerticalScroller = true; listScroll.autohidesScrollers = true; listScroll.drawsBackground = false
@@ -207,7 +207,7 @@ import MacOSXCore
     func installSettingsShortcut(_ control: NSView) {
         settingsShortcut?.removeFromSuperview(); settingsShortcut = control
         control.removeFromSuperview(); addSubview(control)
-        control.setAccessibilityLabel("提示词唤起快捷键"); needsLayout = true
+        control.setAccessibilityLabel(AppLanguage.text("提示词唤起快捷键")); needsLayout = true
     }
     override func draw(_ dirtyRect: NSRect) {
         SketchPalette.paper.setFill(); bounds.fill()
@@ -237,11 +237,11 @@ import MacOSXCore
         listCount.frame = CGRect(x: countX + 34, y: bounds.height - 58, width: 52, height: 26)
         editorHeading.frame = CGRect(x: editorX, y: bounds.height - 28, width: 100, height: 24)
         editorHint.isHidden = true
-        editorHeading.toolTip = "拖到常用位置；已有位置可互换。"
+        editorHeading.toolTip = AppLanguage.text("拖到常用位置；已有位置可互换。")
         let tabY = bounds.height - 86, leftWidth = editorX - 28
         wheelTab.frame = CGRect(x: 12, y: tabY, width: 54, height: 28)
         libraryTab.frame = CGRect(x: 70, y: tabY, width: 54, height: 28)
-        add.title = "+ 新建"; add.frame = CGRect(x: editorX + 108, y: bounds.height - 30, width: 64, height: 28)
+        add.title = AppLanguage.text("+ 新建"); add.frame = CGRect(x: editorX + 108, y: bounds.height - 30, width: 64, height: 28)
         delete.frame = CGRect(x: editorX + 176, y: bounds.height - 30, width: 54, height: 28)
         undoDelete.frame = CGRect(x: editorX + 232, y: bounds.height - 30, width: 80, height: 28)
         presentationHost.frame = CGRect(x: 12, y: 60, width: leftWidth, height: tabY - 68); layoutPreview()
@@ -320,14 +320,14 @@ import MacOSXCore
         rebuildPreview()
         updateModeVisibility()
         delete.isEnabled = selected != nil; undoDelete.isEnabled = lastDeleted != nil
-        editorHint.stringValue = "拖到常用位置；已有位置可互换。"
+        editorHint.stringValue = AppLanguage.text("拖到常用位置；已有位置可互换。")
         wheelTab.state = libraryMode ? .off : .on; libraryTab.state = libraryMode ? .on : .off
         picker.isHidden = libraryMode; placement.isHidden = !libraryMode
-        picker.removeAllItems(); picker.addItem(withTitle:"空位")
-        for p in collection.prompts { picker.addItem(withTitle:p.title.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty ? "未命名" : p.title) }
+        picker.removeAllItems(); picker.addItem(withTitle:AppLanguage.text("空位"))
+        for p in collection.prompts { picker.addItem(withTitle:p.title.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty ? AppLanguage.text("未命名") : p.title) }
         picker.selectItem(at: selected.map { $0+1 } ?? 0)
-        placement.removeAllItems(); placement.addItem(withTitle:"仅搜索")
-        for i in 0..<10 { placement.addItem(withTitle:"位置 \(i+1)") }
+        placement.removeAllItems(); placement.addItem(withTitle:AppLanguage.text("仅搜索"))
+        for i in 0..<10 { placement.addItem(withTitle:AppLanguage.text("位置 {0}", String(describing: (i+1)))) }
         let slot = selected.flatMap { collection.slots.firstIndex(of:collection.prompts[$0].id) }
         placement.selectItem(at:slot.map { $0+1 } ?? 0)
         filterRows(); needsLayout = true
@@ -400,7 +400,7 @@ import MacOSXCore
     private func dropPrompt(_ payload: PromptDragContext.Payload, to slot: Int) -> Bool {
         if let window, !window.makeFirstResponder(nil) { return false }
         guard !body.hasMarkedText(), (titleField.currentEditor() as? NSTextView)?.hasMarkedText() != true else {
-            status.stringValue = "先完成文字输入，再调整位置"; return false
+            status.stringValue = AppLanguage.text("先完成文字输入，再调整位置"); return false
         }
         changed()
         var candidate = collection
@@ -415,7 +415,7 @@ import MacOSXCore
         guard applySlots(candidate.slots) else { return false }
         selectedSlot = slot; selected = collection.prompts.firstIndex { $0.id == id }
         loadEntry(); refresh(); onChange?(collection)
-        status.stringValue = "已放到位置 \(slot+1)"; return true
+        status.stringValue = AppLanguage.text("已放到位置 {0}", String(describing: (slot+1))); return true
     }
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
         guard libraryMode, presentation.count > 0, rows.indices.contains(row) else { return nil }
@@ -426,7 +426,7 @@ import MacOSXCore
     }
     private func beginLibraryDrag() {
         window?.makeFirstResponder(nil); draggingLibrary = true; updateModeVisibility()
-        status.stringValue = "拖到常用位置；松开完成，Esc 取消"
+        status.stringValue = AppLanguage.text("拖到常用位置；松开完成，Esc 取消")
     }
     func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) { dragContext.end() }
     @objc private func showWheel() { window?.makeFirstResponder(nil); libraryMode = false; selectSlot(selectedSlot); invalidateIntrinsicContentSize() }
@@ -453,15 +453,15 @@ import MacOSXCore
         let old = (try? JSONEncoder().encode(collection.slots).count) ?? 0
         let updated = (try? JSONEncoder().encode(slots).count) ?? 0
         let size = encodedSize + updated-old
-        guard size<=PromptCollection.byteLimit else { status.stringValue = "提示词库超过 4 MB"; return false }
+        guard size<=PromptCollection.byteLimit else { status.stringValue = AppLanguage.text("提示词库超过 4 MB"); return false }
         collection.slots = slots; encodedSize = size; return true
     }
     @objc private func addPrompt() {
-        guard collection.prompts.count < PromptCollection.limit else { status.stringValue = "提示词库最多 500 条"; return }
+        guard collection.prompts.count < PromptCollection.limit else { status.stringValue = AppLanguage.text("提示词库最多 500 条"); return }
         window?.makeFirstResponder(nil)
         let p = LibraryPrompt(title:"",content:"")
         let size = encodedSize + ((try? JSONEncoder().encode(p).count) ?? 0) + (collection.prompts.isEmpty ? 0 : 1)
-        guard size<=PromptCollection.byteLimit else { status.stringValue = "提示词库超过 4 MB"; return }
+        guard size<=PromptCollection.byteLimit else { status.stringValue = AppLanguage.text("提示词库超过 4 MB"); return }
         collection.prompts.append(p); encodedSize = size
         selected = collection.prompts.count-1; libraryMode = true; loadEntry(); refresh(); invalidateIntrinsicContentSize()
         onChange?(collection); window?.makeFirstResponder(titleField)
@@ -474,7 +474,7 @@ import MacOSXCore
         encodedSize -= ((try? JSONEncoder().encode(deleted.prompt).count) ?? 0) + (count > 1 ? 1 : 0)
         encodedSize += ((try? JSONEncoder().encode(collection.slots).count) ?? 0) - ((try? JSONEncoder().encode(oldSlots).count) ?? 0)
         lastDeleted = deleted; self.selected = nil; loadEntry(); refresh(); onChange?(collection)
-        status.stringValue = "已删除；可撤销最近一次删除"
+        status.stringValue = AppLanguage.text("已删除；可撤销最近一次删除")
     }
     @objc private func restorePrompt() {
         window?.makeFirstResponder(nil)
@@ -488,7 +488,7 @@ import MacOSXCore
             let restoredSlot = collection.slots.firstIndex(of: deleted.prompt.id)
             if let restoredSlot { selectedSlot = restoredSlot } else { libraryMode = true }
             loadEntry(); refresh(); onChange?(collection)
-            status.stringValue = restoredSlot == nil ? "已恢复到库中；常用位置保持当前内容" : "已恢复内容与原位置"
+            status.stringValue = restoredSlot == nil ? AppLanguage.text("已恢复到库中；常用位置保持当前内容") : AppLanguage.text("已恢复内容与原位置")
         } catch { status.stringValue = error.localizedDescription }
     }
     func controlTextDidChange(_ notification:Notification) {
@@ -514,13 +514,13 @@ import MacOSXCore
             if creating && !libraryMode { candidate.assign(entry.id,to:selectedSlot) }
             let slotsDelta = try JSONEncoder().encode(candidate.slots).count - JSONEncoder().encode(collection.slots).count
             let size = encodedSize + (try JSONEncoder().encode(entry).count) - oldSize + (creating && !collection.prompts.isEmpty ? 1 : 0) + slotsDelta
-            guard size<=PromptCollection.byteLimit else { throw PromptCollection.Failure("提示词库超过 4 MB") }
+            guard size<=PromptCollection.byteLimit else { throw PromptCollection.Failure(AppLanguage.text("提示词库超过 4 MB")) }
             collection = candidate; selected = index; encodedSize = size; status.stringValue = ""
             if creating { refresh() }
             else {
                 presentationPreview?.updateEditingPrompt(at: index, prompt: entry)
                 if old.title != entry.title {
-                    picker.item(at: index + 1)?.title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "未命名" : entry.title
+                    picker.item(at: index + 1)?.title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? AppLanguage.text("未命名") : entry.title
                     if libraryMode { filterRows() }
                 }
             }
@@ -538,7 +538,7 @@ import MacOSXCore
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { SketchTableRow() }
     func tableView(_ tableView:NSTableView,viewFor tableColumn:NSTableColumn?,row:Int)->NSView? {
         let title=collection.prompts[rows[row]].title
-        let label = NSTextField(labelWithString:title.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty ? "未命名" : title)
+        let label = NSTextField(labelWithString:title.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty ? AppLanguage.text("未命名") : title)
         label.font = .systemFont(ofSize:14); label.lineBreakMode = .byTruncatingTail; return label
     }
     func tableViewSelectionDidChange(_ notification:Notification) {
@@ -569,7 +569,7 @@ import MacOSXCore
             self.exportTask = nil; self.exporter.isEnabled = true
             do {
                 let data = try result.get()
-                let panel = NSSavePanel(); panel.allowedContentTypes = [.json]; panel.nameFieldStringValue = "提示词.json"; panel.prompt = "导出"
+                let panel = NSSavePanel(); panel.allowedContentTypes = [.json]; panel.nameFieldStringValue = AppLanguage.text("提示词.json"); panel.prompt = AppLanguage.text("导出")
                 self.exportPanel = panel
                 panel.beginSheetModal(for: window) { [weak self] response in
                     self?.exportPanel = nil
@@ -581,25 +581,25 @@ import MacOSXCore
                             try data.write(to: url, options: .atomic)
                         } }.value
                         guard let self, self.interactionRevision == expected else { return }; self.exporter.isEnabled = true
-                        switch written { case .success: self.status.stringValue = "已导出 \(snapshot.prompts.count) 条，包含常用位置和草稿"
-                        case .failure: self.status.stringValue = "无法保存 JSON 文件" }
+                        switch written { case .success: self.status.stringValue = AppLanguage.text("已导出 {0} 条，包含常用位置和草稿", String(describing: (snapshot.prompts.count)))
+                        case .failure: self.status.stringValue = AppLanguage.text("无法保存 JSON 文件") }
                     }
                 }
             } catch { self.status.stringValue = error.localizedDescription }
         }
     }
-    @objc private func copyFormat() { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(PromptImport.aiInstructions,forType:.string); status.stringValue = "AI 导入格式已复制" }
+    @objc private func copyFormat() { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(PromptImport.aiInstructions,forType:.string); status.stringValue = AppLanguage.text("AI 导入格式已复制") }
     @objc private func importPressed() {
         window?.makeFirstResponder(nil)
         if let pending {
             do { let value = try collection.merging(pending); collection = value; encodedSize = try JSONEncoder().encode(value).count
-                self.pending = nil; importer.title = "导入 JSON"; cancelImport.isHidden = true; format.isHidden = false; selected = nil; libraryMode = true; loadEntry(); refresh(); invalidateIntrinsicContentSize()
-                onChange?(value); status.stringValue = "已导入 \(pending.prompts.count) 条"
+                self.pending = nil; importer.title = AppLanguage.text("导入 JSON"); cancelImport.isHidden = true; format.isHidden = false; selected = nil; libraryMode = true; loadEntry(); refresh(); invalidateIntrinsicContentSize()
+                onChange?(value); status.stringValue = AppLanguage.text("已导入 {0} 条", String(describing: (pending.prompts.count)))
             } catch { status.stringValue = error.localizedDescription }
             return
         }
         if let importDropdown { importDropdown.dismiss(); return }
-        let dropdown=SketchDropdown(items:[.init(title:"选择 JSON 文件",index:0),.init(title:"粘贴 JSON",index:1)],selected:-1,width:220)
+        let dropdown=SketchDropdown(items:[.init(title:AppLanguage.text("选择 JSON 文件"),index:0),.init(title:AppLanguage.text("粘贴 JSON"),index:1)],selected:-1,width:220)
         dropdown.onChoose = { [weak self] index in if index == 0 { self?.importFile() } else { self?.importClipboard() } }
         dropdown.onDismiss = { [weak self] in self?.importDropdown=nil }
         importDropdown=dropdown; dropdown.present(relativeTo:importer)
@@ -607,18 +607,18 @@ import MacOSXCore
     @objc private func cancelPendingImport() {
         importRevision += 1; importTask?.cancel(); importTask = nil
         let panel = importPanel; importPanel = nil; panel?.cancel(nil)
-        pending = nil; importer.isEnabled = true; importer.title = "导入 JSON"
+        pending = nil; importer.isEnabled = true; importer.title = AppLanguage.text("导入 JSON")
         cancelImport.isHidden = true; format.isHidden = false; status.stringValue = ""
     }
     @objc private func importClipboard() {
-        guard let string = NSPasteboard.general.string(forType:.string) else { status.stringValue = "剪贴板没有 JSON"; return }
+        guard let string = NSPasteboard.general.string(forType:.string) else { status.stringValue = AppLanguage.text("剪贴板没有 JSON"); return }
         parseData(Data(string.utf8))
     }
     @objc private func importFile() {
         guard let window else { return }
         cancelPendingImport()
         let expected = importRevision, session = interactionRevision
-        let panel = NSOpenPanel(); panel.allowedContentTypes = [.json]; panel.allowsMultipleSelection = false; panel.prompt = "选择"
+        let panel = NSOpenPanel(); panel.allowedContentTypes = [.json]; panel.allowsMultipleSelection = false; panel.prompt = AppLanguage.text("选择")
         importPanel = panel
         panel.beginSheetModal(for:window) { [weak self] response in
             guard let self, self.importRevision == expected, self.interactionRevision == session,
@@ -632,7 +632,7 @@ import MacOSXCore
         cancelPendingImport()
         let expected = importRevision, session = interactionRevision
         importer.isEnabled = false; cancelImport.isHidden = false; format.isHidden = true
-        status.stringValue = "正在读取 JSON…"
+        status.stringValue = AppLanguage.text("正在读取 JSON…")
         importTask = Task { @MainActor [weak self] in
             let result = await Task.detached(priority: .userInitiated) { Result {
                 let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
@@ -643,15 +643,15 @@ import MacOSXCore
                   self.interactionRevision == session else { return }
             self.importTask = nil; self.importer.isEnabled = true
             do { self.parseData(try result.get()) }
-            catch { self.cancelPendingImport(); self.status.stringValue = "无法读取 JSON 文件" }
+            catch { self.cancelPendingImport(); self.status.stringValue = AppLanguage.text("无法读取 JSON 文件") }
         }
     }
     private func parseData(_ data:Data) {
         cancelPendingImport()
-        guard data.count<=PromptCollection.byteLimit else { status.stringValue = "JSON 超过 4 MB"; return }
+        guard data.count<=PromptCollection.byteLimit else { status.stringValue = AppLanguage.text("JSON 超过 4 MB"); return }
         let expected = importRevision, session = interactionRevision
         importer.isEnabled = false; cancelImport.isHidden = false; format.isHidden = true
-        status.stringValue = "正在校验 JSON…"
+        status.stringValue = AppLanguage.text("正在校验 JSON…")
         importTask = Task { [weak self] in
             let result = await Task.detached(priority:.userInitiated) { Result { try PromptImport.parse(data) } }.value
             guard !Task.isCancelled, let self, self.importRevision == expected,
@@ -659,12 +659,12 @@ import MacOSXCore
             self.importTask = nil; self.importer.isEnabled = true
             do {
                 let document = try result.get(), value = try self.collection.merging(document)
-                self.pending = document; self.importer.title = "确认导入"; self.cancelImport.isHidden = false; self.format.isHidden = true
+                self.pending = document; self.importer.title = AppLanguage.text("确认导入"); self.cancelImport.isHidden = false; self.format.isHidden = true
                 let updated = document.prompts.filter { item in
                     guard let id = item.id, let old = self.collection.prompts.first(where: { $0.id == id }) else { return false }
                     return old.title != item.title || old.content != item.content
                 }.count
-                self.status.stringValue = "\(document.prompts.count) 条 · 新增 \(value.prompts.count-self.collection.prompts.count) · 更新 \(updated) · 转盘位置 \(document.prompts.compactMap(\.slot).count) 个"
+                self.status.stringValue = AppLanguage.text("{0} 条 · 新增 {1} · 更新 {2} · 转盘位置 {3} 个", String(describing: (document.prompts.count)), String(describing: (value.prompts.count-self.collection.prompts.count)), String(describing: (updated)), String(describing: (document.prompts.compactMap(\.slot).count)))
             } catch { self.cancelPendingImport(); self.status.stringValue = error.localizedDescription }
         }
     }

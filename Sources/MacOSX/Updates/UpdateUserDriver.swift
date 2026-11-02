@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 import Sparkle
 
@@ -19,7 +20,7 @@ final class UpdateUserDriver: NSObject, SPUUserDriver {
 
     func show(_ request: SPUUpdatePermissionRequest, reply: @escaping (SUUpdatePermissionResponse) -> Void) {
         phase = .choosing
-        prompt(title: "自动检查更新", detail: "安装前仍由你确认", primary: "允许", secondary: "手动检查") { allowed in
+        prompt(title: AppLanguage.text("自动检查更新"), detail: AppLanguage.text("安装前仍由你确认"), primary: AppLanguage.text("允许"), secondary: AppLanguage.text("手动检查")) { allowed in
             reply(SUUpdatePermissionResponse(automaticUpdateChecks: allowed,
                 automaticUpdateDownloading: NSNumber(value: false), sendSystemProfile: false))
         }
@@ -28,7 +29,7 @@ final class UpdateUserDriver: NSObject, SPUUserDriver {
     func showUserInitiatedUpdateCheck(cancellation: @escaping () -> Void) {
         userInitiatedSession = true
         phase = .checking
-        prompt(title: "检查更新", progress: .indeterminate, secondary: "取消") { _ in cancellation() }
+        prompt(title: AppLanguage.text("检查更新"), progress: .indeterminate, secondary: AppLanguage.text("取消")) { _ in cancellation() }
     }
 
     func showUpdateFound(with appcastItem: SUAppcastItem, state: SPUUserUpdateState,
@@ -43,15 +44,15 @@ final class UpdateUserDriver: NSObject, SPUUserDriver {
         if appcastItem.isInformationOnlyUpdate {
             let url = appcastItem.infoURL
             let canOpen = url?.scheme == "https" && url?.host != nil && url?.user == nil && url?.password == nil
-            prompt(title: "更新说明", detail: targetVersion, primary: canOpen ? "查看" : nil, secondary: "关闭") { accepted in
+            prompt(title: AppLanguage.text("更新说明"), detail: targetVersion, primary: canOpen ? AppLanguage.text("查看") : nil, secondary: AppLanguage.text("关闭")) { accepted in
                 if accepted, canOpen, let url { NSWorkspace.shared.open(url) }
                 reply(.dismiss)
             }
             return
         }
         let installing = state.stage == .installing
-        prompt(title: appcastItem.isCriticalUpdate ? "重要更新" : "有新版本", detail: versions,
-               primary: installing ? "安装并重启" : "更新", secondary: installing ? "取消" : "稍后") { accepted in
+        prompt(title: appcastItem.isCriticalUpdate ? AppLanguage.text("重要更新") : AppLanguage.text("有新版本"), detail: versions,
+               primary: installing ? AppLanguage.text("安装并重启") : AppLanguage.text("更新"), secondary: installing ? AppLanguage.text("取消") : AppLanguage.text("稍后")) { accepted in
             reply(accepted ? .install : (installing ? .skip : .dismiss))
         }
     }
@@ -70,23 +71,23 @@ final class UpdateUserDriver: NSObject, SPUUserDriver {
         let detail: String?
         switch reason {
         case SPUNoUpdateFoundReason.onLatestVersion.rawValue:
-            title = "已是最新版本"
+            title = AppLanguage.text("已是最新版本")
             detail = currentVersion
         case SPUNoUpdateFoundReason.onNewerThanLatestVersion.rawValue:
-            title = "无需更新"
+            title = AppLanguage.text("无需更新")
             detail = currentVersion
         case SPUNoUpdateFoundReason.systemIsTooOld.rawValue:
-            title = "需要更新 macOS"
-            detail = "当前系统不支持此版本"
+            title = AppLanguage.text("需要更新 macOS")
+            detail = AppLanguage.text("当前系统不支持此版本")
         case SPUNoUpdateFoundReason.systemIsTooNew.rawValue,
              SPUNoUpdateFoundReason.hardwareDoesNotSupportARM64.rawValue:
-            title = "暂无兼容更新"
-            detail = "当前 Mac 不支持此版本"
+            title = AppLanguage.text("暂无兼容更新")
+            detail = AppLanguage.text("当前 Mac 不支持此版本")
         default:
-            title = "未找到可用更新"
+            title = AppLanguage.text("未找到可用更新")
             detail = nsError.localizedRecoverySuggestion ?? nsError.localizedDescription
         }
-        prompt(title: title, detail: detail, primary: "好") { _ in acknowledgement() }
+        prompt(title: title, detail: detail, primary: AppLanguage.text("好")) { _ in acknowledgement() }
     }
 
     func showUpdaterError(_ error: Error, acknowledgement: @escaping () -> Void) {
@@ -94,16 +95,16 @@ final class UpdateUserDriver: NSObject, SPUUserDriver {
         phase = .choosing
         let nsError = error as NSError
         let detail = nsError.domain == NSURLErrorDomain
-            ? "网络连接失败，请稍后重试"
+            ? AppLanguage.text("网络连接失败，请稍后重试")
             : (nsError.localizedRecoverySuggestion ?? nsError.localizedDescription)
-        prompt(title: "更新失败", detail: detail, primary: "好") { _ in acknowledgement() }
+        prompt(title: AppLanguage.text("更新失败"), detail: detail, primary: AppLanguage.text("好")) { _ in acknowledgement() }
     }
 
     func showDownloadInitiated(cancellation: @escaping () -> Void) {
         phase = .downloading
         expectedBytes = 0
         receivedBytes = 0
-        prompt(title: "正在下载", detail: targetVersion, progress: .indeterminate, secondary: "取消") { _ in cancellation() }
+        prompt(title: AppLanguage.text("正在下载"), detail: targetVersion, progress: .indeterminate, secondary: AppLanguage.text("取消")) { _ in cancellation() }
     }
 
     func showDownloadDidReceiveExpectedContentLength(_ expectedContentLength: UInt64) {
@@ -131,7 +132,7 @@ final class UpdateUserDriver: NSObject, SPUUserDriver {
     func showDownloadDidStartExtractingUpdate() {
         phase = .extracting
         clearResponse()
-        presentation.show(title: "准备安装", detail: targetVersion, progress: .indeterminate)
+        presentation.show(title: AppLanguage.text("准备安装"), detail: targetVersion, progress: .indeterminate)
     }
 
     func showExtractionReceivedProgress(_ progress: Double) {
@@ -141,7 +142,7 @@ final class UpdateUserDriver: NSObject, SPUUserDriver {
 
     func showReady(toInstallAndRelaunch reply: @escaping (SPUUserUpdateChoice) -> Void) {
         phase = .choosing
-        prompt(title: "更新已就绪", detail: targetVersion, primary: "安装并重启", secondary: "取消") { accepted in
+        prompt(title: AppLanguage.text("更新已就绪"), detail: targetVersion, primary: AppLanguage.text("安装并重启"), secondary: AppLanguage.text("取消")) { accepted in
             // .dismiss can still install on quit. .skip here cancels this installation only.
             reply(accepted ? .install : .skip)
         }
@@ -151,8 +152,8 @@ final class UpdateUserDriver: NSObject, SPUUserDriver {
                               retryTerminatingApplication: @escaping () -> Void) {
         phase = .installing
         clearResponse()
-        presentation.show(title: "正在安装", progress: .indeterminate,
-            primaryTitle: applicationTerminated ? nil : "重试退出",
+        presentation.show(title: AppLanguage.text("正在安装"), progress: .indeterminate,
+            primaryTitle: applicationTerminated ? nil : AppLanguage.text("重试退出"),
             primaryAction: applicationTerminated ? nil : retryTerminatingApplication)
     }
 
@@ -160,7 +161,7 @@ final class UpdateUserDriver: NSObject, SPUUserDriver {
         onAvailabilityChanged?(false)
         phase = .choosing
         // The old application bundle may no longer exist. Do not access it here.
-        prompt(title: "更新完成", primary: "好") { _ in acknowledgement() }
+        prompt(title: AppLanguage.text("更新完成"), primary: AppLanguage.text("好")) { _ in acknowledgement() }
     }
 
     func dismissUpdateInstallation() {

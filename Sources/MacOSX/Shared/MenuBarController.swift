@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 import os
 
@@ -18,12 +19,12 @@ import os
     private let onQuit: () -> Void
     private lazy var menu: NSMenu = {
         let menu = NSMenu()
-        for (title, action) in [("打开 macos-x", #selector(openClient)), ("检查更新…", #selector(checkUpdates))] {
+        for (title, action) in [(AppLanguage.text("打开 macos-x"), #selector(openClient)), (AppLanguage.text("检查更新…"), #selector(checkUpdates))] {
             let entry = NSMenuItem(title: title, action: action, keyEquivalent: "")
             entry.target = self; menu.addItem(entry)
         }
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "退出 macos-x", action: #selector(quit), keyEquivalent: "")
+        let quit = NSMenuItem(title: AppLanguage.text("退出 macos-x"), action: #selector(quit), keyEquivalent: "")
         quit.target = self; menu.addItem(quit)
         return menu
     }()
@@ -41,8 +42,8 @@ import os
         guard let button = item.button else { return }
         button.imageScaling = .scaleProportionallyDown
         button.image = Self.icon()
-        button.toolTip = "macos-x · 双击打开，右键菜单"
-        button.setAccessibilityLabel("macos-x，双击打开主界面，右键打开菜单")
+        button.toolTip = AppLanguage.text("macos-x · 双击打开，右键菜单")
+        button.setAccessibilityLabel(AppLanguage.text("macos-x，双击打开主界面，右键打开菜单"))
         button.target = self; button.action = #selector(clicked)
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         let hover = MenuBarHoverView(frame: button.bounds)

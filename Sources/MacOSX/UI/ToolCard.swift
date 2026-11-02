@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 import QuartzCore
 
@@ -21,8 +22,8 @@ final class ToolCard: NSControl {
     func configureRemoval(_ action: @escaping () -> Void) {
         removed = action
         if removeButton == nil {
-            let button = CardActionButton(title: "移除", target: self, action: #selector(removeModule))
-            button.setAccessibilityLabel("移除\(titleLabel.stringValue)，保留设置")
+            let button = CardActionButton(title: AppLanguage.text("移除"), target: self, action: #selector(removeModule))
+            button.setAccessibilityLabel(AppLanguage.text("移除{0}，保留设置", String(describing: (titleLabel.stringValue))))
             button.onFocusChanged = { [weak self] in self?.updateAppearance(animated: false) }
             removeButton = button; addSubview(button)
         }
@@ -63,7 +64,7 @@ final class ToolCard: NSControl {
             if let gray = context.makeImage() { monochromeImage = NSImage(cgImage: gray, size: source.size) }
         }
         symbolView.image = enabled ? colorImage : (monochromeImage ?? colorImage)
-        stateLabel.stringValue = enabled ? "" : "已关闭"
+        stateLabel.stringValue = enabled ? "" : AppLanguage.text("已关闭")
         updateAppearance(animated: false)
     }
     @objc private func changeModuleEnabled() {
@@ -364,12 +365,12 @@ final class ToolCard: NSControl {
         super.init(frame:.zero)
         self.target=target; self.action=action
         setButtonType(.pushOnPushOff)
-        setAccessibilityRole(.checkBox); setAccessibilityLabel("启用\(title)")
+        setAccessibilityRole(.checkBox); setAccessibilityLabel(AppLanguage.text("启用{0}", String(describing: (title))))
     }
     required init?(coder:NSCoder) { nil }
     override var intrinsicContentSize:NSSize { CGSize(width:68,height:30) }
     override var state:NSControl.StateValue { didSet {
-        toolTip="\(state == .on ? "关闭" : "开启")\(moduleTitle)"
+        toolTip="\(state == .on ? AppLanguage.text("关闭") : AppLanguage.text("开启"))\(moduleTitle)"
         setAccessibilityValue(state == .on ? 1 : 0); needsDisplay=true
     } }
     override func acceptsFirstMouse(for event:NSEvent?)->Bool { isEnabled }
@@ -387,7 +388,7 @@ final class ToolCard: NSControl {
         SketchPencil.stroke(path,color:active ? SketchPalette.ink.withAlphaComponent(0.65) : SketchPalette.line,width:active ? 1.3 : 0.8)
         (on ? SketchPalette.green : SketchPalette.muted.withAlphaComponent(0.55)).setFill()
         NSBezierPath(ovalIn:CGRect(x:10,y:bounds.midY-3,width:6,height:6)).fill()
-        let text=on ? "开启" : "关闭"
+        let text=on ? AppLanguage.text("开启") : AppLanguage.text("关闭")
         (text as NSString).draw(in:CGRect(x:23,y:bounds.midY-8,width:36,height:18),withAttributes:[.font:NSFont.systemFont(ofSize:12,weight:on ? .medium : .regular),.foregroundColor:SketchPalette.ink])
     }
 }
@@ -395,7 +396,7 @@ final class ToolCard: NSControl {
     weak var card:ToolCard?
     init(card:ToolCard,title:String) {
         self.card=card; super.init()
-        setAccessibilityRole(.button); setAccessibilityLabel("打开\(title)设置"); setAccessibilityParent(card)
+        setAccessibilityRole(.button); setAccessibilityLabel(AppLanguage.text("打开{0}设置", String(describing: (title)))); setAccessibilityParent(card)
         setAccessibilityElement(true); setAccessibilityEnabled(card.isEnabled)
     }
     override func accessibilityFrame()->NSRect {

@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 import ApplicationServices
 import MenuBarVisibilityBridge
@@ -98,7 +99,7 @@ import MenuBarVisibilityBridge
         if let shelf { shelf.collapse(); return }
         guard active, state == .expanded else { return }; cancelTimer()
         if let left = spacer?.button?.window?.frame, let right = boundary?.button?.window?.frame, left.midX >= right.midX {
-            issue = "按住 ⌘，把竖线放在收纳箭头左侧，再试一次。"; refresh(); return
+            issue = AppLanguage.text("按住 ⌘，把竖线放在收纳箭头左侧，再试一次。"); refresh(); return
         }
         spacer?.length = min(10_000, max(500, (NSScreen.screens.map { $0.frame.width }.max() ?? 1440) * 2))
         state = .collapsed; refresh()
@@ -117,9 +118,9 @@ import MenuBarVisibilityBridge
         }
     }
     private func refresh() {
-        boundary?.button?.image = NSImage(systemSymbolName: state == .collapsed ? "chevron.right" : "chevron.left", accessibilityDescription: "菜单栏收纳")
+        boundary?.button?.image = NSImage(systemSymbolName: state == .collapsed ? "chevron.right" : "chevron.left", accessibilityDescription: AppLanguage.text("菜单栏收纳"))
         boundary?.button?.image?.isTemplate = true
-        boundary?.button?.toolTip = "点击收起／展开 · 按住 ⌘ 拖动图标分组"
+        boundary?.button?.toolTip = AppLanguage.text("点击收起／展开 · 按住 ⌘ 拖动图标分组")
         nativeDashboard?.update(active: active, busy: shelf?.busy ?? false,
                                 reading: shelf?.reading ?? false, issue: issue, permitted: shelf?.permission() ?? false)
         dashboard?.setItems(drawer: [], visible: [])

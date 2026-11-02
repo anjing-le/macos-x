@@ -1,3 +1,4 @@
+import MacOSXCore
 import AppKit
 
 @MainActor protocol SettingsShortcutHost: AnyObject {
@@ -9,7 +10,7 @@ import AppKit
 @MainActor final class IllustratedSettingChoice: MinimalButton {
     private static var images: [String: NSImage] = [:]
     static func artwork(_ name: String) -> NSImage? {
-        if images[name] == nil, let url=Bundle.main.url(forResource:name,withExtension:"png") { images[name]=NSImage(contentsOf:url) }
+        if images[name] == nil, let url=AppLanguage.resource(name,extension:"png") { images[name]=NSImage(contentsOf:url) }
         return images[name]
     }
     private let asset: String
@@ -58,7 +59,7 @@ import AppKit
             // First landscape from the original 1774×887 board, in NSImage coordinates.
             image.draw(in:picture,from:CGRect(x:695,y:332,width:126,height:84),operation:.sourceOver,fraction:1,respectFlipped:true,hints:[.interpolation:NSImageInterpolation.high])
         }
-        let text=glow ? "白光边缘" : "无边缘"
+        let text=glow ? AppLanguage.text("白光边缘") : AppLanguage.text("无边缘")
         let attributes:[NSAttributedString.Key:Any]=[.font:SketchPalette.heading(12),.foregroundColor:SketchPalette.ink]
         let size=(text as NSString).size(withAttributes:attributes)
         (text as NSString).draw(at:CGPoint(x:(bounds.width-size.width)/2,y:bounds.height-22),withAttributes:attributes)
@@ -164,8 +165,8 @@ import AppKit
 @MainActor final class CaptureShelfSettingsCard: NSView {
     let shortcut: ShortcutSettingsRow
     var keySize = CGSize(width: 64, height: 41) { didSet { needsLayout = true; needsDisplay = true } }
-    private let title = NSTextField(labelWithString: "晾衣杆")
-    private let hint = NSTextField(labelWithString: "收纳图片 · 顶部悬停查看")
+    private let title = NSTextField(labelWithString: AppLanguage.text("晾衣杆"))
+    private let hint = NSTextField(labelWithString: AppLanguage.text("收纳图片 · 顶部悬停查看"))
     override var isFlipped: Bool { true }
     init(shortcut: ShortcutSettingsRow) {
         self.shortcut = shortcut
@@ -173,9 +174,9 @@ import AppKit
         identifier = .init("capture-shelf-settings")
         title.font = SketchPalette.heading(18); title.textColor = SketchPalette.ink
         hint.font = .systemFont(ofSize: 12); hint.textColor = SketchPalette.muted
-        toolTip = "收纳当前选区、选中的贴图或剪贴板图片；顶部悬停查看。左右键选择，⌘C 复制，⌘⌫ 删除，Esc 收起。"
-        setAccessibilityLabel("截图晾衣杆：将图片收纳到屏幕顶部")
-        shortcut.setAccessibilityLabel("晾衣杆收纳快捷键")
+        toolTip = AppLanguage.text("收纳当前选区、选中的贴图或剪贴板图片；顶部悬停查看。左右键选择，⌘C 复制，⌘⌫ 删除，Esc 收起。")
+        setAccessibilityLabel(AppLanguage.text("截图晾衣杆：将图片收纳到屏幕顶部"))
+        shortcut.setAccessibilityLabel(AppLanguage.text("晾衣杆收纳快捷键"))
         for view in [title, hint, shortcut] { addSubview(view) }
     }
     required init?(coder: NSCoder) { nil }
@@ -236,7 +237,7 @@ import AppKit
     private var sourceAudio: [NSButton] = []
     private var audioChoices: [MinimalToggle] = []
     private let backdrop: NSImage?
-    private let captureHints = [NSTextField(labelWithString:"⌘T 提取文字"),NSTextField(labelWithString:"框选后 Enter 开始录屏")]
+    private let captureHints = [NSTextField(labelWithString:AppLanguage.text("⌘T 提取文字")),NSTextField(labelWithString:AppLanguage.text("框选后 Enter 开始录屏"))]
     private let shortcutIssue = NSTextField(wrappingLabelWithString: "")
     private var shortcutIssues: [Int:String] = [:]
     private var issueHeight: CGFloat {
@@ -290,7 +291,7 @@ import AppKit
         refreshShortcutIssues()
         if kind == "windowLayout" {
             let sheet = IllustratedSettingChoice.artwork("SettingsLayoutBoard")
-            for (index, title) in ["左半屏", "右半屏", "上半屏", "下半屏"].enumerated() {
+            for (index, title) in [AppLanguage.text("左半屏"), AppLanguage.text("右半屏"), AppLanguage.text("上半屏"), AppLanguage.text("下半屏")].enumerated() {
                 let view = NSImageView(); view.imageScaling = .scaleProportionallyUpOrDown
                 if let sheet {
                     let region = CGRect(x: CGFloat(index) * sheet.size.width / 4, y: sheet.size.height * 0.17,
@@ -315,7 +316,7 @@ import AppKit
                     let button = MinimalToggle(title: source.title, target: self, action: #selector(selectAudio(_:)))
                     button.tag = index; button.font = .systemFont(ofSize: 13)
                     button.toolTip = source.toolTip; button.identifier = source.identifier
-                    button.setAccessibilityLabel("录屏：保留\(source.title)")
+                    button.setAccessibilityLabel(AppLanguage.text("录屏：保留{0}", String(describing: (source.title))))
                     audioChoices.append(button); addSubview(button)
                 }
             }
@@ -324,20 +325,20 @@ import AppKit
             // Keep cached source controls in their stack: reopening the page must
             // still find the same target/action and current persisted state.
             for view in stack.arrangedSubviews where ["capture-pin-outline","capture-pin-help"].contains(view.identifier?.rawValue ?? "") { view.isHidden=true }
-            for (index,title) in ["截图 · 指向窗口吸附", "贴图 · 白光边缘", "录屏 · 框选后 Enter"].enumerated() {
+            for (index,title) in [AppLanguage.text("截图 · 指向窗口吸附"), AppLanguage.text("贴图 · 白光边缘"), AppLanguage.text("录屏 · 框选后 Enter")].enumerated() {
                 let image=IllustratedSettingChoice(title:title,asset:"GuideCapture",slice:CGRect(x:CGFloat(index)/3,y:0,width:1/3,height:1),target:nil,action:nil)
                 image.isEnabled=false; image.setAccessibilityRole(.image); addSubview(image); art.append(image)
             }
-            for (index,title) in ["无边缘", "白光边缘"].enumerated() {
+            for (index,title) in [AppLanguage.text("无边缘"), AppLanguage.text("白光边缘")].enumerated() {
                 let button=IllustratedSettingChoice(title:title,asset:"GuideCapture",slice:CGRect(x:1/3,y:0,width:1/3,height:1),target:self,action:#selector(selectOutline(_:)))
-                button.pinGlow=index == 1; button.tag=index; button.toolTip=index == 1 ? "贴图显示白光边缘" : "贴图不显示边缘"; button.setAccessibilityLabel("贴图：\(title)"); selectors.append(button); addSubview(button)
+                button.pinGlow=index == 1; button.tag=index; button.toolTip=index == 1 ? AppLanguage.text("贴图显示白光边缘") : AppLanguage.text("贴图不显示边缘"); button.setAccessibilityLabel(AppLanguage.text("贴图：{0}", String(describing: (title)))); selectors.append(button); addSubview(button)
             }
             refreshChoices()
         } else if kind == "windowSwitcher", let stack=settings as? NSStackView,
                   let row=stack.arrangedSubviews.first(where: { $0.identifier?.rawValue == "switcher-presentation-row" }) as? NSStackView,
                   let mode=row.arrangedSubviews.compactMap({ $0 as? NSPopUpButton }).first {
             sourceMode=mode; row.isHidden=true
-            for (index,title) in ["两行 · 分页", "全部 · 滚动"].enumerated() {
+            for (index,title) in [AppLanguage.text("两行 · 分页"), AppLanguage.text("全部 · 滚动")].enumerated() {
                 let button=IllustratedSettingChoice(title:title,asset:"GuideSwitcher",slice:CGRect(x:CGFloat(index)/2,y:0,width:0.5,height:1),target:self,action:#selector(selectMode(_:)))
                 button.tag=index; selectors.append(button); addSubview(button)
             }
@@ -376,13 +377,13 @@ import AppKit
     private func refreshShortcutIssues() {
         let names:[String]
         switch kind {
-        case "capture": names=["截图","贴图","显示／隐藏贴图","录屏","晾衣杆"]
-        case "windowLayout": names=["左半屏","右半屏","上半屏","下半屏"]
-        case "windowSwitcher": names=["窗口切换"]
-        case "kaomoji": names=["提示词"]
+        case "capture": names=[AppLanguage.text("截图"),AppLanguage.text("贴图"),AppLanguage.text("显示／隐藏贴图"),AppLanguage.text("录屏"),AppLanguage.text("晾衣杆")]
+        case "windowLayout": names=[AppLanguage.text("左半屏"),AppLanguage.text("右半屏"),AppLanguage.text("上半屏"),AppLanguage.text("下半屏")]
+        case "windowSwitcher": names=[AppLanguage.text("窗口切换")]
+        case "kaomoji": names=[AppLanguage.text("提示词")]
         default: names=[]
         }
-        let text=shortcutIssues.keys.sorted().map { "\(names.indices.contains($0) ? names[$0] : "快捷键")：\(shortcutIssues[$0]!)" }.joined(separator:"\n")
+        let text=shortcutIssues.keys.sorted().map { "\(names.indices.contains($0) ? names[$0] : AppLanguage.text("快捷键"))：\(shortcutIssues[$0]!)" }.joined(separator:"\n")
         let paragraph=NSMutableParagraphStyle(); paragraph.lineSpacing=3
         shortcutIssue.attributedStringValue=NSAttributedString(string:text,attributes:[.font:NSFont.systemFont(ofSize:13),.foregroundColor:SketchPalette.ink,.paragraphStyle:paragraph])
         shortcutIssue.isHidden=shortcutIssues.isEmpty
@@ -445,6 +446,7 @@ import AppKit
         refreshChoices()
         let width = max(0, (rect.width - 8) / 2)
         for (i, button) in audioChoices.enumerated() {
+            if AppLanguage.current == .english { button.font = .systemFont(ofSize: 12) }
             button.frame = CGRect(x: rect.minX + CGFloat(i) * (width + 8), y: rect.minY,
                                   width: width, height: max(30, rect.height))
         }
@@ -565,7 +567,7 @@ import AppKit
         if usesArtwork {
             status.font = .systemFont(ofSize:12)
             status.frame=CGRect(x:0,y:0,width:bounds.width,height:32)
-            toggle.frame=CGRect(x:0,y:42,width:34,height:24)
+            toggle.frame=CGRect(x:AppLanguage.current == .english ? 60 : 0,y:42,width:34,height:24)
             preview.frame=CGRect(x:max(72,bounds.width-118),y:34,width:118,height:42)
         } else {
             status.font=SketchPalette.heading(16)
