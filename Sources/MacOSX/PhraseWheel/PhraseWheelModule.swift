@@ -160,6 +160,7 @@ import MacOSXCore
         delete.identifier = .init("prompt-delete"); undoDelete.identifier = .init("prompt-undo-delete"); exporter.identifier = .init("prompt-export")
         displayStyle.identifier = .init("prompt-presentation")
         ringCount.identifier = .init("prompt-ring-count"); listCount.identifier = .init("prompt-list-count")
+        if AppLanguage.current == .english { format.font = SketchPalette.heading(13) }
         displayStyle.addItems(withTitles: [AppLanguage.text("轮盘"), AppLanguage.text("清单")])
         displayStyle.selectItem(at: presentation.style == .ring ? 0 : 1)
         displayStyle.setAccessibilityLabel(AppLanguage.text("提示词展示样式"))
@@ -175,7 +176,7 @@ import MacOSXCore
             control.setAccessibilityLabel(label); control.toolTip = AppLanguage.text("0：仅搜索；减少数量不会删除提示词")
         }
         for control in [displayStyle,ringCount,listCount] { control.target = self; control.action = #selector(presentationChanged); addSubview(control) }
-        for label in [ringCountLabel,listCountLabel] { label.font = .systemFont(ofSize:12); label.textColor = SketchPalette.muted; addSubview(label) }
+        for label in [ringCountLabel,listCountLabel] { label.font = .systemFont(ofSize:AppLanguage.current == .english ? 11 : 12); label.textColor = SketchPalette.muted; addSubview(label) }
         cancelImport.isHidden = true
         format.toolTip = AppLanguage.text("复制给 AI 使用的 JSON 协议"); format.setAccessibilityLabel(AppLanguage.text("复制 AI 导入格式"))
         add.setAccessibilityLabel(AppLanguage.text("新增提示词"))
@@ -223,6 +224,15 @@ import MacOSXCore
             (button.title as NSString).draw(at:CGPoint(x:button.frame.midX-size.width/2,y:button.frame.minY+3),withAttributes:attributes)
         }
     }
+    private func fitEnglishFooter() {
+        guard AppLanguage.current == .english else { return }
+        ringCountLabel.frame.size.width = 38
+        ringCount.frame.origin.x = ringCountLabel.frame.maxX + 2
+        format.frame.size.width = 58
+        cancelImport.frame = format.frame
+        exporter.frame.origin.x = format.frame.maxX + 6
+        exporter.frame.size.width = max(60, min(86, preview.frame.minX - 12 - exporter.frame.minX))
+    }
     private func layoutArtwork() {
         let editorX = bounds.width * 0.46, editorWidth = bounds.width - editorX - 16
         for (index, button) in styleButtons.enumerated() {
@@ -256,6 +266,7 @@ import MacOSXCore
         format.frame = CGRect(x: 118, y: 24, width: 42, height: 28); cancelImport.frame = format.frame
         exporter.frame = CGRect(x: 166, y: 24, width: 86, height: 28)
         preview.frame = CGRect(x: bounds.width - 76, y: 24, width: 60, height: 28)
+        fitEnglishFooter()
         settingsShortcut?.frame = CGRect(x: bounds.width - 338, y: 20, width: 250, height: 36)
         settingsShortcut?.layoutSubtreeIfNeeded()
         status.frame = CGRect(x: 12, y: 0, width: bounds.width - 24, height: 20)
@@ -306,6 +317,7 @@ import MacOSXCore
         exporter.frame=CGRect(x:154,y:28,width:82,height:28)
         cancelImport.frame = format.frame
         preview.frame = NSRect(x:bounds.width-60,y:28,width:60,height:28)
+        fitEnglishFooter()
         if let settingsShortcut {
             settingsShortcut.frame = CGRect(x: 0, y: 66, width: bounds.width, height: 36)
             settingsShortcut.layoutSubtreeIfNeeded()

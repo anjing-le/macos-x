@@ -98,6 +98,16 @@ final class CountingPromptDefaults: UserDefaults {
         precondition(defaults.data(forKey:"promptLibrary.collection.v1") == data)
         let promptSettings=module.settingsView
         promptSettings.frame.size=NSSize(width:840,height:440); promptSettings.layoutSubtreeIfNeeded()
+        if AppLanguage.current == .english {
+            let labels=promptSettings.subviews.compactMap { $0 as? NSTextField }.filter { ["Prompt", "Wheel", "List"].contains($0.stringValue) && !$0.isHidden }
+            for label in labels {
+                precondition((label.stringValue as NSString).size(withAttributes:[.font:label.font!]).width <= label.frame.width, "English label is not clipped: " + label.stringValue)
+            }
+            let buttons=promptSettings.subviews.compactMap { $0 as? NSButton }.filter { ["Slots", "Format"].contains($0.title) && !$0.isHidden }
+            for button in buttons {
+                precondition((button.title as NSString).size(withAttributes:[.font:button.font!]).width + 8 <= button.frame.width, "English button title fits: " + button.title)
+            }
+        }
         let styleButtons=promptSettings.subviews.compactMap { $0 as? IllustratedSettingChoice }
         precondition(styleButtons.count == 2)
         precondition(IllustratedSettingChoice.artwork("SettingsPromptsBoard") != nil)
