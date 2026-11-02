@@ -121,22 +121,28 @@ enum CaptureAnnotationRenderer {
             if annotation.tool == .mosaic || annotation.tool == .blur {
                 let rect = annotation.bounds.integral.intersection(CGRect(x: 0, y: 0, width: base.width, height: base.height))
                 guard rect.width > 0, rect.height > 0 else { continue }
+                if annotation.tool == .mosaic {
+                    // Anchor the pixel grid to the frozen image, not the growing
+                    // stroke's crop. Extending a stroke must not resample old pixels.
+                    guard let current = context.makeImage(), let mask = annotation.mosaicMask else { return nil }
+                    if effects == nil { effects = CIContext(options: [.cacheIntermediates: false, .useSoftwareRenderer: true]) }
+                    let source = CIImage(cgImage: current)
+                    let output = source.clampedToExtent().applyingFilter("CIPixellate", parameters: [
+                        kCIInputScaleKey: 10, kCIInputCenterKey: CIVector(x: 0, y: 0)
+                    ])
+                    guard let patch = effects?.createCGImage(output, from: rect) else { return nil }
+                    context.saveGState(); context.addPath(mask); context.clip()
+                    context.draw(patch, in: rect); context.restoreGState()
+                    continue
+                }
                 guard let current = context.makeImage(),
                       let patch = current.cropping(to: CGRect(x: rect.minX, y: CGFloat(base.height) - rect.maxY,
                                                              width: rect.width, height: rect.height)) else { return nil }
                 let source = CIImage(cgImage: patch)
-                let output: CIImage
-                if annotation.tool == .mosaic {
-                    output = source.clampedToExtent().applyingFilter("CIPixellate", parameters: [kCIInputScaleKey: 10])
-                } else {
-                    output = source.clampedToExtent().applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: max(6, annotation.width * 2)])
-                }
+                let output = source.clampedToExtent().applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: max(6, annotation.width * 2)])
                 if effects == nil { effects = CIContext(options: [.cacheIntermediates: false, .useSoftwareRenderer: true]) }
                 guard let image = effects?.createCGImage(output.cropped(to: source.extent), from: source.extent) else { return nil }
                 context.saveGState()
-                if annotation.tool == .mosaic, let mask = annotation.mosaicMask {
-                    context.addPath(mask); context.clip()
-                }
                 context.draw(image, in: rect)
                 context.restoreGState()
             } else {

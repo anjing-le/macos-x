@@ -375,6 +375,8 @@ import AppKit
         let context = CaptureRaster.context(width: 200, height: 160)!
         context.setFillColor(CGColor(gray: 1, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 200, height: 160))
         let image = context.makeImage()!
+        let mosaicUndo = CaptureEditor(image: image,selectionFrame: CGRect(x: 0,y: 0,width: 200,height: 160),defaults: defaults)
+        mosaicUndo.verifyMosaicUndoFixture(); mosaicUndo.close()
         CaptureSelection.verifySessionCopyFixture(image: image)
         for pin in [false,true] {
             let focused = CaptureEditor(image: image,selectionFrame: CGRect(x: 0,y: 0,width: 200,height: 160),editingPin: pin,defaults: defaults)
@@ -1063,6 +1065,23 @@ import AppKit
             pixels.setFillColor(CGColor(gray: x % 2 == 0 ? 0 : 1, alpha: 1))
             pixels.fill(CGRect(x: x, y: 0, width: 1, height: 160))
         }
+        let gridPixels = CaptureRaster.context(width: 200,height: 160)!
+        for x in 0..<200 {
+            gridPixels.setFillColor(CGColor(gray: CGFloat(x % 23) / 22,alpha: 1))
+            gridPixels.fill(CGRect(x: x,y: 0,width: 1,height: 160))
+        }
+        let base = gridPixels.makeImage()!
+        var stroke = CaptureAnnotation(tool: .mosaic, points: [CGPoint(x: 80,y: 80), CGPoint(x: 110,y: 80)], ink: .red, width: 32)
+        let first = CaptureAnnotationRenderer.render(base: base, annotations: [stroke])!
+        stroke.points.append(CGPoint(x: 34,y: 115))
+        let extended = CaptureAnnotationRenderer.render(base: base, annotations: [stroke])!
+        func regionBytes(_ image: CGImage) -> Data {
+            let region = image.cropping(to: CGRect(x: 86,y: 75,width: 10,height: 10))!
+            let context = CaptureRaster.context(width: 10,height: 10)!
+            context.draw(region,in: CGRect(x: 0,y: 0,width: 10,height: 10))
+            return Data(bytes: context.data!,count: context.bytesPerRow * 10)
+        }
+        precondition(regionBytes(first) == regionBytes(extended), "Extending a stroke left/up must leave already covered mosaic pixels byte-identical")
         let canvas = CaptureCanvas(image: pixels.makeImage()!)
         canvas.imageInset = 0; canvas.tool = .mosaic
         let window = NSWindow(contentRect: CGRect(x: 0,y: 0,width: 200,height: 160),styleMask: .borderless,backing: .buffered,defer: false)
@@ -1093,5 +1112,15 @@ import AppKit
         precondition(commits == 1 && canvas.draft == nil)
         canvas.closeBrushPreview(); window.close()
         print("PASS live mosaic: actual pixels update in event-tracking mode before release; one stroke commits once")
+    }
+}
+
+@MainActor private extension CaptureEditor {
+    func verifyMosaicUndoFixture() {
+        let mark = CaptureAnnotation(tool: .mosaic,points: [CGPoint(x: 40,y: 50),CGPoint(x: 120,y: 70)],ink: .red,width: 32)
+        canvas.onAnnotation?(mark)
+        precondition(annotations.count == 1)
+        undoAction(); precondition(annotations.isEmpty, "Command-Z action removes one complete mosaic stroke")
+        redoAction(); precondition(annotations.count == 1 && annotations[0].points == mark.points, "Redo restores the exact mosaic path")
     }
 }
