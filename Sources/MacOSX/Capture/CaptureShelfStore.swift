@@ -20,7 +20,8 @@ final class CaptureShelfStore: @unchecked Sendable {
     private var removed: (Item, Int)?
     init(directory: URL) { self.directory = directory }
     private var manifest: URL { directory.appendingPathComponent("items.json") }
-    private func file(_ id: UUID) -> URL { directory.appendingPathComponent(id.uuidString + ".png") }
+    func imageURL(_ id: UUID) -> URL { directory.appendingPathComponent(id.uuidString + ".png") }
+    private func file(_ id: UUID) -> URL { imageURL(id) }
     private func write(_ next: [Item]) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try JSONEncoder().encode(next).write(to: manifest, options: .atomic)

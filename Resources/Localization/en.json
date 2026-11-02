@@ -575,5 +575,7 @@
   "已添加": "Added",
   "未添加": "Not added",
   "系统": "System",
-  "话筒": "Mic"
+  "话筒": "Mic",
+  "单击选中 · 双击贴出 · 左右拖动调整位置 · 向下拉出可拖到聊天框 · 离开 3 秒收起 · 左右键选择 · Esc 收起 · Option＋方向键排序 · ⌘C 复制 · ⌘⌫ / Delete 删除 · ⌘Z 撤销": "Click to select · Double-click to pin · Drag sideways to arrange · Pull down to drag into a chat · Hide after 3 seconds away · Arrow keys to select · Esc to hide · Option + arrows to reorder · ⌘C Copy · ⌘⌫ / Delete Remove · ⌘Z Undo",
+  "继续向下拉，拖到聊天框": "Pull farther down to drag into a chat"
 }

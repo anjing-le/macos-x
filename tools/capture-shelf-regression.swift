@@ -12,6 +12,13 @@ enum CaptureEditor {
         return CGImageDestinationFinalize(target) ? data as Data : nil
     }
 }
+@MainActor final class ExternalDragProbe: ShelfView {
+    var started: [NSDraggingItem] = []
+    var downType: NSEvent.EventType?
+    override func beginExternalDrag(_ item: NSDraggingItem, event: NSEvent) {
+        started.append(item); downType=event.type
+    }
+}
 @main struct ShelfRegression {
     static func image(_ width: Int = 360, _ height: Int = 240, color: NSColor = .systemBlue, title: String = "截图") -> CGImage {
         let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil,pixelsWide: width,pixelsHigh: height,bitsPerSample: 8,samplesPerPixel: 4,hasAlpha: true,isPlanar: false,colorSpaceName: .deviceRGB,bytesPerRow: 0,bitsPerPixel: 0)!
@@ -87,6 +94,44 @@ enum CaptureEditor {
                      "A missing index clears old in-memory members instead of reopening phantom images after module restart")
         let fixture = [first,second,third]
         let thumbs = Dictionary(uniqueKeysWithValues: fixture.map { item in (item.id,NSImage(cgImage: image(item.width,item.height,color: item.id == second.id ? .systemOrange : .systemBlue,title: item.id == first.id ? "设计草稿" : "参考图片"),size: .zero)) })
+        // Exercise the actual event handoff without starting an OS drag or showing a window.
+        let external=ExternalDragProbe(records:fixture,thumbnails:thumbs)
+        external.frame=CGRect(x:0,y:0,width:900,height:400); external.expanded=true
+        external.imageFileURL={ store.imageURL($0) }
+        let externalWindow=NSWindow(contentRect:external.frame,styleMask:[.borderless],backing:.buffered,defer:false)
+        externalWindow.isReleasedWhenClosed=false;externalWindow.contentView=external
+        var externalActions=[ShelfView.Action]();external.onAction={externalActions.append($0)}
+        let beforeIDs=external.records.map(\.id), beforePNG=try Data(contentsOf:store.imageURL(first.id))
+        let externalCard=external.cardRect(0), start=CGPoint(x:externalCard.midX,y:externalCard.midY)
+        external.mouseDown(with:event(.leftMouseDown,start,view:external))
+        external.mouseDragged(with:event(.leftMouseDragged,CGPoint(x:800,y:start.y),view:external))
+        precondition(external.started.isEmpty,"Full-width horizontal travel never exports a photo")
+        external.mouseDragged(with:event(.leftMouseDragged,CGPoint(x:800,y:start.y+ShelfView.externalPullDistance-1),view:external))
+        precondition(external.started.isEmpty,"Pull distance must cross the deliberate threshold")
+        let release=CGPoint(x:800,y:start.y+ShelfView.externalPullDistance)
+        external.mouseDragged(with:event(.leftMouseDragged,release,view:external))
+        precondition(external.started.count == 1 && external.downType == .leftMouseDragged && external.externalDragging && external.isInteracting)
+        precondition(external.records.map(\.id)==beforeIDs && external.selected==first.id && abs(external.cardRect(0).midX-externalCard.midX)<1,"External copy rolls back transient rearrangement and keeps selection")
+        external.mouseDragged(with:event(.leftMouseDragged,CGPoint(x:800,y:release.y+60),view:external))
+        external.mouseUp(with:event(.leftMouseUp,release,view:external))
+        precondition(external.started.count == 1 && externalActions.isEmpty,"Handoff happens once and never pins or commits placement")
+        let dropBoard=NSPasteboard(name:NSPasteboard.Name("macos-x.shelf-file-drop."+UUID().uuidString))
+        defer { dropBoard.releaseGlobally() }
+        precondition(dropBoard.writeObjects([external.started[0].item as! NSPasteboardWriting]))
+        let urls=dropBoard.readObjects(forClasses:[NSURL.self],options:[.urlReadingFileURLsOnly:true]) as! [URL]
+        precondition(urls == [store.imageURL(first.id)])
+        let received=try Data(contentsOf:urls[0])
+        precondition(received==beforePNG,"A file-drop receiver reads the exact original PNG rather than the thumbnail or frame")
+        let portrait=external.externalDraggingItem(id:third.id,at:release)!
+        precondition(abs(portrait.draggingFrame.width/portrait.draggingFrame.height-thumbs[third.id]!.size.width/thumbs[third.id]!.size.height)<0.001,"Native drag previews keep portrait image proportions")
+        precondition(external.externalDraggingItem(id:UUID(),at:release)==nil,"Only a shelf member can be exported")
+        external.finishExternalDrag()
+        let afterExternalPNG=try Data(contentsOf:store.imageURL(first.id))
+        precondition(afterExternalPNG==beforePNG,"Canceling or completing a drag never removes or modifies the source")
+        precondition(!external.isInteracting && external.selected==first.id)
+        external.copy(nil)
+        guard case .copy(first.id) = externalActions.last else {preconditionFailure("Selection remains copyable after native drag completion/cancellation")}
+        external.cancelDrag();externalWindow.contentView=nil;externalWindow.close()
         let legacy=try JSONDecoder().decode(CaptureShelfStore.Item.self,from:Data("{\"id\":\"\(first.id.uuidString)\",\"width\":360,\"height\":240,\"bytes\":1}".utf8))
         precondition(legacy.positions == nil,"Existing image indexes require no destructive migration")
         let layoutStore=CaptureShelfStore(directory:directory.appendingPathComponent("positions"))
@@ -550,6 +595,6 @@ enum CaptureEditor {
         host.start()
         for _ in 0..<100 { if host.canAdd { break }; try await Task.sleep(nanoseconds: 10_000_000) }
         precondition(host.canAdd); host.stop()
-        print("PASS shelf: original PNG persistence/restart, ordering, delete/undo, bounds, failed save, native hover/whole-card/drag/keyboard, drag-only placement and resettable three-second idle dismissal, unified rope/preview transitions, first selection and in-place continuous Command-Backspace/undo focus, fixed-end rope tug, full-screen free placement, live neighbour movement, per-display position persistence and rollback, full-screen multimode wave, short attachments and pivot swing, bounded rebound/reduced motion, hidden trigger and stop/restart; no shown windows, clipboard writes or installed preferences")
+        print("PASS shelf: native external file-drag handoff/threshold, exact original PNG receiver read, retained source/selection and portrait proportions; original PNG persistence/restart, ordering, delete/undo, bounds, failed save, native hover/whole-card/drag/keyboard, drag-only placement and resettable three-second idle dismissal, unified rope/preview transitions, first selection and in-place continuous Command-Backspace/undo focus, fixed-end rope tug, full-screen free placement, live neighbour movement, per-display position persistence and rollback, full-screen multimode wave, short attachments and pivot swing, bounded rebound/reduced motion, hidden trigger and stop/restart; no shown windows, clipboard writes or installed preferences")
     }
 }

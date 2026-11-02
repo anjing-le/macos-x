@@ -19,7 +19,8 @@ import AppKit
     private var previewRequest: (UUID, ShelfPanel)?
     var onStatus: ((String) -> Void)?
     var onPin: ((CGImage, CGRect?) -> Void)?
-    var canAdd: Bool { running && loaded && !busy && records.count < CaptureShelfStore.limit }
+    private var isDraggingImage: Bool { panels.contains { $0.shelfView.externalDragging } }
+    var canAdd: Bool { running && loaded && !busy && !isDraggingImage && records.count < CaptureShelfStore.limit }
 
     init(directory: URL? = nil, presenting: Bool = true) {
         self.presenting = presenting
@@ -45,7 +46,7 @@ import AppKit
         else if running { rebuildPanels() }
     }
     func add(_ image: CGImage, completion: @escaping (Bool) -> Void) {
-        guard canAdd else { showMessage(busy || !loaded ? AppLanguage.text("收纳正在处理，请稍后再试。") : AppLanguage.text("晾衣杆已满，请先整理。")); completion(false); return }
+        guard canAdd else { showMessage(busy || !loaded || isDraggingImage ? AppLanguage.text("收纳正在处理，请稍后再试。") : AppLanguage.text("晾衣杆已满，请先整理。")); completion(false); return }
         busy = true; let expected = epoch, store = store, known = Set(thumbnails.keys)
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }?.frame
         queue.async { [weak self] in
@@ -106,6 +107,10 @@ import AppKit
         for screen in NSScreen.screens {
             let panel = ShelfPanel(screen: screen, records: records, thumbnails: thumbnails, presenting: presenting)
             panel.shelfView.canEdit = { [weak self] in self?.running == true && self?.busy == false }
+            panel.shelfView.imageFileURL = { [weak self] id in
+                guard let self, self.running, !self.busy, self.records.contains(where: { $0.id == id }) else { return nil }
+                return self.store.imageURL(id)
+            }
             panel.shelfView.onAction = { [weak self, weak panel] action in
                 guard let self, let panel else { return }; self.act(action, panel: panel)
             }
@@ -129,7 +134,7 @@ import AppKit
         else { panel?.scheduleCollapse() }
     }
     private func act(_ action: ShelfView.Action, panel: ShelfPanel) {
-        guard running, !busy else {
+        guard running, !busy, !isDraggingImage else {
             if case .place = action {
                 panel.shelfView.applySavedItems(records,preserveLayout:false)
                 onStatus?(AppLanguage.text("收纳正在处理，位置未修改。"))
@@ -519,7 +524,7 @@ enum ShelfRope {
     }
     func dispose() {
         guard !disposed else { return }; disposed = true; expanded = false; keyboardSession = false; shelfView.expanded = false
-        work?.cancel(); work = nil; shelfView.onAction = nil
+        work?.cancel(); work = nil; shelfView.onAction = nil; shelfView.imageFileURL = nil
         stopRope(); shelfView.cancelDrag()
         shelfView.trackingAreas.forEach(shelfView.removeTrackingArea)
         if let view = railPanel?.contentView as? ShelfRailView {
@@ -609,12 +614,15 @@ enum ShelfRope {
     }
 }
 
-@MainActor final class ShelfView: NSView {
+@MainActor class ShelfView: NSView, NSDraggingSource {
     enum Action { case preview(UUID), pin(UUID), copy(UUID), move(UUID, Int), place(UUID,String,[UUID],[UUID:Double]), remove(UUID), undo }
     private(set) var records: [CaptureShelfStore.Item]
     private(set) var thumbnails: [UUID: NSImage]
     var onAction: ((Action) -> Void)?
     var canEdit: () -> Bool = { true }
+    var imageFileURL: ((UUID) -> URL?)?
+    private(set) var externalDragging = false
+    static let externalPullDistance: CGFloat = 96
     var displayKey = "default"
     private var layout: CaptureShelfLayout?
     private var dragBaseline: (records:[CaptureShelfStore.Item],layout:CaptureShelfLayout)?
@@ -637,7 +645,7 @@ enum ShelfRope {
     private var scrollRemainder: CGFloat = 0
     private var offset = 0
     private var dragging: (id: UUID, start: CGPoint)?
-    var isInteracting: Bool { dragging != nil || layoutCommitting }
+    var isInteracting: Bool { dragging != nil || layoutCommitting || externalDragging }
     private var moved = false
     private var dragPoint: CGPoint?
     private var grab: (point: CGPoint, anchor: CGFloat)?
@@ -647,7 +655,7 @@ enum ShelfRope {
     init(records: [CaptureShelfStore.Item], thumbnails: [UUID: NSImage]) {
         self.records = records; self.thumbnails = thumbnails; selected = records.first?.id
         super.init(frame: .zero)
-        toolTip = AppLanguage.text("单击选中 · 双击贴出 · 拖动调整位置 · 离开 3 秒收起 · 左右键选择 · Esc 收起 · Option＋方向键排序 · ⌘C 复制 · ⌘⌫ / Delete 删除 · ⌘Z 撤销")
+        toolTip = AppLanguage.text("单击选中 · 双击贴出 · 左右拖动调整位置 · 向下拉出可拖到聊天框 · 离开 3 秒收起 · 左右键选择 · Esc 收起 · Option＋方向键排序 · ⌘C 复制 · ⌘⌫ / Delete 删除 · ⌘Z 撤销")
         setAccessibilityElement(true); setAccessibilityRole(.group)
         setAccessibilityLabel(AppLanguage.text("截图晾衣杆，左右选择，回车贴图，Command C 复制，Delete 删除，Command Z 撤销"))
     }
@@ -718,6 +726,7 @@ enum ShelfRope {
     func cancelDrag() {
         if let baseline=dragBaseline { records=baseline.records; layout=baseline.layout }
         dragging=nil; moved=false; dragPoint=nil; grab=nil; dragBaseline=nil
+        externalDragging=false
         finishReflow()
     }
     private func closeRect(_ index: Int) -> CGRect {
@@ -821,7 +830,7 @@ enum ShelfRope {
         if expanded { addCursorRect(CGRect(x: 12,y: 10,width: bounds.width-24,height: ShelfRope.footerY-12), cursor: .openHand) }
     }
     override func mouseDown(with event: NSEvent) {
-        guard expanded, !layoutCommitting, canEdit() else { return }; if let panel = window as? ShelfPanel { panel.focusForInteraction() }; window?.makeFirstResponder(self)
+        guard expanded, !layoutCommitting, !externalDragging, canEdit() else { return }; if let panel = window as? ShelfPanel { panel.focusForInteraction() }; window?.makeFirstResponder(self)
         keyboardPointer = nil
         let point = convert(event.locationInWindow, from: nil)
         if point.y > ShelfRope.footerY && point.y < ShelfRope.footerY+28 {
@@ -843,6 +852,16 @@ enum ShelfRope {
         guard moved else { return }
         let local = convert(event.locationInWindow, from: nil)
         dragPoint = local
+        if let grab, local.y - grab.point.y >= Self.externalPullDistance,
+           let item = externalDraggingItem(id: dragging.id, at: local) {
+            (window as? ShelfPanel)?.releaseRope()
+            cancelDrag() // An external copy never commits the transient on-rope order.
+            externalDragging = true
+            selected = dragging.id
+            needsDisplay = true
+            beginExternalDrag(item, event: event)
+            return
+        }
         if let grab {
             let fraction=layout?.clamped(Double((grab.anchor-ropeOriginX+local.x-grab.point.x)/max(1,bounds.width))) ?? 0.5
             (window as? ShelfPanel)?.pullRope(anchorX:CGFloat(fraction)*bounds.width+ropeOriginX,
@@ -878,6 +897,32 @@ enum ShelfRope {
             if !panel.containsInteraction(panel.pointerLocation()) { hovered = nil }
             panel.interactionOccurred()
         }
+    }
+
+    /// A real PNG file URL lets receivers import the original pixels and transparency.
+    /// Constructing the drag item does no image decoding, file I/O or clipboard writes.
+    func externalDraggingItem(id: UUID, at point: CGPoint) -> NSDraggingItem? {
+        guard records.contains(where: { $0.id == id }), let url = imageFileURL?(id), url.isFileURL,
+              let image = thumbnails[id], image.size.width > 0, image.size.height > 0 else { return nil }
+        let item = NSDraggingItem(pasteboardWriter: url as NSURL)
+        let scale = min(144 / image.size.width, 160 / image.size.height)
+        let width = image.size.width * scale, height = image.size.height * scale
+        item.setDraggingFrame(CGRect(x:point.x-width/2,y:point.y-height/2,width:width,height:height),contents:image)
+        return item
+    }
+    func beginExternalDrag(_ item: NSDraggingItem, event: NSEvent) {
+        let session = beginDraggingSession(with: [item], event: event, source: self)
+        session.animatesToStartingPositionsOnCancelOrFail = true
+    }
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation { .copy }
+    func ignoreModifierKeys(for session: NSDraggingSession) -> Bool { true }
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        finishExternalDrag()
+    }
+    func finishExternalDrag() {
+        externalDragging = false
+        NSCursor.arrow.set(); needsDisplay = true
+        (window as? ShelfPanel)?.interactionOccurred()
     }
 
     private func scrollItems(_ steps: Int) {
@@ -974,6 +1019,9 @@ enum ShelfRope {
             let ghost=CGRect(x:anchor.x-cardWidth/2,y:anchor.y+12,width:cardWidth,height:100)
             drawFramedImage(image,in:ghost,opacity:0.95,attachment:CGPoint(x:anchor.x,y:anchor.y+13),selected:true)
             drawClip(at:anchor,selected:true)
+            if dragPoint.y - grab.point.y >= Self.externalPullDistance / 2 {
+                pill(AppLanguage.text("继续向下拉，拖到聊天框"), in:CGRect(x:ghost.midX-100,y:ghost.maxY+8,width:200,height:26),size:12)
+            }
         }
         if records.isEmpty { pill(AppLanguage.text("没有图片 · ⌘Z 撤销删除"),in: CGRect(x: max(16,bounds.midX-110),y: 78,width: min(220,bounds.width-32),height: 28),size: 13) }
         pill(AppLanguage.text("撤销"),in: CGRect(x: 16,y: ShelfRope.footerY,width: 52,height: 24),size: 11)

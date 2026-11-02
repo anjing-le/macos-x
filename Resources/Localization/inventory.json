@@ -5358,5 +5358,21 @@
       "raw": false,
       "multiline": false
     }
+  ],
+  "单击选中 · 双击贴出 · 左右拖动调整位置 · 向下拉出可拖到聊天框 · 离开 3 秒收起 · 左右键选择 · Esc 收起 · Option＋方向键排序 · ⌘C 复制 · ⌘⌫ / Delete 删除 · ⌘Z 撤销": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 659,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "继续向下拉，拖到聊天框": [
+    {
+      "file": "Sources/MacOSX/Capture/CaptureShelf.swift",
+      "line": 1025,
+      "raw": false,
+      "multiline": false
+    }
   ]
 }
