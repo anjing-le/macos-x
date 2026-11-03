@@ -5398,5 +5398,13 @@
       "raw": false,
       "multiline": false
     }
+  ],
+  "悬停调整画质和声音；Tab 或 ↓ 展开，Enter 开始，Esc 取消": [
+    {
+      "file": "Sources/MacOSX/Capture/RecordingStartBar.swift",
+      "line": 44,
+      "raw": false,
+      "multiline": false
+    }
   ]
 }

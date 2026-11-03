@@ -621,5 +621,6 @@ public enum AppLanguage {
         "最高长边 {0} 像素 · 60 fps；保持选区比例，不放大小区域。清晰度越高，文件通常越大。": "Maximum long edge: {0} pixels · 60 fps. Preserves the selection ratio without enlarging small areas. Higher quality usually makes larger files.",
         "清晰度": "Quality",
         "录屏清晰度": "Recording quality",
+        "悬停调整画质和声音；Tab 或 ↓ 展开，Enter 开始，Esc 取消": "Hover for quality and audio; Tab or ↓ for options, Enter to start, Esc to cancel",
     ]
 }

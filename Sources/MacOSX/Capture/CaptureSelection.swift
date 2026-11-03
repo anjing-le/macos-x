@@ -379,6 +379,10 @@ import os
         if mode == .screenshot, drag == nil, onEditorKey?(event) == true { return true }
         let command = event.modifierFlags.contains(.command), shift = event.modifierFlags.contains(.shift)
         if mode == .recording {
+            if event.keyCode == 48 || event.keyCode == 125,
+               let panel=recordingControls,panel.isVisible,let bar=panel.contentView as? RecordingStartBar {
+                bar.focusOptions(backwards:shift); return true
+            }
             if [36, 76].contains(event.keyCode) { startRecordingPressed(nil); return true }
             if event.keyCode == 8 || (event.keyCode == 17 && command) { return true }
         }
@@ -446,7 +450,7 @@ import os
     }
     private func showRecordingControls(at region: CGRect) {
         let bounds = frames.first?.screen.frame ?? desktop
-        let size = CGSize(width: min(360, bounds.width), height: 148)
+        let size = CGSize(width: min(RecordingStartBar.expandedSize.width, bounds.width), height: RecordingStartBar.expandedSize.height)
         let x = min(max(region.maxX - size.width, bounds.minX), bounds.maxX - size.width)
         let below = region.minY - size.height - 10
         let y = below >= bounds.minY ? below : min(region.maxY + 10, bounds.maxY - size.height)
@@ -466,7 +470,16 @@ import os
             control.contentView = bar; control.initialFirstResponder = bar
             panel = control; recordingControls = control
         }
-        panel.setFrame(CGRect(origin: CGPoint(x: x, y: y), size: size), display: true)
+        let expandedFrame=CGRect(origin:CGPoint(x:x,y:y),size:size)
+        if let bar=panel.contentView as? RecordingStartBar {
+            bar.resetPresentation()
+            bar.onExpansionChanged = { [weak panel] expanded in
+                guard let panel,panel.isVisible else { return }
+                let frame=RecordingStartBar.presentationFrame(expanded:expanded,in:expandedFrame)
+                panel.setFrame(frame,display:true)
+            }
+        }
+        panel.setFrame(RecordingStartBar.presentationFrame(expanded:false,in:expandedFrame),display:true)
         panel.makeKeyAndOrderFront(nil)
     }
     @objc private func cancelRecordingPressed(_ sender: Any?) {
