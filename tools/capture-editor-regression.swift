@@ -330,6 +330,89 @@ import AppKit
     func performFixture(_ command: PinCommand) { perform(command) }
     func applyRenderedEditFixture() { applyEdit(transform.render(image)!) }
     var fixtureZoom: CGFloat { zoom }
+    static func verifyNumberTransformsFixture() {
+        let data=Data((1...6).flatMap { [UInt8($0*30),UInt8(0),UInt8(0),UInt8(255)] })
+        let source=CGImage(width:3,height:2,bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:12,
+            space:CGColorSpace(name:CGColorSpace.sRGB)!,bitmapInfo:CGBitmapInfo(rawValue:CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue),
+            provider:CGDataProvider(data:data as CFData)!,decode:nil,shouldInterpolate:false,intent:.defaultIntent)!
+        func pixels(_ image:CGImage)->[Int] {
+            let sampler=CapturePixelSampler(image:image)!
+            return (0..<image.height).flatMap { y in (0..<image.width).map { x in Int(sampler.sample(x:x,y:y)!.red)/30 } }
+        }
+        let folder=FileManager.default.temporaryDirectory.appendingPathComponent("macos-x-pin-numbers-"+UUID().uuidString)
+        try! FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
+        defer { try? FileManager.default.removeItem(at:folder) }
+        let board=NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        let passive=PinEntry(image:source,frame:CGRect(x:10,y:20,width:90,height:60),queue:DispatchQueue(label:"pin-number-passive"),clipboard:board)
+        defer { passive.dispose() }
+        let cases:[(String,UInt16,Int,[Int])]=[("1",18,3,[3,6,2,5,1,4]),("2",19,1,[4,1,5,2,6,3]),("3",20,0,[3,2,1,6,5,4]),("4",21,0,[4,5,6,1,2,3])]
+        for (key,code,turns,expected) in cases {
+            let pin=PinEntry(image:source,frame:CGRect(x:10,y:20,width:90,height:60),queue:DispatchQueue(label:"pin-number-export"),clipboard:board)
+            defer { pin.dispose() }
+            let view=pin.window.contentView as! PinView
+            func event(_ value:String? = nil,flags:NSEvent.ModifierFlags = [],repeated:Bool = false)->NSEvent {
+                NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:flags,timestamp:0,windowNumber:pin.window.windowNumber,
+                    context:nil,characters:value ?? key,charactersIgnoringModifiers:value ?? key,isARepeat:repeated,keyCode:code)!
+            }
+            let center=CGPoint(x:pin.window.frame.midX,y:pin.window.frame.midY)
+            for flags:NSEvent.ModifierFlags in [.command,.control,.option,.shift] {
+                view.keyDown(with:event(flags:flags))
+                precondition(pin.snapshot.transform == CapturePinTransform(),"Modified numbers do not change the pin")
+            }
+            view.keyDown(with:event())
+            precondition(pin.snapshot.transform.turns == turns && pixels(pin.transform.render(source)!) == expected,"Actual number-key direction is correct: "+key)
+            precondition(pin.view.transform == pin.transform && CGPoint(x:pin.window.frame.midX,y:pin.window.frame.midY) == center,"Display uses the same transform and keeps its centre")
+            precondition(pin.window.frame.size == (turns == 0 ? CGSize(width:90,height:60) : CGSize(width:60,height:90)))
+            let transformed=pin.snapshot.transform
+            view.keyDown(with:event(repeated:true))
+            precondition(pin.snapshot.transform == transformed,"Holding a number does not repeatedly rotate/flip")
+            precondition(passive.snapshot.transform == CapturePinTransform(),"Other pins remain unchanged")
+            let copied=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:.command,timestamp:0,windowNumber:pin.window.windowNumber,
+                context:nil,characters:"c",charactersIgnoringModifiers:"c",isARepeat:false,keyCode:8)!
+            board.clearContents();precondition(view.performKeyEquivalent(with:copied))
+            let copyDeadline=Date().addingTimeInterval(3)
+            while pin.exporting && Date()<copyDeadline { RunLoop.current.run(until:Date().addingTimeInterval(0.01)) }
+            let copiedImage=CaptureClipboard.image(from:board.data(forType:.png)!)!
+            precondition(!pin.exporting && pixels(copiedImage)==expected,"Command-C writes transformed PNG pixels to the isolated clipboard")
+            let url=folder.appendingPathComponent(key+".png")
+            pin.encode(to:url)
+            let saveDeadline=Date().addingTimeInterval(3)
+            while pin.exporting && Date()<saveDeadline { RunLoop.current.run(until:Date().addingTimeInterval(0.01)) }
+            let saved=CaptureClipboard.image(from:try! Data(contentsOf:url))!
+            precondition(!pin.exporting && pixels(saved)==expected,"Saved PNG matches the visible number-key result")
+            let restored=PinEntry(snapshot:pin.snapshot,queue:DispatchQueue(label:"pin-number-recovery"))
+            precondition(pixels(restored.transform.render(source)!)==expected,"Recovery retains orientation")
+            restored.dispose()
+            for _ in 0..<(turns == 0 ? 1 : 3) { view.keyDown(with:event(flags:.numericPad)) }
+            precondition(pixels(pin.transform.render(source)!) == [1,2,3,4,5,6],"Repeated separate presses compose and can restore the image")
+        }
+        let pin=PinEntry(image:source,frame:CGRect(x:10,y:20,width:90,height:60),queue:DispatchQueue(label:"pin-number-composition"),clipboard:board)
+        defer { pin.dispose() }
+        let view=pin.window.contentView as! PinView
+        for (key,code):(String,UInt16) in [("3",20),("1",18)] {
+            let event=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:0,windowNumber:pin.window.windowNumber,
+                context:nil,characters:key,charactersIgnoringModifiers:key,isARepeat:false,keyCode:code)!
+            view.keyDown(with:event)
+        }
+        precondition(pixels(pin.transform.render(source)!) == [1,4,2,5,3,6],"Left rotation follows the already mirrored display")
+        let domain="cc.anjing.macos-x.pin-number-editor."+UUID().uuidString
+        let defaults=UserDefaults(suiteName:domain)!
+        defer { defaults.removePersistentDomain(forName:domain) }
+        let editorImage=CaptureRaster.context(width:100,height:80)!.makeImage()!
+        let editor=CaptureEditor(image:editorImage,selectionFrame:CGRect(x:0,y:0,width:100,height:80),editingPin:true,defaults:defaults,clipboard:board)
+        defer { editor.close() }
+        let number=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:0,windowNumber:editor.window.windowNumber,
+            context:nil,characters:"1",charactersIgnoringModifiers:"1",isARepeat:false,keyCode:18)!
+        precondition(editor.handleSelectionKey(number) && (editor.window.contentView as! CaptureCanvas).tool == .rectangle,"Editing retains its own numeric tool shortcuts")
+        let input=editor.beginTextFixture(point:CGPoint(x:10,y:40),width:2,ink:.red)
+        precondition(!editor.handleSelectionKey(number),"Numeric keys remain native text input when entering an annotation")
+        input.insertText("1234",replacementRange:NSRange(location:0,length:0))
+        precondition(input.string == "1234" && !editor.window.isVisible,"Text digits are preserved without displaying windows")
+        precondition(!pin.window.isVisible && !passive.window.isVisible,"The fixture never presents desktop windows")
+        print("PASS pin number keys: 1 left/2 right/3 horizontal/4 vertical, actual asymmetric pixels, cumulative transforms, repeat/modifier isolation, same display/copy/save/recovery and independent pins; isolated clipboard only")
+    }
+
 }
 
 @main struct EditorRegression {
@@ -337,6 +420,7 @@ import AppKit
         setbuf(stdout,nil)
         _ = NSApplication.shared; NSApp.setActivationPolicy(.prohibited)
         CaptureCanvas.verifyLiveMosaicFixture()
+        PinEntry.verifyNumberTransformsFixture()
         let receiver = RecordingControlReceiver()
         let barDomain = "cc.anjing.macos-x.recording-controls-fixture.\(UUID().uuidString)"
         let barDefaults = UserDefaults(suiteName: barDomain)!

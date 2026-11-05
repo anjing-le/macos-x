@@ -5406,5 +5406,13 @@
       "raw": false,
       "multiline": false
     }
+  ],
+  "非编辑时：1 左转 90° · 2 右转 90° · 3 左右镜像 · 4 上下镜像": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 418,
+      "raw": false,
+      "multiline": false
+    }
   ]
 }

@@ -131,6 +131,7 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
     private var image: CGImage
     private let view: PinView
     private let queue: DispatchQueue
+    private let clipboard: NSPasteboard
     private var transform = CapturePinTransform()
     private var baseSize: CGSize
     private var zoom: CGFloat = 1
@@ -151,8 +152,8 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
     }
     var recovery: CapturePinRecovery { .image(snapshot) }
 
-    init(image: CGImage, frame: CGRect?, queue: DispatchQueue) {
-        self.image = image; view = PinView(image: image); self.queue = queue
+    init(image: CGImage, frame: CGRect?, queue: DispatchQueue, clipboard: NSPasteboard = .general) {
+        self.image = image; view = PinView(image: image); self.queue = queue; self.clipboard = clipboard
         let validFrame = frame.flatMap { rect -> CGRect? in
             guard [rect.minX, rect.minY, rect.width, rect.height].allSatisfy({ $0.isFinite }),
                 rect.width > 0, rect.height > 0, rect.width <= 32_768, rect.height <= 32_768 else { return nil }
@@ -180,7 +181,7 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
         view.onSampling = { [weak self] in self?.setSampling($0) }
         view.onColor = { [weak self] color in
             guard let self, !self.closed else { return }
-            NSPasteboard.general.clearContents(); NSPasteboard.general.setString(color, forType: .string)
+            self.clipboard.clearContents(); self.clipboard.setString(color, forType: .string)
             self.onStatus?(AppLanguage.text("已复制 {0}", String(describing: (color))))
         }
     }
@@ -355,7 +356,7 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
                 guard let data else { self.onStatus?(AppLanguage.text("贴图导出失败。")); return }
                 if url != nil { self.onStatus?(didSave ? AppLanguage.text("已保存贴图。") : AppLanguage.text("贴图保存失败。")) }
                 else {
-                    NSPasteboard.general.clearContents(); NSPasteboard.general.setData(data, forType: .png)
+                    self.clipboard.clearContents(); self.clipboard.setData(data, forType: .png)
                     self.onStatus?(AppLanguage.text("已复制贴图。"))
                 }
             }
@@ -406,7 +407,12 @@ private final class PinView: NSView {
     private var drag: CapturePinDrag?
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    init(image: CGImage) { self.image = image; super.init(frame: .zero); setAccessibilityLabel(AppLanguage.text("贴图")); setAccessibilityRole(.image) }
+    init(image: CGImage) {
+        self.image = image; super.init(frame: .zero)
+        setAccessibilityLabel(AppLanguage.text("贴图")); setAccessibilityRole(.image)
+        toolTip = AppLanguage.text("非编辑时：1 左转 90° · 2 右转 90° · 3 左右镜像 · 4 上下镜像")
+        setAccessibilityHelp(toolTip)
+    }
     required init?(coder: NSCoder) { nil }
     func showZoom(_ scale: CGFloat) {
         zoomLabel = "\(Int((scale * 100).rounded()))%"
@@ -503,6 +509,18 @@ private final class PinView: NSView {
         }
         if event.keyCode == 53 { onCommand?(.close); return }
         if event.keyCode == 36 || event.keyCode == 76 { onCommand?(.copy); return }
+        if event.modifierFlags.intersection([.command,.control,.option,.shift]).isEmpty,
+           let key=event.charactersIgnoringModifiers,["1","2","3","4"].contains(key) {
+            // One press is one transformation; do not repeatedly flip while the key is held.
+            guard !event.isARepeat else { return }
+            switch key {
+            case "1": onCommand?(.rotate(false))
+            case "2": onCommand?(.rotate(true))
+            case "3": onCommand?(.horizontal)
+            default: onCommand?(.vertical)
+            }
+            return
+        }
         if event.modifierFlags.contains(.command) {
             if !performKeyEquivalent(with: event) { super.keyDown(with: event) }
             return
@@ -512,8 +530,6 @@ private final class PinView: NSView {
         }
         switch event.charactersIgnoringModifiers {
         case "+", "=": onCommand?(.zoom(1.2)); case "-", "_": onCommand?(.zoom(1 / 1.2))
-        case "1": onCommand?(.rotate(true)); case "2": onCommand?(.rotate(false))
-        case "3": onCommand?(.horizontal); case "4": onCommand?(.vertical)
         default: super.keyDown(with: event)
         }
     }
