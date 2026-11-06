@@ -582,5 +582,10 @@
   "清晰度": "Quality",
   "录屏清晰度": "Recording quality",
   "悬停调整画质和声音；Tab 或 ↓ 展开，Enter 开始，Esc 取消": "Hover for quality and audio; Tab or ↓ for options, Enter to start, Esc to cancel",
-  "非编辑时：1 左转 90° · 2 右转 90° · 3 左右镜像 · 4 上下镜像": "Outside editing: 1 rotate left 90° · 2 rotate right 90° · 3 mirror left/right · 4 mirror up/down"
+  "非编辑时：1 左转 90° · 2 右转 90° · 3 左右镜像 · 4 上下镜像": "Outside editing: 1 rotate left 90° · 2 rotate right 90° · 3 mirror left/right · 4 mirror up/down",
+  "非编辑时": "When not editing",
+  "左转 90°": "Left 90°",
+  "右转 90°": "Right 90°",
+  "左右镜像": "Mirror H",
+  "上下镜像": "Mirror V"
 }

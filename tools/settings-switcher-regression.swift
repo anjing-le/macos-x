@@ -468,6 +468,11 @@ try require(layoutBoard.bounds.contains(error.frame),"shortcut conflict explanat
                 let shortcutRows=board.subviews.compactMap { $0 as? ShortcutSettingsRow }
                 if kind == "capture" {
                     try require(board.usesBackdrop,"capture backdrop resource loaded")
+                    let guide=board.subviews.compactMap { $0 as? CapturePinShortcutGuide }.first!
+                    try require(!guide.isHidden && guide.usesBackdrop && board.bounds.contains(guide.frame),"Four-key pin guide is visible in the existing pin column")
+                    try require(guide.keys.map(\.stringValue) == ["1","2","3","4"] && guide.captions.count == 4,"Each illustrated action has the exact fixed key")
+                    try require(guide.frame.maxY <= board.slot(SettingsBoardView.captureOutlineSlots[0]).minY,"Guide does not cover the edge choices")
+
                     let ocrHint = board.subviews.compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == "capture-recognition-shortcut" }!
                     try require(!ocrHint.isHidden && ocrHint.stringValue.contains("⌘T") && board.bounds.contains(ocrHint.frame),"Capture settings expose Command-T OCR in a visible native label")
                     for (index,row) in shortcutRows.enumerated() {
@@ -537,6 +542,23 @@ try require(layoutBoard.bounds.contains(error.frame),"shortcut conflict explanat
                         let card = board.subviews.compactMap { $0 as? CaptureShelfSettingsCard }.first!
                         try require(board.bounds.contains(card.frame) && card.frame.maxY <= settings.frame.minY, "Shelf never overlaps footer at responsive layout boundaries")
                         try require(card.subviews.allSatisfy { card.bounds.contains($0.frame) }, "Shelf title, help and recorder fit at every supported width")
+                        let guide=board.subviews.compactMap { $0 as? CapturePinShortcutGuide }.first!
+                        try require(board.bounds.contains(guide.frame) && !guide.isHidden,"Pin key guide survives responsive layout changes")
+                        let labels=[guide.context]+guide.keys+guide.captions
+                        for label in labels {
+                            try require(guide.bounds.contains(label.frame),"Guide label stays inside its diagram")
+                            let size=(label.stringValue as NSString).size(withAttributes:[.font:label.font!])
+                            try require(size.width <= label.frame.width && size.height <= label.frame.height,"Bilingual guide text is readable without clipping")
+                        }
+                        for row in shortcutRows { try require(!guide.frame.intersects(row.frame),"Static pin key hints never cover live shortcut recorders") }
+                        for choice in choices { try require(!guide.frame.intersects(choice.frame),"Static pin key hints never cover edge choice hit areas") }
+                        try require(!guide.frame.intersects(card.frame) && !guide.frame.intersects(settings.frame),"Guide leaves shelf and recording footer usable")
+                        if width < 740 { try require(!guide.usesBackdrop && guide.frame.maxY < board.subviews.compactMap { $0 as? MinimalToggle }.map { $0.frame.minY }.min()!,"Narrow pin instructions remain above recording audio") }
+                        if pass == 0, let output, let bitmap=board.bitmapImageRepForCachingDisplay(in:board.bounds) {
+                            board.cacheDisplay(in:board.bounds,to:bitmap)
+                            try bitmap.representation(using:.png,properties:[:])?.write(to:URL(fileURLWithPath:output).appendingPathComponent("capture-pin-guide-"+String(Int(width))+".png"))
+                        }
+
                     }
                     rootWidth.constant=312; root.frame.size.width=312; root.needsLayout=true; root.layoutSubtreeIfNeeded()
                     root.frame.size.height=root.fittingSize.height; root.layoutSubtreeIfNeeded()

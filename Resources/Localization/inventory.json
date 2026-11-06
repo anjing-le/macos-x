@@ -5414,5 +5414,45 @@
       "raw": false,
       "multiline": false
     }
+  ],
+  "非编辑时": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 168,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "左转 90°": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 168,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "右转 90°": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 168,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "左右镜像": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 168,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "上下镜像": [
+    {
+      "file": "Sources/MacOSX/UI/SettingsBoardView.swift",
+      "line": 168,
+      "raw": false,
+      "multiline": false
+    }
   ]
 }

@@ -160,6 +160,91 @@ import AppKit
     }
 }
 
+/// Read-only keycaps and pencil diagrams, kept in the pin column rather than a second help page.
+@MainActor final class CapturePinShortcutGuide: NSView {
+    let context = NSTextField(labelWithString:AppLanguage.text("非编辑时"))
+    let captions = [AppLanguage.text("左转 90°"),AppLanguage.text("右转 90°"),AppLanguage.text("左右镜像"),AppLanguage.text("上下镜像")].map { NSTextField(labelWithString:$0) }
+    let keys = (1...4).map { NSTextField(labelWithString:String($0)) }
+    var usesBackdrop = false
+    override var isFlipped: Bool { true }
+    init() {
+        super.init(frame:.zero)
+        identifier = .init("capture-pin-shortcut-guide")
+        context.font = .systemFont(ofSize:11); context.textColor=SketchPalette.muted; context.alignment = .center
+        addSubview(context)
+        for label in captions+keys {
+            label.font = .systemFont(ofSize:11); label.textColor=SketchPalette.ink; label.alignment = .center
+            addSubview(label)
+        }
+        for key in keys { key.font = .monospacedDigitSystemFont(ofSize:12,weight:.medium) }
+        setAccessibilityElement(true); setAccessibilityRole(.image)
+        setAccessibilityLabel(AppLanguage.text("非编辑时：1 左转 90° · 2 右转 90° · 3 左右镜像 · 4 上下镜像"))
+    }
+    required init?(coder:NSCoder) { nil }
+    var contentTop:CGFloat { max(0,(bounds.height-88)/2) }
+    func iconRect(_ index:Int)->CGRect {
+        CGRect(x:CGFloat(index)*bounds.width/4+(bounds.width/4-40)/2,y:contentTop+18,width:40,height:30)
+    }
+    override func layout() {
+        super.layout()
+        context.frame=CGRect(x:0,y:contentTop,width:bounds.width,height:15)
+        for index in 0..<4 {
+            let center=(CGFloat(index)+0.5)*bounds.width/4
+            keys[index].frame=CGRect(x:center-10,y:contentTop+51,width:20,height:18)
+            captions[index].frame=CGRect(x:CGFloat(index)*bounds.width/4,y:contentTop+73,width:bounds.width/4,height:15)
+        }
+    }
+    private func line(_ points:[CGPoint],color:NSColor? = nil,width:CGFloat = 1.3) {
+        let path=NSBezierPath();guard let first=points.first else { return };path.move(to:first)
+        for point in points.dropFirst() { path.line(to:point) }
+        SketchPencil.stroke(path,color:color ?? SketchPalette.blue,width:width)
+    }
+    private func triangle(_ points:[CGPoint],color:NSColor) {
+        let path=NSBezierPath();path.move(to:points[0]);for p in points.dropFirst() { path.line(to:p) };path.close()
+        SketchPalette.fill(path,color:color.withAlphaComponent(0.48));SketchPencil.stroke(path,color:SketchPalette.line,width:0.8)
+    }
+    static func drawPaper(in rect:CGRect) {
+        guard let image=IllustratedSettingChoice.artwork("SettingsCaptureBoard") else { SketchPalette.paper.setFill();rect.fill();return }
+        image.draw(in:rect,from:CGRect(x:0,y:image.size.height-80,width:80,height:80),operation:.copy,fraction:1,respectFlipped:true,hints:[.interpolation:NSImageInterpolation.high])
+    }
+    override func draw(_ dirtyRect:NSRect) {
+        // The old decorative sticky note is replaced in place with useful instructions.
+        if usesBackdrop { Self.drawPaper(in:bounds) }
+        else { SketchPalette.paper.setFill();bounds.fill() }
+        for index in 0..<4 {
+            let rect=iconRect(index)
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current?.cgContext.translateBy(x:rect.minX,y:rect.minY)
+            if index < 2 {
+                let photo=SketchPencil.outline(in:CGRect(x:10,y:9,width:20,height:14),radius:2)
+                SketchPalette.fill(photo,color:SketchPalette.blue.withAlphaComponent(0.25));SketchPencil.stroke(photo,color:SketchPalette.line,width:0.9)
+                triangle([CGPoint(x:12,y:21),CGPoint(x:18,y:13),CGPoint(x:27,y:21)],color:SketchPalette.green)
+                let direction:CGFloat=index == 0 ? -1 : 1
+                let start:CGFloat=index == 0 ? 0 : .pi
+                let points=(0...18).map { step -> CGPoint in
+                    let a=start+direction*CGFloat(step)/18 * .pi*0.9
+                    return CGPoint(x:20+17*cos(a),y:15+13*sin(a))
+                }
+                line(points)
+                let tip=points.last!,before=points[points.count-2]
+                let angle=atan2(tip.y-before.y,tip.x-before.x)
+                line([CGPoint(x:tip.x-5*cos(angle-0.6),y:tip.y-5*sin(angle-0.6)),tip,CGPoint(x:tip.x-5*cos(angle+0.6),y:tip.y-5*sin(angle+0.6))])
+            } else if index == 2 {
+                triangle([CGPoint(x:16,y:4),CGPoint(x:4,y:25),CGPoint(x:16,y:25)],color:SketchPalette.blue)
+                triangle([CGPoint(x:24,y:4),CGPoint(x:36,y:25),CGPoint(x:24,y:25)],color:SketchPalette.purple)
+                line([CGPoint(x:20,y:0),CGPoint(x:20,y:30)],color:SketchPalette.line,width:0.7)
+            } else {
+                triangle([CGPoint(x:7,y:3),CGPoint(x:33,y:3),CGPoint(x:33,y:12)],color:SketchPalette.blue)
+                triangle([CGPoint(x:7,y:27),CGPoint(x:33,y:27),CGPoint(x:33,y:18)],color:SketchPalette.purple)
+                line([CGPoint(x:2,y:15),CGPoint(x:38,y:15)],color:SketchPalette.line,width:0.7)
+            }
+            NSGraphicsContext.restoreGraphicsState()
+            let cap=SketchPencil.outline(in:keys[index].frame.insetBy(dx:-1,dy:-1),radius:4)
+            SketchPalette.fill(cap,color:SketchPalette.paper);SketchPencil.stroke(cap,color:SketchPalette.line,width:0.9)
+        }
+    }
+}
+
 /// A compact, static explanation paired with the real shared shortcut recorder.
 /// The picture describes the top-of-screen shelf; it never collects a screenshot.
 @MainActor final class CaptureShelfSettingsCard: NSView {
@@ -223,6 +308,7 @@ import AppKit
     private let shortcuts: [NSView]
     private var art: [NSView] = []
     private var shelfCard: CaptureShelfSettingsCard?
+    private var pinGuide: CapturePinShortcutGuide?
     private var layoutArtwork: [NSImageView] = []
     private var layoutCaptions: [NSTextField] = []
     private var hostsShortcut: Bool { kind == "kaomoji" && settings is SettingsShortcutHost }
@@ -257,7 +343,7 @@ import AppKit
         if hostsShortcut { return max(0, settings.intrinsicContentSize.height) }
         if kind == "windowLayout" { return layoutFooterY + settings.fittingSize.height }
         if usesBackdrop { return kind == "capture" ? max(backdropHeight,backdropHeight*0.838+settings.fittingSize.height) : backdropHeight }
-        return kind == "kaomoji" ? max(compact ? 848 : 490,50+settings.fittingSize.height) : (kind == "capture" ? max(compact ? 892 : 440,(compact ? (shelfCard == nil ? 692 : 832) : 352)+settings.fittingSize.height) : (compact ? 550 : 410))
+        return kind == "kaomoji" ? max(compact ? 848 : 490,50+settings.fittingSize.height) : (kind == "capture" ? max(compact ? 996 : 440,(compact ? (shelfCard == nil ? 796 : 936) : 352)+settings.fittingSize.height) : (compact ? 550 : 410))
     }
     override var intrinsicContentSize: NSSize { NSSize(width:840,height:bodyHeight+issueHeight) }
     init(kind: String, settings: NSView, shortcuts: [NSView]) {
@@ -268,6 +354,9 @@ import AppKit
         super.init(frame: CGRect(x:0,y:0,width:840,height:410))
         settingsWidth.isActive=true
         addSubview(settings); for shortcut in self.shortcuts { addSubview(shortcut) }
+        if kind == "capture" {
+            let guide=CapturePinShortcutGuide();pinGuide=guide;addSubview(guide)
+        }
         if kind == "capture", self.shortcuts.count > 4, let shortcut = self.shortcuts[4] as? ShortcutSettingsRow {
             let card = CaptureShelfSettingsCard(shortcut: shortcut)
             shelfCard = card; addSubview(card)
@@ -405,6 +494,10 @@ import AppKit
         guard usesBackdrop, let backdrop else { return }
         let source = kind == "capture" ? CGRect(origin:.zero,size:backdrop.size) : CGRect(x:0,y:67,width:1774,height:635)
         backdrop.draw(in:CGRect(x:0,y:0,width:bounds.width,height:backdropHeight),from:source,operation:.sourceOver,fraction:1,respectFlipped:true,hints:[.interpolation:NSImageInterpolation.high])
+        if kind == "capture" {
+            // Remove the old quote's lead-in arrow as well; the F3 key sits directly over its guide.
+            CapturePinShortcutGuide.drawPaper(in:slot(CGRect(x:0.541,y:0.16,width:0.089,height:0.1)))
+        }
         for (index,shortcut) in shortcuts.enumerated() where shortcutIssues[index] != nil {
             SketchPencil.stroke(SketchPencil.outline(in:convert(shortcut.bounds, from: shortcut).insetBy(dx:1,dy:1),radius:7),color:SketchPalette.coral,width:1.5)
         }
@@ -421,6 +514,9 @@ import AppKit
         for view in art { view.isHidden=true }
         for choice in selectors { choice.backdropOnly=true; choice.checkOnly=kind == "capture" }
         if kind == "capture" {
+            pinGuide?.usesBackdrop=true
+            pinGuide?.frame=slot(CGRect(x:0.353,y:0.235,width:0.287,height:0.26))
+            pinGuide?.layoutSubtreeIfNeeded();pinGuide?.needsDisplay=true
             for (i,view) in shortcuts.prefix(4).enumerated() { view.frame=slot(Self.captureKeySlots[i]) }
             shelfCard?.keySize = shortcuts[0].frame.size
             shelfCard?.frame = slot(CGRect(x: 0.028, y: 0.665, width: 0.31, height: 0.165))
@@ -489,21 +585,24 @@ import AppKit
         for view in art { view.isHidden=false }
         for choice in selectors { choice.backdropOnly=false }
         for hint in captureHints { hint.isHidden=true }
+        pinGuide?.usesBackdrop=false;pinGuide?.needsDisplay=true
         if compact && kind == "capture" {
+            pinGuide?.frame=CGRect(x:0,y:504,width:w,height:96)
+            pinGuide?.layoutSubtreeIfNeeded()
             captureHints[0].isHidden=false; captureHints[0].frame=CGRect(x:0,y:166,width:w,height:26)
-            let artY: [CGFloat] = [0, 196, 512]
+            let artY: [CGFloat] = [0, 196, 616]
             for (i, view) in art.enumerated() {
                 view.frame = CGRect(x: 0, y: artY[i], width: w, height: 118)
             }
-            let shortcutY: [CGFloat] = [120, 316, 362, 632]
+            let shortcutY: [CGFloat] = [120, 316, 362, 736]
             for (i, view) in shortcuts.prefix(4).enumerated() {
                 view.frame = CGRect(x: 0, y: shortcutY[i], width: w, height: 46)
             }
             for (i, view) in selectors.enumerated() {
                 view.frame = CGRect(x: CGFloat(i)*w/2, y: 410, width: w/2-4, height: 88)
             }
-            layoutAudio(in: CGRect(x: 0, y: 682, width: w, height: 32))
-            let footerY: CGFloat = audioChoices.isEmpty ? 692 : 728
+            layoutAudio(in: CGRect(x: 0, y: 786, width: w, height: 32))
+            let footerY: CGFloat = audioChoices.isEmpty ? 796 : 832
             shelfCard?.keySize = CGSize(width: 64, height: 41)
             shelfCard?.frame = CGRect(x: 0, y: footerY, width: w, height: 80)
             shelfCard?.layoutSubtreeIfNeeded()
@@ -514,6 +613,9 @@ import AppKit
             settings.frame=CGRect(x:0,y:398,width:w,height:settings.fittingSize.height)
         } else if kind == "capture" {
             let col=(w-24)/3
+            art[1].isHidden=true
+            pinGuide?.frame=CGRect(x:col+12,y:30,width:col,height:110)
+            pinGuide?.layoutSubtreeIfNeeded()
             captureHints[0].isHidden=false; captureHints[0].frame=CGRect(x:0,y:214,width:col,height:26)
             for (i,view) in art.enumerated() { view.frame=CGRect(x:CGFloat(i)*(col+12),y:0,width:col,height:150) }
             let xs=[CGFloat(0),col+12,col+12,2*(col+12)]
