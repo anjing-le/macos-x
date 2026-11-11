@@ -5454,5 +5454,21 @@
       "raw": false,
       "multiline": false
     }
+  ],
+  "复制文字": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 310,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已取消文字提取": [
+    {
+      "file": "Sources/MacOSX/Capture/CapturePins.swift",
+      "line": 310,
+      "raw": false,
+      "multiline": false
+    }
   ]
 }

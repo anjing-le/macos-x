@@ -173,6 +173,28 @@ import AppKit
                          "Screenshot copy releases the editor, tools and listeners after PNG acknowledgement")
         }
     }
+    func verifyPinRecognitionFixture(board:NSPasteboard,result:Result<String,Error>,trigger:Int) {
+        board.clearContents();board.setString("KEEP",forType:.string);let previous=board.changeCount
+        precondition(!window.hidesOnDeactivate && !toolbar.hidesOnDeactivate,"Pin editor and tools stay on desktop when switching applications")
+        let base=canvas.base,frame=window.frame
+        var closes=0;onClose={closes += 1}
+        toolbarVisible=true
+        let key=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:trigger == 1 ? [.command,.shift] : [],timestamp:0,
+            windowNumber:window.windowNumber,context:nil,characters:trigger == 1 ? "c" : "6",charactersIgnoringModifiers:trigger == 1 ? "c" : "6",isARepeat:false,keyCode:trigger == 1 ? 8 : 22)!
+        if trigger == 0 { recognitionButton.performClick(nil) }
+        else { precondition(handleSelectionKey(key)) }
+        let deadline=Date().addingTimeInterval(4)
+        while recognition != nil && Date()<deadline { RunLoop.current.run(until:Date().addingTimeInterval(0.01)) }
+        precondition(recognition == nil && recognitionButton.isEnabled && !closed && closes == 0)
+        precondition(canvas.base === base && window.frame == frame && !window.isVisible && !toolbar.isVisible,
+            "OCR leaves pin pixels/state intact and cannot resurrect tools for an invisible owner")
+        if case .success(let text)=result,!text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty {
+            precondition(board.string(forType:.string)==text && board.data(forType:.png)==nil)
+        } else { precondition(board.changeCount==previous && board.string(forType:.string)=="KEEP") }
+        showStatus(AppLanguage.text("文字已复制"))
+        precondition(!toolbar.isVisible,"A later status update still cannot show orphaned tools")
+        close();precondition(closed && closes==1 && recognition == nil && localMonitor == nil && !toolbar.isVisible)
+    }
     func verifyRecognitionFixture(board: NSPasteboard, result: Result<String, Error>, keyboard: Bool, cancel: Bool = false) {
         board.clearContents(); board.setString("KEEP",forType: .string)
         let previous = board.changeCount
@@ -330,6 +352,92 @@ import AppKit
     func performFixture(_ command: PinCommand) { perform(command) }
     func applyRenderedEditFixture() { applyEdit(transform.render(image)!) }
     var fixtureZoom: CGFloat { zoom }
+    static func verifyTextCopyFixture() {
+        let board=NSPasteboard.withUniqueName();defer { board.releaseGlobally() }
+        let data=Data((1...6).flatMap { [UInt8($0*30),UInt8(0),UInt8(0),UInt8(255)] })
+        let source=CGImage(width:3,height:2,bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:12,space:CGColorSpace(name:CGColorSpace.sRGB)!,
+            bitmapInfo:CGBitmapInfo(rawValue:CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue),
+            provider:CGDataProvider(data:data as CFData)!,decode:nil,shouldInterpolate:false,intent:.defaultIntent)!
+        let frame=CGRect(x:20,y:30,width:90,height:60)
+        func key(_ pin:PinEntry,copyText:Bool)->NSEvent {
+            NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:copyText ? [.command,.shift] : .command,timestamp:0,
+                windowNumber:pin.window.windowNumber,context:nil,characters:"c",charactersIgnoringModifiers:"c",isARepeat:false,keyCode:8)!
+        }
+        for result:Result<String,Error> in [.success("PIN TEXT"),.success(" \n"),.failure(CaptureFailure.unavailable)] {
+            for keyboard in [false,true] {
+                let queue=DispatchQueue(label:"pin-ocr-fixture"),gate=DispatchSemaphore(value:0)
+                queue.async { _=gate.wait(timeout:.now()+4) }
+                let pin=PinEntry(image:source,frame:frame,queue:queue,clipboard:board,textRecognizer:{ image,_ in
+                    let sample=CapturePixelSampler(image:image)!
+                    let pixels=(0..<image.height).flatMap { y in (0..<image.width).map { x in Int(sample.sample(x:x,y:y)!.red)/30 } }
+                    precondition(image.width==2 && image.height==3 && pixels == [4,1,5,2,6,3],"OCR sees the full transformed image rather than a thumbnail or unrotated source")
+                    return try result.get()
+                })
+                defer { pin.dispose() }
+                pin.perform(.rotate(true))
+                let before=pin.window.frame,transform=pin.transform
+                board.clearContents();board.setString("KEEP",forType:.string);let previous=board.changeCount
+                var statuses=[String]();pin.onStatus={statuses.append($0)}
+                let view=pin.window.contentView as! PinView
+                if keyboard { precondition(view.performKeyEquivalent(with:key(pin,copyText:true))) }
+                else {
+                    let item=pin.menu().items.first { $0.title==AppLanguage.text("复制文字") }!
+                    precondition(item.keyEquivalent=="c" && item.keyEquivalentModifierMask==[.command,.shift])
+                    precondition(NSApp.sendAction(item.action!,to:item.target,from:item))
+                }
+                let request=pin.recognition;precondition(request != nil && pin.editor == nil && !pin.preparingEditor)
+                pin.copyRecognizedText()
+                precondition(pin.recognition === request && statuses.filter{$0==AppLanguage.text("正在提取文字…")}.count==1,"Duplicate OCR stays single flight")
+                gate.signal()
+                let deadline=Date().addingTimeInterval(4)
+                while pin.recognition != nil && Date()<deadline { RunLoop.current.run(until:Date().addingTimeInterval(0.01)) }
+                precondition(pin.recognition==nil && pin.recognitionTicket==nil && !pin.closed && pin.editor==nil && !pin.preparingEditor)
+                precondition(pin.window.frame==before && pin.transform==transform && pin.image === source && !pin.window.isVisible && !pin.window.hidesOnDeactivate,
+                    "Direct text copy never hides, replaces or presents pin windows or creates editing tools")
+                if case .success(let text)=result,!text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty {
+                    precondition(board.string(forType:.string)==text && board.data(forType:.png)==nil && statuses.last==AppLanguage.text("文字已复制"))
+                } else { precondition(board.changeCount==previous && board.string(forType:.string)=="KEEP") }
+            }
+        }
+        for action in 0..<3 {
+            let queue=DispatchQueue(label:"pin-ocr-cancellation"),gate=DispatchSemaphore(value:0)
+            queue.async { _=gate.wait(timeout:.now()+4) }
+            let pin=PinEntry(image:source,frame:frame,queue:queue,clipboard:board,textRecognizer:{_,_ in "STALE"})
+            defer { pin.dispose() }
+            board.clearContents();board.setString("KEEP",forType:.string);let previous=board.changeCount
+            pin.copyRecognizedText();precondition(pin.recognition != nil)
+            if action==0 { pin.dispose() }
+            else if action==1 { pin.perform(.horizontal) }
+            else { precondition((pin.window.contentView as! PinView).performKeyEquivalent(with:key(pin,copyText:false))) }
+            precondition(pin.recognition==nil && pin.recognitionTicket==nil)
+            gate.signal()
+            let drained=DispatchSemaphore(value:0);queue.async {drained.signal()};precondition(drained.wait(timeout:.now()+4) == .success)
+            let deadline=Date().addingTimeInterval(4)
+            while pin.exporting && Date()<deadline { RunLoop.current.run(until:Date().addingTimeInterval(0.01)) }
+            RunLoop.current.run(until:Date().addingTimeInterval(0.03))
+            if action==2 { precondition(board.data(forType:.png) != nil && board.string(forType:.string)==nil,"Explicit image copy wins over pending OCR") }
+            else { precondition(board.changeCount==previous && board.string(forType:.string)=="KEEP","Closed/changed pins cannot receive stale OCR clipboard writes") }
+        }
+        print("PASS pin OCR lifecycle: native right-menu/Shift-Command-C, exact displayed orientation, single flight, empty/error preservation, close/transform/image-copy cancellation and intact pin lifecycle; isolated clipboard only")
+        // The default Vision revision can compile ANE models on first use. This separate
+        // opt-in integration check must not gate deterministic offscreen UI fixtures.
+        if ProcessInfo.processInfo.environment["MACOSX_PIN_OCR_REAL_VISION"] == "1" {
+            let context=CaptureRaster.context(width:600,height:160)!
+            context.setFillColor(CGColor(gray:1,alpha:1));context.fill(CGRect(x:0,y:0,width:600,height:160))
+            CaptureClipboard.drawText("PIN OCR 123",size:42,in:CGRect(x:20,y:45,width:560,height:70),context:context)
+            let pin=PinEntry(image:context.makeImage()!,frame:frame,queue:DispatchQueue(label:"pin-ocr-real-vision"),clipboard:board)
+            defer {pin.dispose()}
+            var visionStatuses=[String]();pin.onStatus={visionStatuses.append($0)}
+            board.clearContents();pin.copyRecognizedText()
+            let deadline=Date().addingTimeInterval(120)
+            while pin.recognition != nil && Date()<deadline { RunLoop.current.run(until:Date().addingTimeInterval(0.01)) }
+            let recognized=board.string(forType:.string) ?? ""
+            print("Synthetic production Vision state:",pin.recognition != nil,pin.closed,pin.editor != nil,String(reflecting:recognized),visionStatuses)
+            precondition(pin.recognition==nil && recognized.contains("PIN") && recognized.contains("123") && pin.editor==nil && !pin.closed,
+                "Production local Vision reads synthetic text through the direct pin action without capture, network or new windows")
+            print("PASS real local Vision: production pin action reads synthetic PIN OCR 123, no capture or live windows")
+        }
+    }
     static func verifyNumberTransformsFixture() {
         let data=Data((1...6).flatMap { [UInt8($0*30),UInt8(0),UInt8(0),UInt8(255)] })
         let source=CGImage(width:3,height:2,bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:12,
@@ -421,6 +529,7 @@ import AppKit
         _ = NSApplication.shared; NSApp.setActivationPolicy(.prohibited)
         CaptureCanvas.verifyLiveMosaicFixture()
         PinEntry.verifyNumberTransformsFixture()
+        PinEntry.verifyTextCopyFixture()
         let receiver = RecordingControlReceiver()
         let barDomain = "cc.anjing.macos-x.recording-controls-fixture.\(UUID().uuidString)"
         let barDefaults = UserDefaults(suiteName: barDomain)!
@@ -609,6 +718,13 @@ import AppKit
                 ocr.verifyRecognitionFixture(board: copyBoard,result: result,keyboard: keyboard)
             }
         }
+        for trigger in 0..<3 {
+            for result:Result<String,Error> in [.success("PIN OCR TEXT"),.success(" \n"),.failure(CaptureFailure.unavailable)] {
+                let pinOCR=CaptureEditor(image:image,selectionFrame:region,editingPin:true,defaults:defaults,clipboard:copyBoard,textRecognizer:{_,_ in try result.get()})
+                pinOCR.verifyPinRecognitionFixture(board:copyBoard,result:result,trigger:trigger)
+            }
+        }
+        print("PASS pinned-editor OCR: button/6/Shift-Command-C, success/empty/failure, persistent desktop panels, hidden owner cannot show tools, exactly-once close; F1 behavior separate")
         let cancelledOCR = CaptureEditor(image: image,selectionFrame: region,defaults: defaults,clipboard: copyBoard,textRecognizer: { _,_ in "LATE" })
         cancelledOCR.verifyRecognitionFixture(board: copyBoard,result: .success("LATE"),keyboard: true,cancel: true)
         copyBoard.releaseGlobally()

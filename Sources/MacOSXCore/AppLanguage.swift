@@ -628,5 +628,7 @@ public enum AppLanguage {
         "右转 90°": "Right 90°",
         "左右镜像": "Mirror H",
         "上下镜像": "Mirror V",
+        "复制文字": "Copy Text",
+        "已取消文字提取": "Text recognition cancelled",
     ]
 }

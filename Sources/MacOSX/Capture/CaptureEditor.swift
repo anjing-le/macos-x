@@ -180,6 +180,10 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
             panel.isReleasedWhenClosed = false; panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             panel.animationBehavior = .none
         }
+        if editingPin {
+            // Pinned content and its tools belong to the desktop, not the active application.
+            window.hidesOnDeactivate = false; toolbar.hidesOnDeactivate = false
+        }
         window.hasShadow = false
         window.acceptsMouseMovedEvents = true
         window.delegate = self; window.contentView = canvas
@@ -401,7 +405,9 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         let x = min(max(area.minX + 6, region.maxX - size.width), area.maxX - size.width - 6)
         let preferredY = region.minY - size.height - 8
         let y = preferredY >= area.minY + 6 ? preferredY : min(area.maxY - size.height - 6, region.maxY + 8)
-        toolbar.setFrame(CGRect(origin: CGPoint(x: x, y: y), size: size), display: true); toolbar.orderFrontRegardless()
+        toolbar.setFrame(CGRect(origin: CGPoint(x: x, y: y), size: size), display: true)
+        if window.isVisible { toolbar.orderFrontRegardless() }
+        else { toolbar.orderOut(nil) }
     }
     func close() {
         guard !closed else { return }

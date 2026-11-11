@@ -1,6 +1,7 @@
 import MacOSXCore
 import AppKit
 import UniformTypeIdentifiers
+@preconcurrency import Vision
 
 @MainActor
 final class CapturePins {
@@ -118,7 +119,7 @@ final class CapturePins {
 }
 
 
-private enum PinCommand { case copy, save, edit, close, hide, zoom(CGFloat), opacity(CGFloat), rotate(Bool), horizontal, vertical, thumbnail }
+private enum PinCommand { case copy, recognize, save, edit, close, hide, zoom(CGFloat), opacity(CGFloat), rotate(Bool), horizontal, vertical, thumbnail }
 
 @MainActor
 private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
@@ -132,6 +133,9 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
     private let view: PinView
     private let queue: DispatchQueue
     private let clipboard: NSPasteboard
+    private let textRecognizer: (CGImage, VNRecognizeTextRequest) throws -> String
+    private var recognition: VNRecognizeTextRequest?
+    private var recognitionTicket: CaptureImageService.Ticket?
     private var transform = CapturePinTransform()
     private var baseSize: CGSize
     private var zoom: CGFloat = 1
@@ -152,8 +156,8 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
     }
     var recovery: CapturePinRecovery { .image(snapshot) }
 
-    init(image: CGImage, frame: CGRect?, queue: DispatchQueue, clipboard: NSPasteboard = .general) {
-        self.image = image; view = PinView(image: image); self.queue = queue; self.clipboard = clipboard
+    init(image: CGImage, frame: CGRect?, queue: DispatchQueue, clipboard: NSPasteboard = .general, textRecognizer: @escaping (CGImage, VNRecognizeTextRequest) throws -> String = CaptureTextRecognition.recognize) {
+        self.image = image; view = PinView(image: image); self.queue = queue; self.clipboard = clipboard; self.textRecognizer = textRecognizer
         let validFrame = frame.flatMap { rect -> CGRect? in
             guard [rect.minX, rect.minY, rect.width, rect.height].allSatisfy({ $0.isFinite }),
                 rect.width > 0, rect.height > 0, rect.width <= 32_768, rect.height <= 32_768 else { return nil }
@@ -181,6 +185,7 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
         view.onSampling = { [weak self] in self?.setSampling($0) }
         view.onColor = { [weak self] color in
             guard let self, !self.closed else { return }
+            self.cancelRecognition()
             self.clipboard.clearContents(); self.clipboard.setString(color, forType: .string)
             self.onStatus?(AppLanguage.text("已复制 {0}", String(describing: (color))))
         }
@@ -204,6 +209,7 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
             }
             return
         }
+        cancelRecognition()
         exporting = true
         let original = image, transform = transform, lifetime = lifetime
         queue.async { [weak self] in
@@ -233,7 +239,7 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
     func windowDidResignKey(_ notification: Notification) { view.pauseSampling() }
     func windowWillClose(_ notification: Notification) {
         guard !closed else { return }
-        closed = true; lifetime.cancel(); samplingTicket?.cancel(); samplingTicket = nil
+        closed = true; cancelRecognition(); lifetime.cancel(); samplingTicket?.cancel(); samplingTicket = nil
         editor?.onClose = nil; editor?.close(); editor = nil
         savePanel?.cancel(nil); savePanel = nil; view.stopTracking(); window.acceptsMouseMovedEvents = false
         onClose?(); onClose = nil; onStatus = nil
@@ -258,7 +264,12 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
             return
         }
         switch command {
+        case .rotate,.horizontal,.vertical: cancelRecognition()
+        default: break
+        }
+        switch command {
         case .copy: copyImage()
+        case .recognize: copyRecognizedText()
         case .save: saveImage()
         case .edit: editImage()
         case .close: window.close()
@@ -293,9 +304,40 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
             }
         }
     }
+    private func cancelRecognition() {
+        guard let request=recognition else { return }
+        request.cancel(); recognition=nil; recognitionTicket?.cancel();recognitionTicket=nil
+        if !closed { onStatus?(AppLanguage.text("已取消文字提取")) }
+    }
+    @objc private func copyRecognizedText() {
+        guard !closed,!exporting,!preparingEditor,editor == nil,recognition == nil else { return }
+        let request=CaptureTextRecognition.request(), original=image, transform=transform, lifetime=lifetime, recognize=textRecognizer
+        let ticket=CaptureImageService.Ticket();recognitionTicket=ticket
+        recognition=request; onStatus?(AppLanguage.text("正在提取文字…"))
+        queue.async { [weak self] in
+            let result:Result<String,Error> = autoreleasepool {
+                Result {
+                    guard lifetime.valid,ticket.valid,let image=transform.render(original),ticket.valid else { throw CaptureFailure.cancelled }
+                    return try recognize(image,request)
+                }
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self,!self.closed,lifetime.valid,ticket.valid,self.recognition === request else { return }
+                self.recognition=nil;self.recognitionTicket=nil
+                switch result {
+                case .success(let text) where !text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty:
+                    self.clipboard.clearContents()
+                    self.onStatus?(self.clipboard.setString(text,forType:.string) ? AppLanguage.text("文字已复制") : AppLanguage.text("复制失败"))
+                case .success: self.onStatus?(AppLanguage.text("未识别到文字"))
+                case .failure: self.onStatus?(AppLanguage.text("文字提取失败，请重试"))
+                }
+            }
+        }
+    }
     @objc private func copyImage() { encode(to: nil) }
     @objc private func editImage() {
         guard !closed, editor == nil, !preparingEditor, !exporting else { return }
+        cancelRecognition()
         preparingEditor = true; view.pauseSampling()
         let image = image, transform = transform, lifetime = lifetime
         queue.async { [weak self] in
@@ -304,7 +346,7 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
                 guard let self, !self.closed, lifetime.valid else { return }
                 self.preparingEditor = false
                 guard let rendered else { self.onStatus?(AppLanguage.text("贴图编辑失败。")); return }
-                let editor = CaptureEditor(image: rendered, selectionFrame: self.window.frame, editingPin: true)
+                let editor = CaptureEditor(image: rendered, selectionFrame: self.window.frame, editingPin: true, clipboard: self.clipboard, textRecognizer: self.textRecognizer)
                 self.editor = editor
                 editor.onApply = { [weak self] result in
                     guard let self, !self.closed else { return }
@@ -320,6 +362,7 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
         }
     }
     private func applyEdit(_ result: CGImage) {
+        cancelRecognition()
         image = result; view.image = result
         // Rotation is baked into the edited pixels, but magnification keeps its
         // original reference size rather than becoming a new 100% baseline.
@@ -329,6 +372,7 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
     }
     @objc private func saveImage() {
         guard !closed, !exporting else { return }
+        cancelRecognition()
         exporting = true
         let panel = NSSavePanel(); panel.allowedContentTypes = [.png]; panel.nameFieldStringValue = AppLanguage.text("贴图.png")
         savePanel = panel
@@ -340,6 +384,7 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
     }
     private func encode(to url: URL?) {
         guard !closed, !exporting else { return }
+        cancelRecognition()
         exporting = true
         let image = image, transform = transform, lifetime = lifetime
         queue.async { [weak self] in
@@ -377,6 +422,9 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
         for (title, selector, key) in [(AppLanguage.text("复制"), #selector(copyImage), "c"), (AppLanguage.text("编辑"), #selector(editImage), "e"), (AppLanguage.text("另存为…"), #selector(saveImage), "s")] {
             let item = NSMenuItem(title: title, action: selector, keyEquivalent: key); item.target = self; menu.addItem(item)
         }
+        let text=NSMenuItem(title:AppLanguage.text("复制文字"),action:#selector(copyRecognizedText),keyEquivalent:"c")
+        text.keyEquivalentModifierMask=[.command,.shift];text.target=self
+        menu.insertItem(text,at:1)
         menu.addItem(.separator())
         for (tag, title) in [(1, AppLanguage.text("放大")), (2, AppLanguage.text("缩小")), (3, AppLanguage.text("顺时针旋转")), (4, AppLanguage.text("逆时针旋转")),
                              (5, AppLanguage.text("水平翻转")), (6, AppLanguage.text("垂直翻转")), (7, thumbnail ? AppLanguage.text("恢复尺寸") : AppLanguage.text("缩略图")), (8, AppLanguage.text("点击穿透")), (9, AppLanguage.text("关闭"))] {
@@ -491,7 +539,7 @@ private final class PinView: NSView {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.modifierFlags.contains(.command) else { return super.performKeyEquivalent(with: event) }
         switch event.charactersIgnoringModifiers?.lowercased() {
-        case "c": onCommand?(.copy)
+        case "c": onCommand?(event.modifierFlags.contains(.shift) ? .recognize : .copy)
         case "s": onCommand?(.save)
         case "e": onCommand?(.edit)
         case "w": onCommand?(.close)
