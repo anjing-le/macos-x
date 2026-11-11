@@ -16,7 +16,7 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
-      - uses: anjing-le/anjing-le/.github/actions/star-growth@b0dcc359a2340f279daa450a4fd06382be27d729
+      - uses: anjing-le/anjing-le/.github/actions/star-growth@f11c4c1e7a5dee784ad77241ac45e3ad991c6b47
         with:
           repository: ${{ github.repository }}
           token: ${{ github.token }}
