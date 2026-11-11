@@ -1,7 +1,7 @@
 {
   "repository": "anjing-le/macos-x",
   "created_at": "2026-10-03T04:31:19Z",
-  "as_of": "2026-11-11T09:15:56.281833+00:00",
+  "as_of": "2026-11-11T09:24:06.635533+00:00",
   "current_stars": 5,
   "starred_at": [
     "2026-10-06T04:36:20+00:00",
@@ -12,5 +12,6 @@
   ],
   "source": "REST stargazers",
   "semantics": "Current stargazers by original star date; removed stars excluded. Not historical net totals.",
-  "timezone": "UTC"
+  "timezone": "UTC",
+  "visualization": "Dots are actual event totals; the monotone smoothed curve is visual interpolation, not observed intermediate counts."
 }
