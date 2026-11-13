@@ -1,0 +1,7 @@
+Built-in image_gen. Style reference: Resources/CardArtwork.png.
+Replacement card illustration: a floating blue performance gauge with pencil
+needle and small CPU symbol, purple segmented memory indicator, green storage
+usage ring and a subtle blue-green activity waveform. Thin graphite contours,
+delicate crayon shading on ivory paper. One balanced, readable symbol cluster.
+No monitor, laptop, display bezel, stand, enclosing dashboard, labels or numbers.
+Shared by both languages; no language-dependent content in the bitmap.

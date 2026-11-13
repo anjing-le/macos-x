@@ -272,7 +272,7 @@ enum SketchCardArt {
               let atlas = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return [:] }
         let regions: [(String, CGFloat)] = [
             ("camera.viewfinder", 70), ("macwindow.on.rectangle", 560),
-            ("text.bubble", 1063), ("rectangle.split.2x1", 1570)
+            ("text.bubble", 1063)
         ]
         var result: [String: NSImage] = [:]
         for (symbol, x) in regions {
@@ -300,34 +300,40 @@ enum SketchCardArt {
             }
         }
     }()
-    private static let systemStatusImage: NSImage? = {
-        guard let url = AppLanguage.resource( "CardSystemStatus", extension: "png"),
+    private static let layoutImage = entryIllustration("CardWindowLayout", region: CGRect(x: 0.03, y: 0.10, width: 0.94, height: 0.82))
+    private static let systemStatusImage = entryIllustration("CardSystemStatus", region: CGRect(x: 0.04, y: 0.18, width: 0.92, height: 0.60))
+    private static func entryIllustration(_ name: String, region: CGRect) -> NSImage? {
+        // Text-free art is shared between languages. Decode a bounded thumbnail
+        // once, then retain only the native card-sized bitmap.
+        guard let url = Bundle.main.url(forResource: name, withExtension: "png"),
               let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: 256
-              ] as CFDictionary) else { return nil }
-        // Match the entry-card canvas, cropping only the source's paper margin.
-        // Aspect-fill keeps the monitor proportional and avoids a second frame.
+                kCGImageSourceThumbnailMaxPixelSize: 512
+              ] as CFDictionary),
+              let content = thumbnail.cropping(to: CGRect(x: region.minX * CGFloat(thumbnail.width), y: region.minY * CGFloat(thumbnail.height),
+                width: region.width * CGFloat(thumbnail.width), height: region.height * CGFloat(thumbnail.height)).integral) else { return nil }
         let size = CGSize(width: 256, height: 236)
         guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 256, pixelsHigh: 236,
             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
             colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
             let context = NSGraphicsContext(bitmapImageRep: bitmap) else { return nil }
-        let scale = max(size.width / CGFloat(thumbnail.width), size.height / CGFloat(thumbnail.height))
-        let drawn = CGSize(width: CGFloat(thumbnail.width) * scale, height: CGFloat(thumbnail.height) * scale)
+        let scale = min(size.width / CGFloat(content.width), size.height / CGFloat(content.height))
+        let drawn = CGSize(width: CGFloat(content.width) * scale, height: CGFloat(content.height) * scale)
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = context; context.imageInterpolation = .high
-        NSImage(cgImage: thumbnail, size: drawn).draw(in: CGRect(
+        SketchPalette.paper.setFill(); CGRect(origin: .zero, size: size).fill()
+        NSImage(cgImage: content, size: drawn).draw(in: CGRect(
             x: (size.width - drawn.width) / 2, y: (size.height - drawn.height) / 2,
             width: drawn.width, height: drawn.height))
         NSGraphicsContext.restoreGraphicsState()
         let image = NSImage(size: size); image.addRepresentation(bitmap)
         return image
-    }()
+    }
     static func image(_ symbol: String) -> NSImage? {
         if symbol == "folder.badge.person.crop" { return nearbyImage }
+        if symbol == "rectangle.split.2x1" { return layoutImage }
         if symbol == "menubar.rectangle" { return menuBarImage }
         if symbol == "chart.xyaxis.line" { return systemStatusImage }
         return images[symbol]

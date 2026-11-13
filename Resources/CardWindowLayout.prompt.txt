@@ -1,0 +1,7 @@
+Built-in image_gen. Style reference: Resources/CardArtwork.png.
+Replacement card illustration: three edge-aligned macOS software windows form
+one full rectangular arrangement, blue on the left half, green upper right,
+lavender lower right. Tiny traffic-light controls and short content strokes.
+Fine graphite contours and delicate colored-pencil marks on ivory paper.
+No monitor, bezel, stand, hardware silhouette, outer card frame, labels or text.
+Large centered composition, modest balanced margins. Shared by both languages.
