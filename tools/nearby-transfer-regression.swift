@@ -143,6 +143,9 @@ import MacOSXCore
         lb.onData?(Data([1, 2, 3])); precondition(b.records.count == count)
         a.stop(); b.stop(); a.stop()
         precondition(la.stops == 1 && lb.stops == 1 && !a.running && !b.running)
+        var drainedA = false, drainedB = false
+        a.prepareToTerminate { drainedA = true }; b.prepareToTerminate { drainedB = true }
+        wait("termination drains owned IO cleanup") { drainedA && drainedB }
         print("PASS nearby: mutual pairing, encrypted acknowledged text/files/images, session auto-copy, same-name and empty files, cancellation, teardown and native offscreen layout; no discovery, live windows or general clipboard")
     }
 }

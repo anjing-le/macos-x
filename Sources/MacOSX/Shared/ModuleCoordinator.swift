@@ -18,6 +18,7 @@ final class ModuleCoordinator {
     private var systemStatus: SystemStatusModule?
     private var menuBarShelf: MenuBarShelfModule?
     private var nearbyTransfer: NearbyTransferModule?
+    private var finishingTransfers: [UUID: NearbyTransferModule] = [:]
     var onNearbySettings: (() -> Void)?
     var menuBarAnchor: (() -> CGRect?)?
     var menuBarCoveredEvent: ((NSEvent) -> Void)?
@@ -154,7 +155,13 @@ final class ModuleCoordinator {
     }
     private func stop(_ tool: Tool, remove: Bool) {
         switch tool {
-        case .nearbyTransfer: nearbyTransfer?.stop(); if remove { nearbyTransfer = nil }
+        case .nearbyTransfer:
+            nearbyTransfer?.stop()
+            if remove, let retiring = nearbyTransfer {
+                nearbyTransfer = nil
+                let id = UUID(); finishingTransfers[id] = retiring
+                retiring.prepareToTerminate { [weak self] in self?.finishingTransfers[id] = nil }
+            }
         case .menuBarShelf: menuBarShelf?.stop(); if remove { menuBarShelf = nil }
         case .systemStatus: systemStatus?.stop(); if remove { systemStatus = nil }
         case .kaomoji: wheel?.stop(); if remove { wheel = nil }
@@ -299,8 +306,15 @@ final class ModuleCoordinator {
         input.stop()
         wheel?.stop(); switcher?.stop(); layout?.stop(); systemStatus?.stop(); menuBarShelf?.stop(); nearbyTransfer?.stop()
         let captures = Array(finishingCaptures.values) + (capture.map { [$0] } ?? [])
-        guard !captures.isEmpty else { DispatchQueue.main.async { completion() }; return }
-        var outstanding = captures.count
+        let transfers = Array(finishingTransfers.values) + (nearbyTransfer.map { [$0] } ?? [])
+        guard !captures.isEmpty || !transfers.isEmpty else { DispatchQueue.main.async { completion() }; return }
+        var outstanding = captures.count + transfers.count
+        for module in transfers {
+            module.prepareToTerminate {
+                outstanding -= 1
+                if outstanding == 0 { completion() }
+            }
+        }
         for module in captures {
             module.prepareToTerminate {
                 outstanding -= 1

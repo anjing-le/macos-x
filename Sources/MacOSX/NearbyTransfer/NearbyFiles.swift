@@ -19,11 +19,12 @@ final class NearbyFilePipe {
         self.id = id; self.url = url; self.size = size; self.receiving = receiving
     }
     private var valid: Bool { lock.lock(); defer { lock.unlock() }; return !cancelled }
-    func cancel() {
+    func cancel(completion: @escaping () -> Void = {}) {
         lock.lock(); cancelled = true; lock.unlock()
         queue.async { [self] in
             try? handle?.close(); handle = nil
             if receiving { try? FileManager.default.removeItem(at: url) }
+            completion()
         }
     }
     func read(_ completion: @escaping (Result<(Data, Int64, Data?), Error>) -> Void) {

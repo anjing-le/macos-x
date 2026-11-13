@@ -24,6 +24,9 @@ import AppKit
         hide(); panel?.contentView = nil; panel = nil; view = nil
         service.stop(); refresh()
     }
+    func prepareToTerminate(completion: @escaping () -> Void) {
+        stop(); service.prepareToTerminate(completion: completion)
+    }
     func makeDashboard() -> NSView {
         let view = NearbyTransferView(service: service)
         view.onSettings = { [weak self] in self?.show(focus: true) }

@@ -36,6 +36,7 @@ struct NearbyTransferRecord: Identifiable {
     private let clipboard: NSPasteboard
     private let receiveFolder: URL
     private let io = DispatchQueue(label: "cc.anjing.macos-x.nearby.prepare", qos: .utility)
+    private let cleanup = DispatchGroup()
     private var cipher: NearbyCipher?
     private var generation = UUID()
     private var pairingTimeout: DispatchWorkItem?
@@ -102,6 +103,17 @@ struct NearbyTransferRecord: Identifiable {
         sleeping = false
         changed()
     }
+    func prepareToTerminate(completion: @escaping () -> Void) {
+        stop()
+        let group = cleanup
+        group.enter(); io.async { group.leave() }
+        group.notify(queue: .main, execute: completion)
+    }
+    private func dispose(_ pipe: NearbyFilePipe?) {
+        guard let pipe else { return }
+        let group = cleanup; group.enter()
+        pipe.cancel { group.leave() }
+    }
     func connect(_ device: NearbyDevice) {
         guard running, self.device == nil else { return }
         self.device = device; status = AppLanguage.text("正在连接…"); armPairingTimeout(); link.invite(device); changed()
@@ -122,7 +134,7 @@ struct NearbyTransferRecord: Identifiable {
         generation = UUID(); pairingTimeout?.cancel(); pairingTimeout = nil
         sendTimeout?.cancel(); sendTimeout = nil; receiveTimeout?.cancel(); receiveTimeout = nil
         progressNotice?.cancel(); progressNotice = nil
-        outgoing?.cancel(); incoming?.cancel(); outgoing = nil; incoming = nil
+        dispose(outgoing); dispose(incoming); outgoing = nil; incoming = nil
         for index in records.indices where records[index].state == .sending { records[index].state = .failed }
         if let temporarySend { removeTemporary(temporarySend) }; temporarySend = nil
         queued.filter { $0.2 }.forEach { removeTemporary($0.0) }; queued.removeAll()
@@ -275,7 +287,7 @@ struct NearbyTransferRecord: Identifiable {
         receiveTimeout = task; DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: task)
     }
     private func finishOutgoing(_ state: NearbyTransferRecord.State) {
-        if let pipe = outgoing { pipe.cancel(); update(pipe.id) { $0.state = state; if state == .sent { $0.completed = $0.size } } }
+        if let pipe = outgoing { dispose(pipe); update(pipe.id) { $0.state = state; if state == .sent { $0.completed = $0.size } } }
         outgoing = nil; waitingOffset = nil; awaitingAcceptance = false; awaitingDone = false
         sendTimeout?.cancel(); sendTimeout = nil
         if let temporarySend { removeTemporary(temporarySend) }; temporarySend = nil
@@ -285,7 +297,7 @@ struct NearbyTransferRecord: Identifiable {
     func cancel(_ id: UUID, failed: Bool = false, notify: Bool = true) {
         if notify { try? send(NearbyMessage("cancel", id: id)) }
         if incoming?.id == id {
-            incoming?.cancel(); incoming = nil; incomingBusy = false
+            dispose(incoming); incoming = nil; incomingBusy = false
             receiveTimeout?.cancel(); receiveTimeout = nil
             update(id) { $0.state = failed ? .failed : .cancelled }
         }
