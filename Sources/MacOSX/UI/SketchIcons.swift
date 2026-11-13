@@ -4,7 +4,7 @@ import ImageIO
 
 @MainActor
 enum SketchIcons {
-    enum Kind: String { case capture, switcher, layout, prompt, menuBar, plus, back, update, settings, close, minimize, expand }
+    enum Kind: String { case capture, switcher, layout, prompt, menuBar, nearby, plus, back, update, settings, close, minimize, expand }
     private static var images: [String: NSImage] = [:]
     static func kind(for symbol: String) -> Kind? {
         switch symbol {
@@ -13,6 +13,7 @@ enum SketchIcons {
         case "text.bubble": return .prompt
         case "rectangle.split.2x1":return .layout
         case "menubar.rectangle": return .menuBar
+        case "folder.badge.person.crop": return .nearby
         case "plus": return .plus
         case "chevron.left": return .back
         case "arrow.down.to.line": return .update
@@ -52,6 +53,17 @@ enum SketchIcons {
             SketchPencil.stroke(tile, color: SketchPalette.ink, width: 1.9)
         }
         switch kind {
+        case .nearby:
+            let folder = SketchPencil.outline(in: NSRect(x: 4, y: 13, width: 29, height: 27), radius: 4)
+            SketchPalette.fill(folder, color: SketchPalette.yellow.withAlphaComponent(0.65))
+            SketchPencil.stroke(folder, color: SketchPalette.ink, width: 1.4)
+            tile(NSRect(x: 37, y: 18, width: 22, height: 28), SketchPalette.paper)
+            tile(NSRect(x: 41, y: 10, width: 21, height: 20), SketchPalette.blue)
+            let arrow = NSBezierPath(); arrow.move(to: CGPoint(x: 22, y: 47))
+            arrow.curve(to: CGPoint(x: 46, y: 50), controlPoint1: CGPoint(x: 28, y: 57), controlPoint2: CGPoint(x: 38, y: 58))
+            arrow.move(to: CGPoint(x: 40, y: 53)); arrow.line(to: CGPoint(x: 46, y: 50)); arrow.line(to: CGPoint(x: 42, y: 45))
+            SketchPencil.stroke(arrow, color: SketchPalette.blue, width: 2)
+            line([(44, 15), (49, 22), (56, 15)])
         case .capture:
             tile(NSRect(x: 13, y: 15, width: 38, height: 32), SketchPalette.blue)
             path.appendOval(in: NSRect(x: 24, y: 23, width: 16, height: 16))
@@ -238,6 +250,17 @@ final class SketchWindowHeader: SketchSurface {
 /// Small bundled illustrations, lazily decoded and shared by home/catalog.
 @MainActor
 enum SketchCardArt {
+    private static let nearbyImage: NSImage? = {
+        guard let url = Bundle.main.url(forResource: "CardNearbyTransfer", withExtension: "png"),
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCache: false] as CFDictionary),
+              image.width == 1536, image.height == 1024,
+              let content = image.cropping(to: CGRect(x: 160, y: 250, width: 1240, height: 520)),
+              let context = CGContext(data: nil, width: 384, height: 354, bitsPerComponent: 8, bytesPerRow: 384 * 4,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.interpolationQuality = .high; context.draw(content, in: CGRect(x: 0, y: 96, width: 384, height: 161))
+        return context.makeImage().map { NSImage(cgImage: $0, size: NSSize(width: 256, height: 236)) }
+    }()
     // One approved contact sheet, decoded once. Source rectangles exclude its
     // decorative card borders and captions; real card controls remain native.
     private static let images: [String: NSImage] = {
@@ -304,6 +327,7 @@ enum SketchCardArt {
         return image
     }()
     static func image(_ symbol: String) -> NSImage? {
+        if symbol == "folder.badge.person.crop" { return nearbyImage }
         if symbol == "menubar.rectangle" { return menuBarImage }
         if symbol == "chart.xyaxis.line" { return systemStatusImage }
         return images[symbol]

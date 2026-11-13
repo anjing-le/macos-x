@@ -76,6 +76,7 @@ import MenuBarVisibilityBridge
     }
     func appleHover(_ frame: CGRect, inside: Bool) { shelf?.hover(inside: inside) }
     func appleClick() { shelf?.toggle() }
+    func collapseForTransfer() { if native { shelf?.hover(inside: false); shelf?.collapse() } else { collapse() } }
     func makeDashboard() -> NSView {
         if native {
             let view = MenuBarNativeShelfDashboard(); nativeDashboard = view

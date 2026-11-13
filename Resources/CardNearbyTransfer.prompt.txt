@@ -1,0 +1,7 @@
+Built-in image_gen. Reference: Resources/SettingsMenuBarBoard.png, style only.
+Transparent graphite-and-crayon illustration: a tabbed yellow folder on the
+left, a graceful curved blue outbound arrow, and white paper with three pencil
+lines plus a small blue-sky green-mountain image on the right. No words, logo,
+surrounding card or UI. Preserve the opaque white paper and transparent exterior.
+Shared by the native module card and transfer drop target; localized labels are
+real AppKit text, not baked into this language-independent illustration.

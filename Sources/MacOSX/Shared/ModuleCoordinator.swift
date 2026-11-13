@@ -17,10 +17,22 @@ final class ModuleCoordinator {
     private var layout:WindowLayoutModule?
     private var systemStatus: SystemStatusModule?
     private var menuBarShelf: MenuBarShelfModule?
+    private var nearbyTransfer: NearbyTransferModule?
+    var onNearbySettings: (() -> Void)?
     var menuBarAnchor: (() -> CGRect?)?
     var menuBarCoveredEvent: ((NSEvent) -> Void)?
-    func menuBarHover(_ frame: CGRect, inside: Bool) { menuBarShelf?.appleHover(frame, inside: inside) }
-    func menuBarClick() { menuBarShelf?.appleClick() }
+    func menuBarHover(_ frame: CGRect, inside: Bool) {
+        if nearbyTransfer?.isDrawerVisible == true {
+            if !inside { menuBarShelf?.appleHover(frame, inside: false) }
+            return
+        }
+        menuBarShelf?.appleHover(frame, inside: inside)
+    }
+    func menuBarClick() {
+        if isEnabled(.nearbyTransfer) { nearbyTransfer?.toggle() }
+        else { menuBarShelf?.appleClick() }
+    }
+    func dismissMenuBarDrawer() { nearbyTransfer?.hide() }
     private var issues: [ShortcutAction: String] = [:]
     private var tapIssue: String?
     private var activeObserver: NSObjectProtocol?
@@ -91,6 +103,16 @@ final class ModuleCoordinator {
 
     private func ensure(_ tool: Tool) {
         switch tool {
+        case .nearbyTransfer:
+            if nearbyTransfer == nil {
+                let module = NearbyTransferModule()
+                module.anchor = { [weak self] in self?.menuBarAnchor?() }
+                module.onSettings = { [weak self] in self?.onNearbySettings?() }
+                module.onStatusChange = { [weak self] in self?.onStateChanged?(.nearbyTransfer) }
+                module.onOpen = { [weak self] in self?.menuBarShelf?.collapseForTransfer() }
+                nearbyTransfer = module
+            }
+            refreshNearbyPinAction()
         case .menuBarShelf:
             if menuBarShelf == nil {
                 menuBarShelf = MenuBarShelfModule(defaults: defaults)
@@ -127,10 +149,12 @@ final class ModuleCoordinator {
 
     private func start(_ tool: Tool) {
         ensure(tool)
-        switch tool { case .kaomoji: wheel?.start(); case .capture: capture?.start(); case .windowSwitcher: switcher?.start();case .windowLayout:layout?.start(); layout?.refreshPermission(); case .systemStatus: systemStatus?.start(); case .menuBarShelf: menuBarShelf?.start() }
+        switch tool { case .kaomoji: wheel?.start(); case .capture: capture?.start(); case .windowSwitcher: switcher?.start();case .windowLayout:layout?.start(); layout?.refreshPermission(); case .systemStatus: systemStatus?.start(); case .menuBarShelf: menuBarShelf?.start(); case .nearbyTransfer: nearbyTransfer?.start() }
+        refreshNearbyPinAction()
     }
     private func stop(_ tool: Tool, remove: Bool) {
         switch tool {
+        case .nearbyTransfer: nearbyTransfer?.stop(); if remove { nearbyTransfer = nil }
         case .menuBarShelf: menuBarShelf?.stop(); if remove { menuBarShelf = nil }
         case .systemStatus: systemStatus?.stop(); if remove { systemStatus = nil }
         case .kaomoji: wheel?.stop(); if remove { wheel = nil }
@@ -144,6 +168,11 @@ final class ModuleCoordinator {
         case .windowSwitcher: switcher?.stop(); if remove { switcher = nil }
         case .windowLayout:layout?.stop(); if remove { layout=nil }
         }
+        refreshNearbyPinAction()
+    }
+
+    private func refreshNearbyPinAction() {
+        nearbyTransfer?.service.onPin = isEnabled(.capture) ? { [weak self] image in self?.capture?.pinReceivedImage(image) } : nil
     }
 
     func refreshPermissions() {
@@ -176,6 +205,7 @@ final class ModuleCoordinator {
     func settingsView(for tool: Tool) -> NSView {
         ensure(tool)
         switch tool {
+        case .nearbyTransfer:return nearbyTransfer!.makeDashboard()
         case .kaomoji: return wheel!.settingsView
         case .capture: return capture!.settingsView
         case .windowSwitcher: return switcher!.settingsView
@@ -225,6 +255,7 @@ final class ModuleCoordinator {
         if !isEnabled(tool) { return nil }
         if tool == .menuBarShelf { return nil } // The dashboard owns actionable status.
         if tool == .systemStatus { return systemStatus?.issue }
+        if tool == .nearbyTransfer { return nil }
         if tool == .kaomoji {
             let usesTap = shortcuts.binding(for: .wheel).kind == .doubleModifier
             return issues[.wheel] ?? (usesTap && !needsAccessibility(tool) ? tapIssue : nil)
@@ -266,7 +297,7 @@ final class ModuleCoordinator {
         terminating = true
         if let activeObserver { NotificationCenter.default.removeObserver(activeObserver); self.activeObserver = nil }
         input.stop()
-        wheel?.stop(); switcher?.stop(); layout?.stop(); systemStatus?.stop(); menuBarShelf?.stop()
+        wheel?.stop(); switcher?.stop(); layout?.stop(); systemStatus?.stop(); menuBarShelf?.stop(); nearbyTransfer?.stop()
         let captures = Array(finishingCaptures.values) + (capture.map { [$0] } ?? [])
         guard !captures.isEmpty else { DispatchQueue.main.async { completion() }; return }
         var outstanding = captures.count

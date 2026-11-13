@@ -5454,5 +5454,363 @@
       "raw": false,
       "multiline": false
     }
+  ],
+  "附近互传": [
+    {
+      "file": "Sources/MacOSX/UI/ToolboxWindowController.swift",
+      "line": 21,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 7,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "断开": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 12,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "允许连接": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 14,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 75,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "拒绝": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 15,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "最近传输": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 17,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "收到的文件、文字和图片会出现在这里": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 21,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "接收后自动复制": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 22,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 49,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "打开附近互传设置": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 42,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "连接设备": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 46,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "仅本次连接有效；收到文字或图片后覆盖本机剪贴板。": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 50,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "选择附近的 Mac": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 68,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "功能已关闭": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 68,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "等待对方确认": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 75,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "配对码一致": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 75,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "配对码 {0} · 请核对另一台 Mac": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 78,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "对方请求连接，是否允许？": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 79,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已连接 · 同一网络内互传": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 80,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "两台 Mac 均需开启附近互传": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 80,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "拖入文件，或 ⌘V 发送": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 83,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 204,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "先连接附近的 Mac": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 83,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 204,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在接收": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 234,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在发送": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 234,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已收到": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 235,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已发送": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 236,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "传输失败": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 237,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已取消": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 238,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "附近设备连接失败，请检查本地网络权限。": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferService.swift",
+      "line": 70,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在连接…": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferService.swift",
+      "line": 88,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已连接": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferService.swift",
+      "line": 126,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "连接已结束，请重新连接并核对配对码。": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferService.swift",
+      "line": 128,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "请核对两台 Mac 的配对码": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferService.swift",
+      "line": 133,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "每次最多等待传输 16 个文件。": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferService.swift",
+      "line": 159,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "文件不可发送：请选择不超过 2 GB 的普通文件。": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferService.swift",
+      "line": 194,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "图片过大，请作为文件发送。": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferService.swift",
+      "line": 306,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "无法读取剪贴板图片。": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferService.swift",
+      "line": 322,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "剪贴板为空或文字过长，请作为文件发送。": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferService.swift",
+      "line": 328,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "请等待当前传输完成。": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferService.swift",
+      "line": 329,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "图片无法读取，请在 Finder 中查看。": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferService.swift",
+      "line": 350,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "图片已复制": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferService.swift",
+      "line": 352,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "暂无附近设备": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferView.swift",
+      "line": 147,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "剪贴板图片.png": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferService.swift",
+      "line": 193,
+      "raw": false,
+      "multiline": false
+    }
   ]
 }

@@ -8,6 +8,7 @@ enum Tool: String, CaseIterable, Hashable {
     case windowLayout
     case systemStatus
     case menuBarShelf
+    case nearbyTransfer
 
     var title: String {
         switch self {
@@ -17,6 +18,7 @@ enum Tool: String, CaseIterable, Hashable {
         case .windowLayout:return AppLanguage.text("窗口布局")
         case .menuBarShelf:return AppLanguage.text("菜单栏收纳")
         case .systemStatus:return AppLanguage.text("系统状态")
+        case .nearbyTransfer:return AppLanguage.text("附近互传")
         }
     }
 
@@ -28,6 +30,7 @@ enum Tool: String, CaseIterable, Hashable {
         case .windowLayout:return "rectangle.split.2x1"
         case .menuBarShelf:return "menubar.rectangle"
         case .systemStatus:return "chart.xyaxis.line"
+        case .nearbyTransfer:return "folder.badge.person.crop"
         }
     }
 }
@@ -320,12 +323,12 @@ final class ToolboxWindowController: NSWindowController {
         content.showDetail([editor])
     }
 
-    private func showSettings(_ tool: Tool) {
+    func showSettings(_ tool: Tool) {
         navigate(.settings(tool), title: tool.title)
         let header = ModuleSettingsHeader(tool: tool, module: modules)
         settingsHeader = header
         header.placeEnableControl(in: content.header)
-        if tool == .systemStatus || tool == .menuBarShelf {
+        if tool == .systemStatus || tool == .menuBarShelf || tool == .nearbyTransfer {
             content.showDetail([header, modules.settingsView(for: tool)])
             return
         }
@@ -339,7 +342,7 @@ final class ToolboxWindowController: NSWindowController {
             label.font = .systemFont(ofSize:16); label.textColor = SketchPalette.ink; label.alignment = .center
             label.toolTip = AppLanguage.text("Tab 选择 · Shift 反向 · 松开 Command 确认")
             shortcuts = [label]
-        case .systemStatus, .menuBarShelf: shortcuts = []
+        case .systemStatus, .menuBarShelf, .nearbyTransfer: shortcuts = []
         }
         let board = SettingsBoardView(kind: tool.rawValue, settings: modules.settingsView(for: tool), shortcuts: shortcuts)
         content.showDetail([header, board])

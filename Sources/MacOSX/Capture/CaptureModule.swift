@@ -216,6 +216,10 @@ final class CaptureModule: NSObject {
 
     /// The configured global pin action follows the current screenshot session.
     /// Clipboard pinning remains available once that session has ended.
+    func pinReceivedImage(_ image: CGImage) {
+        guard running, !terminating else { return }
+        pins.add(image)
+    }
     func pin() {
         guard running, !terminating, recordingState != .choosing else { return }
         logger.info("F3 editor=\(self.editor != nil) capture_active=\(self.captureInProgress) pending=\(self.editorPending) capacity_available=\(self.pins.canAdd)")

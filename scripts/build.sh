@@ -4,8 +4,8 @@ set -euo pipefail
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 configuration=release
 output_dir="$root_dir/dist"
-version=0.0.146
-build_number=148
+version=0.0.147
+build_number=149
 sign_identity="${MACOSX_SIGN_IDENTITY:-}"
 sign_keychain="${MACOSX_SIGN_KEYCHAIN:-}"
 local_signing=false
@@ -15,7 +15,7 @@ feed_url="${MACOSX_FEED_URL:-https://github.com/anjing-le/macos-x/releases/lates
 usage() {
     cat <<'USAGE'
 Usage: scripts/build.sh [--disable-updates] [--configuration debug|release]
-       [--version 0.0.146] [--build-number 148] [--output-dir path]
+       [--version 0.0.147] [--build-number 149] [--output-dir path]
        [--sign-identity pinned-certificate-SHA1 | "Apple Development: ..." | "Developer ID Application: ..."]
        [--sign-keychain path]
 Default: host architecture, OTA enabled; an explicit certificate identity is required.
@@ -144,7 +144,7 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks" "$app/Contents/Resourc
 cp "$bin_dir/MacOSX" "$app/Contents/MacOS/MacOSX"
 cp "$root_dir/Resources/Sparkle-LICENSE.txt" "$app/Contents/Resources/Sparkle-LICENSE.txt"
 cp "$root_dir/Resources/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
-for asset in HiddenBar-LICENSE.txt SketchFont.ttf SketchFont-OFL.txt SketchPaper.png CardArtwork.png CardSystemStatus.png GuideCapture.png GuideSwitcher.png GuidePrompts.png SettingsCaptureBoard.png SettingsSwitcherBoard.png SettingsPromptsBoard.png SettingsLayoutBoard.png SettingsMenuBarBoard.png; do
+for asset in HiddenBar-LICENSE.txt SketchFont.ttf SketchFont-OFL.txt SketchPaper.png CardArtwork.png CardSystemStatus.png CardNearbyTransfer.png GuideCapture.png GuideSwitcher.png GuidePrompts.png SettingsCaptureBoard.png SettingsSwitcherBoard.png SettingsPromptsBoard.png SettingsLayoutBoard.png SettingsMenuBarBoard.png; do
     cp "$root_dir/Resources/$asset" "$app/Contents/Resources/$asset"
 done
 for language in en zh-Hans; do
@@ -172,6 +172,8 @@ info = {
     'CFBundleDevelopmentRegion': 'en',
     'CFBundleLocalizations': ['en', 'zh-Hans'],
     'NSMicrophoneUsageDescription': 'Microphone audio is saved only in your local video when you enable the microphone and start recording.',
+    'NSLocalNetworkUsageDescription': 'Nearby Transfer discovers and connects to a Mac you confirm, to exchange files, text and images on your local network.',
+    'NSBonjourServices': ['_macosx-nearby._tcp'],
     'MacOSXUpdatesEnabled': enabled == 'true',
     'SUEnableAutomaticChecks': enabled == 'true',
     'SUScheduledCheckInterval': 3600,

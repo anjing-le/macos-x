@@ -7,7 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private let modules = ModuleCoordinator()
     private var client: ToolboxWindowController?
     private lazy var menuBar = MenuBarController(
-        onOpen: { [weak self] in self?.showClient() },
+        onOpen: { [weak self] in self?.modules.dismissMenuBarDrawer(); self?.showClient() },
         onCheckUpdates: { [weak self] in self?.checkUpdates() },
         canCheckUpdates: { [weak self] in self?.updates.canCheckForUpdates ?? false },
         onQuit: { NSApp.terminate(nil) }
@@ -17,6 +17,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         buildMenu()
         menuBar.start()
         modules.menuBarAnchor = { [weak self] in self?.menuBar.screenFrame }
+        modules.onNearbySettings = { [weak self] in
+            self?.showClient(); self?.client?.showSettings(.nearbyTransfer)
+        }
         modules.menuBarCoveredEvent = { [weak self] in self?.menuBar.handleClick($0, now: $0.timestamp) }
         menuBar.onHover = { [weak self] frame, inside in self?.modules.menuBarHover(frame, inside: inside) }
         menuBar.onSingleClick = { [weak self] in self?.modules.menuBarClick() }
