@@ -32,6 +32,9 @@ formatted mixed text/image documents are not packaged by this version.
 - File contents are transferred in 48 KiB chunks, acknowledged after disk write,
   verified by total byte count and incremental SHA-256, and renamed atomically.
   Existing files are never overwritten; cancelled/failed partials are removed.
+  The renamed file remains provisional until the current session commits its
+  completion. Cancellation in the rename/callback gap removes only the original
+  file identity; a user-replaced file and an already committed file are preserved.
 - Text/files have explicit receipt acknowledgements; progress is not completion.
 - Auto-copy is off initially and resets on every disconnect. It covers incoming
   text/images only, not files, and requires the receiver to opt in. New clipboard
@@ -47,6 +50,14 @@ comparison code. Both people confirm before any application content is accepted.
 All subsequent control messages, text and file chunks use AES-GCM with ordered,
 authenticated sequence numbers; tampering, replay or protocol errors disconnect.
 The human comparison authenticates the session and must actually be performed.
+
+New peers advertise an optional binary-record capability in the v1 handshake.
+Only mutual support enables the compact encrypted envelope and a separate key/SAS
+domain. Peers without the capability retain the original v1 JSON envelope and key
+derivation, so v0.0.149 peers can still pair and transfer. The release's original
+codec is pinned as an independent test peer. This removes the outer Base64/JSON
+pass, not encryption or acknowledgements. Hidden drawers do not update their
+controls for background progress; opening one refreshes the latest model.
 
 Automated checks use two injected in-memory links, real protocol crypto, real
 temporary-file IO and isolated named pasteboards. They exercise paired text,

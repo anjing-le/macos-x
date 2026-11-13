@@ -21,7 +21,7 @@ import MacOSXCore
     }
     convenience init() { self.init(frame: .zero) }
     required init?(coder: NSCoder) { nil }
-    func update(enabled: Bool) { open.isEnabled = enabled }
+    func update(enabled: Bool) { if open.isEnabled != enabled { open.isEnabled = enabled } }
     override func layout() {
         super.layout()
         let w = bounds.width, imageWidth = min(220, max(100, w - 40))

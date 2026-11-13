@@ -55,10 +55,18 @@ final class CapturePixelSampler: @unchecked Sendable {
 
     /// Coordinates use CGImage's top-left origin, including on negative-origin displays.
     static func pixelPosition(globalPoint: CGPoint, in frame: CGRect, width: Int, height: Int) -> CGPoint? {
-        guard width > 0, height > 0, frame.width > 0, frame.height > 0,
+        guard width > 0, height > 0, width <= 32_768, height <= 32_768,
+              !frame.isInfinite, [frame.minX, frame.minY, frame.maxX, frame.maxY, frame.width, frame.height].allSatisfy(\.isFinite),
+              frame.width > 0, frame.height > 0,
               globalPoint.x.isFinite, globalPoint.y.isFinite, frame.contains(globalPoint) else { return nil }
-        return CGPoint(x: min(width - 1, max(0, Int(floor((globalPoint.x - frame.minX) * CGFloat(width) / frame.width)))),
-                       y: min(height - 1, max(0, Int(floor((frame.maxY - globalPoint.y) * CGFloat(height) / frame.height)))))
+        var x = (globalPoint.x - frame.minX) * CGFloat(width) / frame.width
+        var y = (frame.maxY - globalPoint.y) * CGFloat(height) / frame.height
+        // Keep ordinary Retina rounding unchanged. Only use normalized ratios
+        // when extreme but finite metadata overflows an intermediate product.
+        if !x.isFinite { x = ((globalPoint.x - frame.minX) / frame.width) * CGFloat(width) }
+        if !y.isFinite { y = ((frame.maxY - globalPoint.y) / frame.height) * CGFloat(height) }
+        guard x.isFinite, y.isFinite else { return nil }
+        return CGPoint(x: min(width - 1, max(0, Int(floor(x)))), y: min(height - 1, max(0, Int(floor(y)))))
     }
 
     func sample(globalPoint: CGPoint, in frame: CGRect) -> CapturePixelSample? {

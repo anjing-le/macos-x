@@ -4,7 +4,6 @@ import AppKit
     let service: NearbyTransferService
     var anchor: (() -> CGRect?)?
     var onSettings: (() -> Void)?
-    var onStatusChange: (() -> Void)?
     var onOpen: (() -> Void)?
     var isDrawerVisible: Bool { panel?.isVisible == true }
     private var panel: NearbyPanel?
@@ -72,8 +71,11 @@ import AppKit
         }
     }
     private func refresh() {
-        view?.refresh(); guides.removeAll { $0.view == nil }
-        guides.forEach { $0.view?.update(enabled: service.running) }; onStatusChange?()
+        if panel?.isVisible == true { view?.refresh() }
+        guides.removeAll { $0.view == nil }
+        for guide in guides {
+            if let view = guide.view, view.window?.isVisible == true { view.update(enabled: service.running) }
+        }
     }
     private final class WeakGuide { weak var view: NearbyTransferGuide?; init(_ view: NearbyTransferGuide) { self.view = view } }
 }

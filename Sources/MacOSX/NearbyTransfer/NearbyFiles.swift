@@ -11,6 +11,9 @@ final class NearbyFilePipe {
     private let queue = DispatchQueue(label: "cc.anjing.macos-x.nearby.file", qos: .utility)
     private let lock = NSLock()
     private var cancelled = false
+    private var finalized = false
+    private var committed = false
+    private var pendingFinal: (URL, UInt64, UInt64)?
     private var handle: FileHandle?
     private var hash = SHA256()
     private var offset: Int64 = 0
@@ -22,10 +25,27 @@ final class NearbyFilePipe {
     func cancel(completion: @escaping () -> Void = {}) {
         lock.lock(); cancelled = true; lock.unlock()
         queue.async { [self] in
-            try? handle?.close(); handle = nil
             if receiving { try? FileManager.default.removeItem(at: url) }
+            lock.lock(); let keepFinal = committed; lock.unlock()
+            if !keepFinal, let (file, number, device) = pendingFinal,
+               let attributes = try? FileManager.default.attributesOfItem(atPath: file.path),
+               (attributes[.systemFileNumber] as? NSNumber)?.uint64Value == number,
+               (attributes[.systemNumber] as? NSNumber)?.uint64Value == device {
+                try? FileManager.default.removeItem(at: file)
+            }
+            pendingFinal = nil
+            try? handle?.close(); handle = nil
             completion()
         }
+    }
+    /// A verified rename is provisional until the current owner accepts its
+    /// completion. Cancellation before that point removes only our own inode.
+    func commit(completion: @escaping () -> Void = {}) -> Bool {
+        lock.lock()
+        guard !cancelled, finalized else { lock.unlock(); return false }
+        committed = true; lock.unlock()
+        queue.async { [self] in try? handle?.close(); handle = nil; completion() }
+        return true
     }
     func read(_ completion: @escaping (Result<(Data, Int64, Data?), Error>) -> Void) {
         queue.async { [self] in
@@ -72,17 +92,26 @@ final class NearbyFilePipe {
                 if handle == nil, size == 0 {
                     try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                     guard FileManager.default.createFile(atPath: url.path, contents: Data(), attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) }
+                    handle = try FileHandle(forWritingTo: url)
                 }
-                try handle?.synchronize(); try handle?.close(); handle = nil
+                try handle?.synchronize()
                 let folder = url.deletingLastPathComponent()
                 let original = URL(fileURLWithPath: name)
+                let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+                guard let number = attributes[.systemFileNumber] as? NSNumber,
+                      let device = attributes[.systemNumber] as? NSNumber else { throw NearbyFailure.invalid }
                 var suffix = 1
                 while suffix < 10_000 {
                     guard valid else { throw CancellationError() }
                     let candidate = folder.appendingPathComponent(suffix == 1 ? name :
                         original.deletingPathExtension().lastPathComponent + " (\(suffix))" +
                         (original.pathExtension.isEmpty ? "" : "." + original.pathExtension))
-                    do { try FileManager.default.moveItem(at: url, to: candidate); return candidate }
+                    do {
+                        try FileManager.default.moveItem(at: url, to: candidate)
+                        pendingFinal = (candidate, number.uint64Value, device.uint64Value)
+                        lock.lock(); finalized = true; lock.unlock()
+                        return candidate
+                    }
                     catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileWriteFileExistsError { suffix += 1 }
                 }
                 throw CocoaError(.fileWriteFileExists)

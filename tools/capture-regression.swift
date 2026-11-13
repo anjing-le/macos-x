@@ -237,6 +237,14 @@ private struct CaptureRegression {
         try checks.color(reduced.sample(globalPoint: CGPoint(x: -802, y: 302), in: downsampled), (0, 0, 255), "reduced raster actual bottom-right pixel")
         try checks.color(reduced.sample(globalPoint: CGPoint(x: -1000, y: 600), in: downsampled), (255, 255, 255), "reduced raster actual center pixel")
         try checks.require(CapturePixelSampler.pixelPosition(globalPoint: .zero, in: .zero, width: 100, height: 150) == nil, "empty frame rejected")
+        for invalid in [CGRect.infinite, CGRect(x: 0, y: 0, width: CGFloat.infinity, height: CGFloat.infinity),
+                        CGRect(x: CGFloat.nan, y: 0, width: 100, height: 100)] {
+            try checks.require(CapturePixelSampler.pixelPosition(globalPoint: .zero, in: invalid, width: 100, height: 100) == nil,
+                               "invalid frame cannot reach a nonfinite-to-integer conversion")
+        }
+        let extreme = CGRect(x: 0, y: 0, width: 1e308, height: 1e308)
+        try checks.require(CapturePixelSampler.pixelPosition(globalPoint: CGPoint(x: 5e307, y: 5e307), in: extreme, width: 100, height: 100) == CGPoint(x: 50, y: 50),
+                           "finite extreme metadata avoids intermediate overflow")
         let source = image(width: 3, height: 2, rgba: [UInt8](repeating: 255, count: 24), space: CGColorSpace(name: CGColorSpace.sRGB)!)
         try checks.require(CapturePixelSampler(image: source, maximumBytes: 24)?.byteCount == 24, "exact byte ceiling accepted")
         try checks.require(CapturePixelSampler(image: source, maximumBytes: 23) == nil, "one byte below required ceiling rejected")

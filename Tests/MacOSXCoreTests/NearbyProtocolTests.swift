@@ -24,7 +24,7 @@ final class NearbyProtocolTests: XCTestCase {
         let (a, b) = try paired()
         let text = "private clipboard"
         let sealed = try a.seal(NearbyMessage("text", id: UUID(), text: text))
-        XCTAssertFalse(String(data: sealed, encoding: .utf8)!.contains(text))
+        XCTAssertNil(sealed.range(of: Data(text.utf8)))
         XCTAssertEqual(try b.open(sealed).text, text)
         let bytes = Data((0..<NearbyMessage.chunkBytes).map { UInt8($0 % 251) })
         let packet = try b.seal(NearbyMessage("chunk", id: UUID(), offset: 0, bytes: bytes))
@@ -52,5 +52,27 @@ final class NearbyProtocolTests: XCTestCase {
         XCTAssertThrowsError(try NearbyMessage("text", id: UUID(), text: String(repeating: "a", count: NearbyMessage.maximumText + 1)).validate())
         let a = NearbyCipher(); XCTAssertThrowsError(try a.receiveHello(Data(count: 513)))
         let b = NearbyCipher(); try a.receiveHello(b.hello()); XCTAssertThrowsError(try a.receiveHello(b.hello()))
+    }
+    func testLegacyReleaseStillPairsAndTransfersBothWays() throws {
+        let current = NearbyCipher(), old = LegacyNearbyCipherFixture()
+        try current.receiveHello(old.hello()); try old.receiveHello(current.hello())
+        XCTAssertFalse(current.usesBinaryRecords); XCTAssertEqual(current.code, old.code)
+        let a = try current.confirm(), b = try old.confirm()
+        _ = try current.open(b); _ = try old.open(a)
+        XCTAssertTrue(current.ready && old.ready)
+        let text = NearbyMessage("text", id: UUID(), text: "old/new compatibility")
+        XCTAssertEqual(try old.open(current.seal(text)).text, text.text)
+        let chunk = NearbyMessage("chunk", id: UUID(), offset: 0, bytes: Data(repeating: 37, count: NearbyMessage.chunkBytes))
+        XCTAssertEqual(try current.open(old.seal(chunk)).bytes, chunk.bytes)
+    }
+    func testBinaryRecordsRemoveOuterBase64AndProtectHeader() throws {
+        let (a, b) = try paired(); XCTAssertTrue(a.usesBinaryRecords && b.usesBinaryRecords)
+        let message = NearbyMessage("chunk", id: UUID(), offset: 0, bytes: Data(repeating: 71, count: NearbyMessage.chunkBytes))
+        let packet = try a.seal(message)
+        XCTAssertLessThan(packet.count, 67_000)
+        var corruptedHeader = packet; corruptedHeader[11] ^= 1
+        XCTAssertThrowsError(try b.open(corruptedHeader))
+        XCTAssertThrowsError(try b.open(Data(packet.prefix(20))))
+        XCTAssertEqual(try b.open(packet).bytes, message.bytes, "invalid headers do not advance receive sequence")
     }
 }

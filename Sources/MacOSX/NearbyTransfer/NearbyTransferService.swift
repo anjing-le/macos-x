@@ -32,6 +32,9 @@ struct NearbyTransferRecord: Identifiable {
     var pairingCode: String? { cipher?.code }
     var confirmed: Bool { cipher?.localConfirmed == true }
     var pendingCount: Int { queued.count }
+    private var availableTransfers: Int {
+        max(0, 16 - queued.count - (outgoing == nil && !preparing ? 0 : 1) - (preparingClipboard ? 1 : 0))
+    }
     private let link: any NearbyLink
     private let clipboard: NSPasteboard
     private let receiveFolder: URL
@@ -197,7 +200,7 @@ struct NearbyTransferRecord: Identifiable {
 
     func sendFiles(_ urls: [URL]) {
         guard ready else { return }
-        let capacity = max(0, 16 - queued.count - (outgoing == nil && !preparing ? 0 : 1))
+        let capacity = availableTransfers
         guard !urls.isEmpty, urls.count <= capacity, urls.allSatisfy(\.isFileURL) else {
             status = AppLanguage.text("每次最多等待传输 16 个文件。"); changed(); return
         }
@@ -349,6 +352,8 @@ struct NearbyTransferRecord: Identifiable {
                 guard let self, let pipe, self.generation == epoch, self.incoming === pipe else { return }
                 switch result {
                 case .success(let url):
+                    let group = self.cleanup; group.enter()
+                    guard pipe.commit(completion: { group.leave() }) else { group.leave(); self.cancel(id, failed: true); return }
                     self.incoming = nil; self.incomingBusy = false; self.receiveTimeout?.cancel(); self.receiveTimeout = nil
                     self.update(id) { $0.state = .received; $0.url = url; $0.completed = $0.size }
                     if record.kind == "image" { self.loadThumbnail(id, url: url) }
@@ -368,7 +373,8 @@ struct NearbyTransferRecord: Identifiable {
         guard ready, !preparingClipboard else { return }
         if let urls = clipboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty { sendFiles(urls); return }
         if let type = clipboard.availableType(from: [.png, .tiff]), let data = clipboard.data(forType: type) {
-            guard data.count <= NearbyMessage.maximumImage, queued.count < 16 else { status = AppLanguage.text("图片过大，请作为文件发送。"); changed(); return }
+            guard data.count <= NearbyMessage.maximumImage else { status = AppLanguage.text("图片过大，请作为文件发送。"); changed(); return }
+            guard availableTransfers > 0 else { status = AppLanguage.text("每次最多等待传输 16 个文件。"); changed(); return }
             preparingClipboard = true
             let epoch = generation, url = FileManager.default.temporaryDirectory.appendingPathComponent("macos-x-nearby-\(UUID().uuidString).png")
             io.async { [weak self] in
@@ -385,7 +391,7 @@ struct NearbyTransferRecord: Identifiable {
                 DispatchQueue.main.async { [weak self] in
                     guard let self, self.generation == epoch, self.ready else { try? FileManager.default.removeItem(at: url); return }
                     self.preparingClipboard = false
-                    if case .success = result, self.queued.count < 16 { self.queued.append((url, "image", true)); self.startNext() }
+                    if case .success = result, self.availableTransfers > 0 { self.queued.append((url, "image", true)); self.startNext() }
                     else { self.removeTemporary(url); self.status = AppLanguage.text("无法读取剪贴板图片。"); self.changed() }
                 }
             }

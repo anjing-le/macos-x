@@ -52,8 +52,12 @@ public struct NearbyMessage: Codable {
 public enum NearbyFailure: Error { case invalid, unpaired, replay, authentication }
 
 public final class NearbyCipher {
-    private struct Hello: Codable { let version: Int; let key: Data; let nonce: Data }
+    private struct Hello: Codable { let version: Int; let key: Data; let nonce: Data; let binaryRecords: Bool? }
     private struct Record: Codable { let sequence: UInt64; let payload: Data }
+    private static let binaryMagic = Data([0x4d, 0x58, 0x4e, 0x32])
+    private let supportsBinaryRecords: Bool
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
     private let privateKey = Curve25519.KeyAgreement.PrivateKey()
     private let nonce = Data((0..<32).map { _ in UInt8.random(in: .min ... .max) })
     private var key: SymmetricKey?
@@ -62,14 +66,16 @@ public final class NearbyCipher {
     public private(set) var code: String?
     public private(set) var localConfirmed = false
     public private(set) var remoteConfirmed = false
+    public private(set) var usesBinaryRecords = false
     public var ready: Bool { localConfirmed && remoteConfirmed && key != nil }
-    public init() {}
+    public init(supportsBinaryRecords: Bool = true) { self.supportsBinaryRecords = supportsBinaryRecords }
     public func hello() throws -> Data {
-        try JSONEncoder().encode(Hello(version: 1, key: privateKey.publicKey.rawRepresentation, nonce: nonce))
+        try encoder.encode(Hello(version: 1, key: privateKey.publicKey.rawRepresentation, nonce: nonce,
+                                 binaryRecords: supportsBinaryRecords ? true : nil))
     }
     public func receiveHello(_ data: Data) throws {
         guard key == nil, data.count <= 512 else { throw NearbyFailure.invalid }
-        let peer = try JSONDecoder().decode(Hello.self, from: data)
+        let peer = try decoder.decode(Hello.self, from: data)
         guard peer.version == 1, peer.key.count == 32, peer.nonce.count == 32,
               peer.key != privateKey.publicKey.rawRepresentation else { throw NearbyFailure.invalid }
         let publicKey = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: peer.key)
@@ -77,10 +83,13 @@ public final class NearbyCipher {
         let local = privateKey.publicKey.rawRepresentation + nonce, remote = peer.key + peer.nonce
         let transcript = local.lexicographicallyPrecedes(remote) ? local + remote : remote + local
         let salt = Data(SHA256.hash(data: transcript))
+        usesBinaryRecords = supportsBinaryRecords && peer.binaryRecords == true
+        let domain = usesBinaryRecords ? "macos-x-nearby-binary-v1" : "macos-x-nearby-v1"
+        let sasDomain = usesBinaryRecords ? "macos-x-nearby-sas-binary-v1" : "macos-x-nearby-sas-v1"
         key = secret.hkdfDerivedSymmetricKey(using: SHA256.self, salt: salt,
-                                            sharedInfo: Data("macos-x-nearby-v1".utf8), outputByteCount: 32)
+                                            sharedInfo: Data(domain.utf8), outputByteCount: 32)
         let check = secret.hkdfDerivedSymmetricKey(using: SHA256.self, salt: salt,
-            sharedInfo: Data("macos-x-nearby-sas-v1".utf8), outputByteCount: 4)
+            sharedInfo: Data(sasDomain.utf8), outputByteCount: 4)
         let number = check.withUnsafeBytes { $0.reduce(UInt64(0)) { ($0 << 8) | UInt64($1) } } % 1_000_000
         code = String(format: "%06llu", number)
     }
@@ -92,23 +101,37 @@ public final class NearbyCipher {
         guard let key, message.type == "confirm" || ready else { throw NearbyFailure.unpaired }
         try message.validate(); guard sent < UInt64.max else { throw NearbyFailure.invalid }
         let sequence = sent + 1
-        let plain = try JSONEncoder().encode(message)
+        let plain = try encoder.encode(message)
         guard plain.count <= NearbyMessage.maximumPacket - 1024 else { throw NearbyFailure.invalid }
-        let box = try AES.GCM.seal(plain, using: key, authenticating: Data("nearby-v1:\(sequence)".utf8))
-        let data = try JSONEncoder().encode(Record(sequence: sequence, payload: box.combined!))
+        let box = try AES.GCM.seal(plain, using: key, authenticating: authentication(sequence))
+        let data: Data
+        if usesBinaryRecords {
+            var header = Self.binaryMagic
+            var number = sequence.bigEndian
+            withUnsafeBytes(of: &number) { header.append(contentsOf: $0) }
+            header.append(box.combined!); data = header
+        } else { data = try encoder.encode(Record(sequence: sequence, payload: box.combined!)) }
         guard data.count <= NearbyMessage.maximumPacket else { throw NearbyFailure.invalid }
         sent = sequence; return data
     }
     public func open(_ data: Data) throws -> NearbyMessage {
         guard let key, data.count <= NearbyMessage.maximumPacket else { throw NearbyFailure.invalid }
-        let record = try JSONDecoder().decode(Record.self, from: data)
+        let record: Record
+        if usesBinaryRecords {
+            guard data.count >= 40, data.starts(with: Self.binaryMagic) else { throw NearbyFailure.invalid }
+            let sequence = data.prefix(12).dropFirst(4).reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
+            record = Record(sequence: sequence, payload: Data(data.dropFirst(12)))
+        } else { record = try decoder.decode(Record.self, from: data) }
         guard received < UInt64.max, record.sequence == received + 1 else { throw NearbyFailure.replay }
         let box = try AES.GCM.SealedBox(combined: record.payload)
-        let plain = try AES.GCM.open(box, using: key, authenticating: Data("nearby-v1:\(record.sequence)".utf8))
-        let message = try JSONDecoder().decode(NearbyMessage.self, from: plain); try message.validate()
+        let plain = try AES.GCM.open(box, using: key, authenticating: authentication(record.sequence))
+        let message = try decoder.decode(NearbyMessage.self, from: plain); try message.validate()
         guard message.type == "confirm" || ready else { throw NearbyFailure.unpaired }
         received = record.sequence
         if message.type == "confirm" { remoteConfirmed = true }
         return message
+    }
+    private func authentication(_ sequence: UInt64) -> Data {
+        Data((usesBinaryRecords ? "nearby-binary-v1:\(sequence)" : "nearby-v1:\(sequence)").utf8)
     }
 }

@@ -114,7 +114,6 @@ final class ModuleCoordinator {
                 let module = NearbyTransferModule()
                 module.anchor = { [weak self] in self?.menuBarAnchor?() }
                 module.onSettings = { [weak self] in self?.onNearbySettings?() }
-                module.onStatusChange = { [weak self] in self?.onStateChanged?(.nearbyTransfer) }
                 module.onOpen = { [weak self] in
                     self?.menuBarShelf?.collapseForTransfer(); self?.onNearbyOpen?()
                 }

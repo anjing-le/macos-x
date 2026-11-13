@@ -51,6 +51,31 @@ import MacOSXCore
         precondition(!a.ready && !b.ready)
         b.confirmPairing(); wait("both confirmations required") { a.ready && b.ready }
     }
+    @MainActor private static func finalizedCancellation(_ root: URL, commit: Bool, replace: Bool) throws {
+        let folder = root.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let data = Data([3, 5, 7]), final = folder.appendingPathComponent("received.bin")
+        let pipe = NearbyFilePipe(id: UUID(), url: folder.appendingPathComponent(".pending.partial"), size: 3, receiving: true)
+        var wrote = false, delivered = false, cleaned = false
+        pipe.write(data, at: 0) { result in if case .success = result { wrote = true } }
+        wait("provisional fixture write") { wrote }
+        pipe.finish(digest: Data(SHA256.hash(data: data)), name: "received.bin") { result in
+            if case .success = result { delivered = true }
+        }
+        let deadline = Date().addingTimeInterval(5)
+        while !FileManager.default.fileExists(atPath: final.path), Date() < deadline { Thread.sleep(forTimeInterval: 0.002) }
+        precondition(FileManager.default.fileExists(atPath: final.path))
+        if commit { wait("finish callback before owner commit") { delivered }; precondition(pipe.commit()) }
+        else { precondition(!delivered, "rename happened while only this fixture's main thread was held") }
+        if replace {
+            try FileManager.default.moveItem(at: final, to: folder.appendingPathComponent("user-moved.bin"))
+            try Data("replacement".utf8).write(to: final)
+        }
+        pipe.cancel { DispatchQueue.main.async { cleaned = true } }
+        wait("provisional result and cancellation drain") { delivered && cleaned }
+        if replace { precondition((try? Data(contentsOf: final)) == Data("replacement".utf8)) }
+        else { precondition(FileManager.default.fileExists(atPath: final.path) == commit) }
+    }
     @MainActor static func main() throws {
         _ = NSApplication.shared
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("nearby-fixture-\(UUID().uuidString)")
@@ -146,6 +171,9 @@ import MacOSXCore
         var drainedA = false, drainedB = false
         a.prepareToTerminate { drainedA = true }; b.prepareToTerminate { drainedB = true }
         wait("termination drains owned IO cleanup") { drainedA && drainedB }
+        try finalizedCancellation(root, commit: false, replace: false)
+        try finalizedCancellation(root, commit: true, replace: false)
+        try finalizedCancellation(root, commit: false, replace: true)
         let surfaceLink = FixtureLink("Surface Fixture")
         let surfaceService = NearbyTransferService(link: surfaceLink, clipboard: clipA, receiveFolder: root.appendingPathComponent("Surface"))
         var mainHidden = false, presentations: [ObjectIdentifier] = [], shown: NSPanel?
@@ -166,6 +194,11 @@ import MacOSXCore
         precondition(presentations.count == 1 && mainHidden)
         mainHidden = false; module.show(focus: true)
         precondition(presentations.count == 2 && Set(presentations).count == 1, "opening again reuses the only drawer panel")
+        let auto = (shown?.contentView as! NearbyTransferView).subviews.compactMap { $0 as? NSSwitch }.first!
+        surfaceService.autoCopy = true
+        precondition(auto.state == .off, "hidden drawer does not mutate its controls on background updates")
+        module.show(focus: true)
+        precondition(auto.state == .on, "drawer refreshes latest model immediately when reopened")
         var settingsRequested = false
         module.onSettings = { settingsRequested = true }
         (shown?.contentView as? NearbyTransferView)?.onSettings?()
