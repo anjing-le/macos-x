@@ -1121,14 +1121,6 @@
       "multiline": false
     }
   ],
-  "已穿透 · 隐藏后再显示可恢复交互": [
-    {
-      "file": "Sources/MacOSX/Capture/CapturePins.swift",
-      "line": 368,
-      "raw": false,
-      "multiline": false
-    }
-  ],
   "另存为…": [
     {
       "file": "Sources/MacOSX/Capture/CapturePins.swift",
@@ -1194,14 +1186,6 @@
     }
   ],
   "缩略图": [
-    {
-      "file": "Sources/MacOSX/Capture/CapturePins.swift",
-      "line": 380,
-      "raw": false,
-      "multiline": false
-    }
-  ],
-  "点击穿透": [
     {
       "file": "Sources/MacOSX/Capture/CapturePins.swift",
       "line": 380,

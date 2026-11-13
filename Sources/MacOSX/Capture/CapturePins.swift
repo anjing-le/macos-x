@@ -106,7 +106,7 @@ final class CapturePins {
     func toggleAll() { entries.contains(where: { $0.window.isVisible }) ? hideAll() : showAll() }
     func hideAll() { entries.forEach { $0.window.orderOut(nil) }; onStatus?(AppLanguage.text("贴图已隐藏 · ⇧F3 显示")) }
     func showAll() {
-        entries.forEach { $0.window.ignoresMouseEvents = false; $0.present(focus: false) }
+        entries.forEach { $0.present(focus: false) }
         onStatus?(AppLanguage.text("已显示贴图。"))
     }
     func closeAll() {
@@ -412,7 +412,6 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
         case 1: perform(.zoom(1.2)); case 2: perform(.zoom(1 / 1.2))
         case 3: perform(.rotate(true)); case 4: perform(.rotate(false))
         case 5: perform(.horizontal); case 6: perform(.vertical); case 7: perform(.thumbnail)
-        case 8: window.ignoresMouseEvents = true; onStatus?(AppLanguage.text("已穿透 · 隐藏后再显示可恢复交互"))
         case 9: perform(.close)
         default: break
         }
@@ -427,7 +426,7 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
         menu.insertItem(text,at:1)
         menu.addItem(.separator())
         for (tag, title) in [(1, AppLanguage.text("放大")), (2, AppLanguage.text("缩小")), (3, AppLanguage.text("顺时针旋转")), (4, AppLanguage.text("逆时针旋转")),
-                             (5, AppLanguage.text("水平翻转")), (6, AppLanguage.text("垂直翻转")), (7, thumbnail ? AppLanguage.text("恢复尺寸") : AppLanguage.text("缩略图")), (8, AppLanguage.text("点击穿透")), (9, AppLanguage.text("关闭"))] {
+                             (5, AppLanguage.text("水平翻转")), (6, AppLanguage.text("垂直翻转")), (7, thumbnail ? AppLanguage.text("恢复尺寸") : AppLanguage.text("缩略图")), (9, AppLanguage.text("关闭"))] {
             let item = NSMenuItem(title: title, action: #selector(menuCommand(_:)), keyEquivalent: "")
             item.tag = tag; item.target = self; menu.addItem(item)
         }
