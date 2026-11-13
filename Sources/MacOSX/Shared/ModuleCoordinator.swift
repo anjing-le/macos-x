@@ -20,6 +20,7 @@ final class ModuleCoordinator {
     private var nearbyTransfer: NearbyTransferModule?
     private var finishingTransfers: [UUID: NearbyTransferModule] = [:]
     var onNearbySettings: (() -> Void)?
+    var onNearbyOpen: (() -> Void)?
     var menuBarAnchor: (() -> CGRect?)?
     var menuBarCoveredEvent: ((NSEvent) -> Void)?
     func menuBarHover(_ frame: CGRect, inside: Bool) {
@@ -34,6 +35,10 @@ final class ModuleCoordinator {
         else { menuBarShelf?.appleClick() }
     }
     func dismissMenuBarDrawer() { nearbyTransfer?.hide() }
+    func showNearbyDrawer() {
+        guard isEnabled(.nearbyTransfer) else { return }
+        nearbyTransfer?.show(focus: true)
+    }
     private var issues: [ShortcutAction: String] = [:]
     private var tapIssue: String?
     private var activeObserver: NSObjectProtocol?
@@ -110,7 +115,9 @@ final class ModuleCoordinator {
                 module.anchor = { [weak self] in self?.menuBarAnchor?() }
                 module.onSettings = { [weak self] in self?.onNearbySettings?() }
                 module.onStatusChange = { [weak self] in self?.onStateChanged?(.nearbyTransfer) }
-                module.onOpen = { [weak self] in self?.menuBarShelf?.collapseForTransfer() }
+                module.onOpen = { [weak self] in
+                    self?.menuBarShelf?.collapseForTransfer(); self?.onNearbyOpen?()
+                }
                 nearbyTransfer = module
             }
             refreshNearbyPinAction()

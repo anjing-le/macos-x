@@ -9,10 +9,16 @@ import AppKit
     var isDrawerVisible: Bool { panel?.isVisible == true }
     private var panel: NearbyPanel?
     private var view: NearbyTransferView?
-    private var dashboards: [WeakView] = []
+    private var guides: [WeakGuide] = []
     private var localMonitor: Any?
-    init(service: NearbyTransferService? = nil) {
+    private let presentPanel: @MainActor (NSPanel, Bool) -> Void
+    init(service: NearbyTransferService? = nil,
+         presentPanel: @escaping @MainActor (NSPanel, Bool) -> Void = { panel, focus in
+             panel.orderFrontRegardless()
+             if focus { panel.makeKey(); panel.makeFirstResponder(panel.contentView) }
+         }) {
         self.service = service ?? NearbyTransferService(link: NearbyMultipeerLink())
+        self.presentPanel = presentPanel
         self.service.onChange = { [weak self] in self?.refresh() }
         self.service.onAttention = { [weak self] in
             guard let self, self.service.incomingInvitation || (self.service.pairingCode != nil && !self.service.ready) else { return }
@@ -28,9 +34,10 @@ import AppKit
         stop(); service.prepareToTerminate(completion: completion)
     }
     func makeDashboard() -> NSView {
-        let view = NearbyTransferView(service: service)
-        view.onSettings = { [weak self] in self?.show(focus: true) }
-        dashboards.removeAll { $0.view == nil }; dashboards.append(WeakView(view)); return view
+        let guide = NearbyTransferGuide()
+        guide.onOpen = { [weak self] in self?.show(focus: true) }
+        guide.update(enabled: service.running)
+        guides.removeAll { $0.view == nil }; guides.append(WeakGuide(guide)); return guide
     }
     func toggle() { isDrawerVisible ? hide() : show(focus: true) }
     func hide() {
@@ -54,8 +61,8 @@ import AppKit
         let x = min(max(available.minX + 8, anchor.midX - size.width / 2), available.maxX - size.width - 8)
         let y = max(available.minY + 8, min(anchor.minY - size.height - 6, available.maxY - size.height - 8))
         onOpen?(); panel?.setFrame(CGRect(origin: CGPoint(x: x, y: y), size: size), display: true)
-        view?.refresh(); panel?.orderFrontRegardless()
-        if focus { panel?.makeKey(); panel?.makeFirstResponder(view) }
+        view?.refresh()
+        if let panel { presentPanel(panel, focus) }
         if localMonitor == nil {
             localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
                 guard let self else { return event }
@@ -65,9 +72,10 @@ import AppKit
         }
     }
     private func refresh() {
-        view?.refresh(); dashboards.removeAll { $0.view == nil }; dashboards.forEach { $0.view?.refresh() }; onStatusChange?()
+        view?.refresh(); guides.removeAll { $0.view == nil }
+        guides.forEach { $0.view?.update(enabled: service.running) }; onStatusChange?()
     }
-    private final class WeakView { weak var view: NearbyTransferView?; init(_ view: NearbyTransferView) { self.view = view } }
+    private final class WeakGuide { weak var view: NearbyTransferGuide?; init(_ view: NearbyTransferGuide) { self.view = view } }
 }
 
 @MainActor private final class NearbyPanel: NSPanel {

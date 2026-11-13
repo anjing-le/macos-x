@@ -669,5 +669,7 @@ public enum AppLanguage {
         "图片已复制": "Image Copied",
         "暂无附近设备": "No Nearby Devices",
         "剪贴板图片.png": "Clipboard Image.png",
+        "单击苹果，打开互传抽屉": "Click the Apple Icon to Open Transfer",
+        "连接设备 · 拖入文件 · ⌘V 发送": "Connect a device · Drop files · Command-V to send",
     ]
 }

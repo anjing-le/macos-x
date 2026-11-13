@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         buildMenu()
         menuBar.start()
         modules.menuBarAnchor = { [weak self] in self?.menuBar.screenFrame }
+        modules.onNearbyOpen = { [weak self] in self?.client?.window?.orderOut(nil) }
         modules.onNearbySettings = { [weak self] in
             self?.showClient(); self?.client?.showSettings(.nearbyTransfer)
         }

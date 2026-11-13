@@ -2287,8 +2287,8 @@
   ],
   "打开抽屉": [
     {
-      "file": "Sources/MacOSX/MenuBarShelf/MenuBarShelfDashboard.swift",
-      "line": 23,
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferGuide.swift",
+      "line": 10,
       "raw": false,
       "multiline": false
     }
@@ -5809,6 +5809,22 @@
     {
       "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferService.swift",
       "line": 193,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "单击苹果，打开互传抽屉": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferGuide.swift",
+      "line": 8,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "连接设备 · 拖入文件 · ⌘V 发送": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferGuide.swift",
+      "line": 9,
       "raw": false,
       "multiline": false
     }

@@ -4,6 +4,10 @@ An opt-in native module for two Macs running a compatible macos-x version.
 Add it from the module pool, enable it on both Macs, and allow Local Network
 access when macOS asks. Single-click the existing menu-bar apple to open the
 drawer. Hover still belongs to menu-bar storage; double-click opens the client.
+The home card also opens that same drawer. Opening it orders out the main client
+window; reopening the client dismisses the drawer. Settings contain only the
+module toggle, a usage guide and an Open Drawer button, never a second transfer
+surface. These visibility changes do not disconnect the service.
 The drawer remains open while selecting files in Finder; click the apple again
 or press Esc in the drawer to dismiss it. Closing the drawer does not disconnect.
 

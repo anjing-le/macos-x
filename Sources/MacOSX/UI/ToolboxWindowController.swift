@@ -269,6 +269,7 @@ final class ToolboxWindowController: NSWindowController {
     required init?(coder: NSCoder) { nil }
 
     func present() {
+        modules.dismissMenuBarDrawer()
         NSApp.unhide(nil)
         NSApp.activate(ignoringOtherApps: true)
         window?.deminiaturize(nil)
@@ -293,7 +294,11 @@ final class ToolboxWindowController: NSWindowController {
         navigate(.home, title: "macos-x")
         homeCards.removeAll()
         var cards = added.tools.map { tool in
-            let card=ToolCard(title:tool.title,symbol:tool.symbol) { [weak self] in self?.showSettings(tool) }
+            let card=ToolCard(title:tool.title,symbol:tool.symbol) { [weak self] in
+                guard let self else { return }
+                if tool == .nearbyTransfer, self.modules.isEnabled(tool) { self.modules.showNearbyDrawer() }
+                else { self.showSettings(tool) }
+            }
             card.configureEnabled(modules.isEnabled(tool)) { [weak self] enabled in self?.modules.setEnabled(enabled,tool:tool) }
             card.configureRemoval { [weak self] in
                 guard let self else { return }
@@ -324,6 +329,7 @@ final class ToolboxWindowController: NSWindowController {
     }
 
     func showSettings(_ tool: Tool) {
+        modules.dismissMenuBarDrawer()
         navigate(.settings(tool), title: tool.title)
         let header = ModuleSettingsHeader(tool: tool, module: modules)
         settingsHeader = header

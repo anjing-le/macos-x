@@ -146,6 +146,33 @@ import MacOSXCore
         var drainedA = false, drainedB = false
         a.prepareToTerminate { drainedA = true }; b.prepareToTerminate { drainedB = true }
         wait("termination drains owned IO cleanup") { drainedA && drainedB }
+        let surfaceLink = FixtureLink("Surface Fixture")
+        let surfaceService = NearbyTransferService(link: surfaceLink, clipboard: clipA, receiveFolder: root.appendingPathComponent("Surface"))
+        var mainHidden = false, presentations: [ObjectIdentifier] = [], shown: NSPanel?
+        let module = NearbyTransferModule(service: surfaceService, presentPanel: { panel, _ in
+            precondition(mainHidden, "main client hides before presenting drawer")
+            precondition(!panel.isVisible, "fixture never orders a real window onscreen")
+            presentations.append(ObjectIdentifier(panel)); shown = panel
+        })
+        module.anchor = { CGRect(x: 600, y: 780, width: 30, height: 22) }
+        module.onOpen = { mainHidden = true }
+        module.start()
+        let guide = module.makeDashboard()
+        precondition(guide is NearbyTransferGuide && !(guide is NearbyTransferView), "settings is a guide, not a second transfer surface")
+        guide.frame = CGRect(x: 0, y: 0, width: 312, height: 300); guide.layoutSubtreeIfNeeded()
+        precondition(guide.subviews.allSatisfy { guide.bounds.contains($0.frame) }, "guide fits narrow settings")
+        let open = guide.subviews.compactMap { $0 as? NSButton }.first!
+        open.performClick(nil)
+        precondition(presentations.count == 1 && mainHidden)
+        mainHidden = false; module.show(focus: true)
+        precondition(presentations.count == 2 && Set(presentations).count == 1, "opening again reuses the only drawer panel")
+        var settingsRequested = false
+        module.onSettings = { settingsRequested = true }
+        (shown?.contentView as? NearbyTransferView)?.onSettings?()
+        precondition(settingsRequested && !module.isDrawerVisible && surfaceService.running, "settings route dismisses drawer without disconnecting service")
+        module.stop(); let countBefore = presentations.count; module.show(focus: true)
+        precondition(presentations.count == countBefore, "disabled module cannot show a drawer")
         print("PASS nearby: mutual pairing, encrypted acknowledged text/files/images, session auto-copy, same-name and empty files, cancellation, teardown and native offscreen layout; no discovery, live windows or general clipboard")
+        print("PASS single drawer: settings guide only, main hides before presentation, one reusable panel, settings route dismisses drawer; presentation injected, no live windows")
     }
 }
