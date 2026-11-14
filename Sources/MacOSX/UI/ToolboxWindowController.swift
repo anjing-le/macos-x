@@ -38,38 +38,27 @@ enum Tool: String, CaseIterable, Hashable {
     }
 }
 
-/// Home entries are the explicit opt-in boundary for native modules.
+/// Every bundled feature is visible. Migrate former membership into enablement
+/// once, preserving the effective opt-in boundary and existing home order.
 @MainActor
-private final class AddedTools {
-    private let defaults: UserDefaults
-    private let key = "addedTools"
-    private(set) var tools: [Tool]
-
+final class BuiltinTools {
+    let tools: [Tool]
     init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        var seen = Set<Tool>()
-        tools = (defaults.stringArray(forKey: key) ?? [])
+        let old = (defaults.stringArray(forKey: "addedTools") ?? []).compactMap(Tool.init(rawValue:))
+        if !defaults.bool(forKey: "builtinToolsMigrated") {
+            for tool in Tool.allCases {
+                let key = "enabled.\(tool.rawValue)"
+                let enabled = old.contains(tool) && (defaults.object(forKey: key) as? Bool ?? true)
+                defaults.set(enabled, forKey: key)
+            }
+            defaults.set(true, forKey: "builtinToolsMigrated")
+        }
+        let saved = (defaults.stringArray(forKey: "homeToolOrder") ?? old.map(\.rawValue))
             .compactMap(Tool.init(rawValue:))
-            .filter { seen.insert($0).inserted }
-    }
-
-    func add(_ tool: Tool) {
-        guard !tools.contains(tool) else { return }
-        tools.append(tool)
-        save()
-    }
-
-    func remove(_ tool: Tool) {
-        tools.removeAll { $0 == tool }
-        save()
-    }
-    func reorder(_ order: [Tool]) {
-        guard order.count == tools.count, Set(order) == Set(tools) else { return }
-        tools = order; save()
-    }
-
-    private func save() {
-        defaults.set(tools.map(\.rawValue), forKey: key)
+        var seen = Set<Tool>()
+        tools = (saved + Tool.allCases).filter { seen.insert($0).inserted }
+        defaults.set(tools.map(\.rawValue), forKey: "homeToolOrder")
+        // Leave legacy preferences and module data intact; membership is no longer consulted.
     }
 }
 
@@ -216,12 +205,12 @@ private final class DetailDocument: SketchSurface {
 @MainActor
 final class ToolboxWindowController: NSWindowController {
     private enum Page {
-        case home, catalog, settings(Tool)
+        case home, settings(Tool)
     }
 
     func setUpdateAvailable(_ available: Bool) { content.header.setUpdateAvailable(available) }
 
-    private let added = AddedTools()
+    private let builtins = BuiltinTools()
     private let content = ToolboxContent(frame: NSRect(x: 0, y: 0, width: 960, height: 640))
     private var page: Page = .home
     private let onCheckUpdates: () -> Void
@@ -261,11 +250,11 @@ final class ToolboxWindowController: NSWindowController {
             }
         }
         modules.onScreenCapturePermissionNeeded = { [weak self] in
-            guard let self, self.added.tools.contains(.capture) else { return }
+            guard let self, self.builtins.tools.contains(.capture) else { return }
             self.showSettings(.capture)
             self.present()
         }
-        modules.reconcile(added.tools)
+        modules.refreshPermissions()
         showHome()
     }
 
@@ -296,39 +285,17 @@ final class ToolboxWindowController: NSWindowController {
         settingsHeader = nil
         navigate(.home, title: "macos-x")
         homeCards.removeAll()
-        var cards = added.tools.map { tool in
+        let cards = builtins.tools.map { tool in
             let card=ToolCard(title:tool.title,symbol:tool.symbol) { [weak self] in
                 guard let self else { return }
                 if tool == .nearbyTransfer, self.modules.isEnabled(tool) { self.modules.showNearbyDrawer() }
                 else { self.showSettings(tool) }
             }
             card.configureEnabled(modules.isEnabled(tool)) { [weak self] enabled in self?.modules.setEnabled(enabled,tool:tool) }
-            card.configureRemoval { [weak self] in
-                guard let self else { return }
-                self.added.remove(tool); self.modules.reconcile(self.added.tools); self.showHome()
-            }
             homeCards[tool]=card
             return card
         }
-        cards.append(ToolCard(title: AppLanguage.text("功能池"), symbol: "plus") { [weak self] in self?.showCatalog() })
         content.showCards(cards)
-    }
-
-    private func showCatalog() {
-        settingsHeader = nil
-        navigate(.catalog, title: AppLanguage.text("编辑功能"))
-        let editor = ModuleCatalogView(added: added.tools)
-        editor.onToggle = { [weak self, weak editor] tool in
-            guard let self else { return }
-            if self.added.tools.contains(tool) { self.added.remove(tool) } else { self.added.add(tool) }
-            self.modules.reconcile(self.added.tools)
-            editor?.configure(added: self.added.tools)
-        }
-        editor.onReorder = { [weak self, weak editor] order in
-            guard let self else { return }
-            self.added.reorder(order); editor?.configure(added: self.added.tools)
-        }
-        content.showDetail([editor])
     }
 
     func showSettings(_ tool: Tool) {

@@ -9,7 +9,7 @@ final class ModuleCoordinator {
     private let defaults: UserDefaults
     let shortcuts: ShortcutStore
     private let input = GlobalInput()
-    private var tools = Set<Tool>()
+    private let tools = Set(Tool.allCases)
     private var fileActions: FileActionsModule?
     private var finishingFileActions:[UUID:FileActionsModule]=[:]
     private var wheel: PhraseWheelModule?
@@ -48,6 +48,7 @@ final class ModuleCoordinator {
     private var terminating = false
 
     init(defaults: UserDefaults = .standard) {
+        _ = BuiltinTools(defaults: defaults)
         self.defaults = defaults; shortcuts = ShortcutStore(defaults: defaults)
         input.onShortcut = { [weak self] action in
             guard let self else { return }
@@ -90,17 +91,8 @@ final class ModuleCoordinator {
             }
     }
 
-    func reconcile(_ added: [Tool]) {
-        guard !terminating else { return }
-        let next = Set(added)
-        for tool in tools.subtracting(next) { stop(tool, remove: true) }
-        tools = next
-        for tool in tools { ensure(tool) }
-        refreshPermissions()
-    }
-
     func isEnabled(_ tool: Tool) -> Bool {
-        tools.contains(tool) && (defaults.object(forKey: "enabled.\(tool.rawValue)") as? Bool ?? true)
+        tools.contains(tool) && (defaults.object(forKey: "enabled.\(tool.rawValue)") as? Bool ?? false)
     }
 
     func setEnabled(_ enabled: Bool, tool: Tool) {

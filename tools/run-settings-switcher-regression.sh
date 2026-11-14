@@ -30,7 +30,7 @@ if __import__('os').environ.get('MACOSX_TEST_LANGUAGE') == 'en':
 (out/'Preview.app/Contents/Info.plist').write_text('<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>cc.anjing.macos-x.settings.fixture</string><key>CFBundleExecutable</key><string>Preview</string><key>CFBundlePackageType</key><string>APPL</string><key>LSUIElement</key><true/></dict></plist>')
 PY
 xcrun swiftc -I "$guide_bin/Modules" "$guide_bin"/MacOSXCore.build/*.swift.o \
- Sources/MacOSX/UI/SketchTheme.swift Sources/MacOSX/UI/SketchIcons.swift Sources/MacOSX/UI/ToolCard.swift Sources/MacOSX/UI/MinimalControls.swift Sources/MacOSX/UI/ModuleCatalogView.swift \
+ Sources/MacOSX/UI/SketchTheme.swift Sources/MacOSX/UI/SketchIcons.swift Sources/MacOSX/UI/ToolCard.swift Sources/MacOSX/UI/MinimalControls.swift \
  Sources/MacOSX/Shared/ShortcutSettings.swift Sources/MacOSX/Capture/RecordingPresentation.swift Sources/MacOSX/UI/SettingsGuideView.swift Sources/MacOSX/UI/SettingsBoardView.swift Sources/MacOSX/WindowSwitcher/SwitcherPanel.swift \
  Sources/MacOSX/WindowLayout/*.swift \
  "$guide_dir/SwitcherWindow.swift" "$guide_dir/ShortcutTypes.swift" "$guide_dir/SettingsHeader.swift" "$guide_dir/RegistryAndFixture.swift" \

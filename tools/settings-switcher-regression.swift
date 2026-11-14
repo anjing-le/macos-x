@@ -82,46 +82,32 @@ import MacOSXCore
         defer { registryDefaults.removePersistentDomain(forName:registrySuite) }
         registryDefaults.set("保留的提示词",forKey:"fixture.prompt-content")
         try require(Tool.allCases.count == 8 && Tool.allCases.contains(.fileActions) && Tool(rawValue: "shortcutRadar") == nil,
-                    "Removed module is absent from the home and module pool")
-        registryDefaults.set(["kaomoji", "shortcutRadar", "capture"], forKey: "addedTools")
-        let migratedRegistry = AddedTools(defaults: registryDefaults)
-        try require(migratedRegistry.tools == [.kaomoji, .capture],
-                    "An old installed radar entry is ignored without losing other modules or their order")
-        migratedRegistry.reorder([.capture, .kaomoji])
-        try require(registryDefaults.stringArray(forKey: "addedTools") == ["capture", "kaomoji"],
-                    "The next membership save excludes the removed entry")
-        registryDefaults.removeObject(forKey: "addedTools")
-        let registry=AddedTools(defaults:registryDefaults)
-        registry.add(.kaomoji); registry.add(.kaomoji); registry.add(.capture)
-        try require(registry.tools == [.kaomoji,.capture],"Repeated add cannot duplicate a module")
-        registry.remove(.kaomoji)
-        try require(AddedTools(defaults:registryDefaults).tools == [.capture],"Removal persists across reopening")
-        registry.add(.kaomoji)
-        try require(AddedTools(defaults:registryDefaults).tools == [.capture,.kaomoji] && registryDefaults.string(forKey:"fixture.prompt-content") == "保留的提示词","Re-adding restores entry without deleting unrelated content")
-        registry.reorder([.kaomoji,.capture])
-        try require(AddedTools(defaults:registryDefaults).tools == [.kaomoji,.capture],"Home order persists across reopening")
-        registry.reorder([.capture,.capture])
-        try require(registry.tools == [.kaomoji,.capture],"Reorder cannot duplicate or lose membership")
-        let catalog=ModuleCatalogView(added:[.kaomoji,.capture])
-        var catalogChanges=0
-        catalog.onToggle = { tool in catalogChanges += 1 }
-        catalog.onReorder = { order in registry.reorder(order); catalog.configure(added:order) }
-        catalog.place(.kaomoji,at:1)
-        try require(catalog.added == [.capture,.kaomoji] && registry.tools == catalog.added,"Drag placement changes the saved home order")
-        catalog.move(.kaomoji,by:-1)
-        try require(catalog.added == [.kaomoji,.capture],"Keyboard/button movement uses the same saved order")
-        catalog.place(.windowLayout,at:0); catalog.move(.kaomoji,by:-1)
-        try require(catalog.added == [.kaomoji,.capture],"Unadded and out-of-bounds moves are rejected")
-        for width:CGFloat in [912,300] {
-            catalog.frame.size.width=width; catalog.needsLayout=true; catalog.layoutSubtreeIfNeeded()
-            let poolCards=catalog.subviews.compactMap { $0 as? ModuleCatalogCard }
-            try require(poolCards.count == Tool.allCases.count,"Editor retains added and available cards")
-            try require(poolCards.allSatisfy { $0.frame.minX >= 0 && $0.frame.maxX <= width },"Editor cards fit wide and narrow layouts")
+                    "Removed module is absent from bundled tools")
+        registryDefaults.set(["kaomoji", "shortcutRadar", "capture", "kaomoji"], forKey: "addedTools")
+        registryDefaults.set(false, forKey: "enabled.capture")
+        registryDefaults.set(true, forKey: "enabled.nearbyTransfer") // removed previously; must stay inactive
+        let migratedRegistry = BuiltinTools(defaults: registryDefaults)
+        try require(migratedRegistry.tools.prefix(2) == [.kaomoji, .capture], "Preserve old order")
+        try require(migratedRegistry.tools.count == Tool.allCases.count && Set(migratedRegistry.tools) == Set(Tool.allCases), "All bundled tools appear exactly once")
+        try require(registryDefaults.bool(forKey: "enabled.kaomoji") && !registryDefaults.bool(forKey: "enabled.capture") && !registryDefaults.bool(forKey: "enabled.nearbyTransfer"), "Migration preserves effective enabled state, including formerly removed tools")
+        registryDefaults.set(true, forKey: "enabled.fileActions")
+        let reopened = BuiltinTools(defaults: registryDefaults)
+        try require(reopened.tools == migratedRegistry.tools && registryDefaults.bool(forKey: "enabled.fileActions"), "Migration never overrides later toggles")
+        try require(registryDefaults.string(forKey: "fixture.prompt-content") == "保留的提示词", "Keep user data")
+        registryDefaults.removePersistentDomain(forName: registrySuite)
+        let fresh = BuiltinTools(defaults: registryDefaults)
+        try require(fresh.tools == Tool.allCases && Tool.allCases.allSatisfy { !registryDefaults.bool(forKey: "enabled.\($0.rawValue)") }, "Fresh install exposes all features without starting them")
+        registryDefaults.set(["fileActions", "invalid", "capture", "fileActions"], forKey: "homeToolOrder")
+        let repaired = BuiltinTools(defaults: registryDefaults)
+        try require(repaired.tools.prefix(2) == [.fileActions, .capture] && repaired.tools.count == Tool.allCases.count, "Order is deduplicated, unknown tools ignored and missing tools appended")
+        for width: CGFloat in [912, 300] {
+            let home = ToolboxContent(frame: CGRect(x: 0, y: 0, width: width, height: 584))
+            home.showCards(repaired.tools.map { ToolCard(title: $0.title, symbol: $0.symbol) {} })
+            home.layoutSubtreeIfNeeded()
+            let cards = home.grid.subviews.compactMap { $0 as? ToolCard }
+            try require(cards.count == Tool.allCases.count, "Home has all tools and no plus card")
+            try require(cards.allSatisfy { $0.frame.minX >= 0 && $0.frame.maxX <= width }, "All cards fit narrow and wide home layouts")
         }
-        let member=catalog.subviews.compactMap { $0 as? ModuleCatalogCard }.first!
-        try require(member.isAccessibilityElement() && member.accessibilityChildren()?.contains(where: { ($0 as? NSButton) === member.membership }) == true,"Catalog exposes its actual membership button to accessibility")
-        member.membership.performClick(nil)
-        try require(catalogChanges == 1,"Editor membership button invokes only membership callback")
         for index in [0, 8, 127, 255, 0] {
             canvas.scrollToVisible(layout.card(at: index))
             scroll.reflectScrolledClipView(scroll.contentView)
@@ -300,22 +286,14 @@ try require(layoutBoard.bounds.contains(error.frame),"shortcut conflict explanat
         try require(toolCard.accessibilityChildren()?.count == 2,"navigation and toggle both remain accessible")
         let accessibleEntry = toolCard.accessibilityChildren()?.first as? NSAccessibilityElement
         try require(accessibleEntry?.isAccessibilityEnabled() == true,"Home navigation proxy is enabled when the card is enabled")
-        var removed=0
-        toolCard.configureRemoval { removed += 1 }
-        toolCard.layoutSubtreeIfNeeded()
-        let removal=toolCard.subviews.compactMap { $0 as? CardActionButton }.first { !($0 is ModuleEnableButton) }!
-        try require(!removal.isHidden && toolCard.accessibilityChildren()?.count == 3,"Hover exposes removal as a separate accessible action")
-        let removalPoint=removal.convert(CGPoint(x:removal.bounds.midX,y:removal.bounds.midY),to:toolCard.superview)
-        try require(toolCard.hitTest(removalPoint) === removal,"Removal cannot trigger settings navigation")
-        removal.performClick(nil)
-        try require(removed == 1 && opened == 0 && toggled == 3,"Removing is independent from switching and navigating")
+        try require(toolCard.accessibilityChildren()?.count == 2, "Cards expose only settings navigation and enablement, without removal")
         _ = cardWindow.makeFirstResponder(nil)
         toolCard.mouseExited(with:enter)
-        try require(enableButton.isHidden && removal.isHidden,"Pointer exit hides card actions")
+        try require(enableButton.isHidden,"Pointer exit hides card actions")
         try require(cardWindow.makeFirstResponder(toolCard) && !enableButton.isHidden,"Keyboard focus reveals card actions")
         try require(cardWindow.makeFirstResponder(enableButton) && !enableButton.isHidden,"Moving keyboard focus to the switch keeps it visible")
         _ = cardWindow.makeFirstResponder(nil)
-        try require(enableButton.isHidden && removal.isHidden,"Leaving keyboard focus hides actions again")
+        try require(enableButton.isHidden,"Leaving keyboard focus hides actions again")
         let bodyPoint=toolCard.convert(CGPoint(x:100,y:70),to:nil)
         let bodyEvent=NSEvent.mouseEvent(with:.leftMouseDown,location:bodyPoint,modifierFlags:[],timestamp:0,windowNumber:cardWindow.windowNumber,context:nil,eventNumber:0,clickCount:1,pressure:1)!
         toolCard.mouseDown(with:bodyEvent); toolCard.mouseUp(with:bodyEvent)
@@ -398,10 +376,7 @@ try require(layoutBoard.bounds.contains(error.frame),"shortcut conflict explanat
             try require(label.frame.width >= ceil(textWidth),"narrow header retains complete module title")
             try require(!label.frame.intersects(header.back.frame) && !label.frame.intersects(header.update.frame),"narrow title never overlaps navigation")
         }
-        for card in catalog.subviews.compactMap({ $0 as? ModuleCatalogCard }) {
-            try require(!card.artworkFrame.intersects(card.titleFrame),"catalog artwork remains separate from title")
-            try require(abs(card.artworkFrame.width/card.artworkFrame.height-256.0/236.0)<0.001,"catalog artwork keeps the approved aspect ratio")
-        }
+
         let receiver=BoardReceiver()
         let toggle=MinimalToggle(title:"贴图白光边缘",target:receiver,action:#selector(BoardReceiver.changed(_:)))
         toggle.identifier = .init("capture-pin-outline")

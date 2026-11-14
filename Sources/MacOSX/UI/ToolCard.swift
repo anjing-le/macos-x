@@ -16,25 +16,11 @@ final class ToolCard: NSControl {
     private var colorImage: NSImage?
     private let hasArtwork: Bool
     private var monochromeImage: NSImage?
-    private var removeButton: CardActionButton?
-    private var removed: (() -> Void)?
     private let stateLabel = NSTextField(labelWithString: "")
-    func configureRemoval(_ action: @escaping () -> Void) {
-        removed = action
-        if removeButton == nil {
-            let button = CardActionButton(title: AppLanguage.text("移除"), target: self, action: #selector(removeModule))
-            button.setAccessibilityLabel(AppLanguage.text("移除{0}，保留设置", String(describing: (titleLabel.stringValue))))
-            button.onFocusChanged = { [weak self] in self?.updateAppearance(animated: false) }
-            removeButton = button; addSubview(button)
-        }
-        updateAccessibilityChildren(); updateAppearance(animated: false); needsLayout = true
-    }
-    @objc private func removeModule() { removed?() }
     private func updateAccessibilityChildren() {
         guard let accessibleEntry else { return }
         var children: [Any] = [accessibleEntry]
         if let enableButton { children.append(enableButton) }
-        if let removeButton { children.append(removeButton) }
         setAccessibilityChildren(children)
     }
     func configureEnabled(_ enabled:Bool,onChange:@escaping (Bool)->Void) {
@@ -89,7 +75,6 @@ final class ToolCard: NSControl {
         didSet {
             if !isEnabled { mousePressed = false; pressedKey = nil }
             enableButton?.isEnabled=isEnabled
-            removeButton?.isEnabled=isEnabled
             setAccessibilityEnabled(isEnabled)
             accessibleEntry?.setAccessibilityEnabled(isEnabled)
             updateAppearance(animated: true)
@@ -180,7 +165,6 @@ final class ToolCard: NSControl {
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let hit=super.hitTest(point) else { return nil }
         if let button=enableButton,hit === button || hit.isDescendant(of:button) { return button }
-        if let button=removeButton,hit === button || hit.isDescendant(of:button) { return button }
         return self
     }
 
@@ -235,7 +219,6 @@ final class ToolCard: NSControl {
             if titleLabel.font?.pointSize != size { titleLabel.font = SketchPalette.heading(size) }
         }
         enableButton?.frame=CGRect(x:bounds.width-78,y:bounds.height-40,width:68,height:30)
-        removeButton?.frame = CGRect(x: 10, y: 8, width: 56, height: 26)
         stateLabel.frame = CGRect(x: bounds.width - 90, y: 10, width: 78, height: 20)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -311,10 +294,9 @@ final class ToolCard: NSControl {
         guard let cardLayer = surface.layer, let iconLayer = symbolView.layer,
               let textLayer = titleLabel.layer else { return }
         let focused = keyboardFocused && window?.isKeyWindow == true
-        let childFocused = window?.isKeyWindow == true && (enableButton?.hasKeyboardFocus == true || removeButton?.hasKeyboardFocus == true)
+        let childFocused = window?.isKeyWindow == true && enableButton?.hasKeyboardFocus == true
         let revealed = isEnabled && (hovered || focused || childFocused)
         enableButton?.isHidden = !revealed
-        removeButton?.isHidden = !revealed
         enableButton?.emphasized=revealed
         let reducedMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         let duration = animated && !reducedMotion ? 0.25 : 0
