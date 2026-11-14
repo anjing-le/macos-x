@@ -1,0 +1,54 @@
+{
+  "sheet.ods": {
+    "sha256": "e2c092eb2173b9c7ea8dd2c42e8dd7ef284cf37de40e206f3c8e43571de88454",
+    "origin": "anydoc v0.2.4 MIT tests/fixtures"
+  },
+  "sheet.xls": {
+    "sha256": "1b3fc8f35f4c7ad6bb4dcf9b9f1fdf4ddf1f4c7f2f6748f33b7948204f940136",
+    "origin": "anydoc v0.2.4 MIT tests/fixtures"
+  },
+  "pres.odp": {
+    "sha256": "6b5e859ad2591be8f1cbc0246d7e757fbc0ffa06e8ccd022a3e1612f67169df1",
+    "origin": "anydoc v0.2.4 MIT tests/fixtures"
+  },
+  "text.doc": {
+    "sha256": "0d7c077cf4b49939a05ccd5f8012164649752be0c5841fa50da6258e0517e6e5",
+    "origin": "anydoc v0.2.4 MIT tests/fixtures"
+  },
+  "table.csv": {
+    "sha256": "bf7ee2f2c93a25ba1786afb5835209e73ba916747df80ac653ae01666c1eea07",
+    "origin": "synthetic regression lab"
+  },
+  "book.epub": {
+    "sha256": "292cba3ea8019684cb59cb890de6caf31bc9399d9f983b25db1506e275f83563",
+    "origin": "anydoc v0.2.4 MIT tests/fixtures"
+  },
+  "pres.ppt": {
+    "sha256": "8b92d2304598dafc977ff309095aa405151ac741d3374b3d5a214377b57765b3",
+    "origin": "anydoc v0.2.4 MIT tests/fixtures"
+  },
+  "merged.docx": {
+    "sha256": "79902bcb77c5aa9fdae33fa4bf2224a823c4a067a446a5abd1ca6a0b5c4f0ede",
+    "origin": "synthetic regression lab"
+  },
+  "rich.docx": {
+    "sha256": "1e9d651a5be1eb81d321bed4c5e5907b3763598bc3ce0c60b10a35702144c8a4",
+    "origin": "synthetic regression lab"
+  },
+  "text.odt": {
+    "sha256": "614b107dcd9f48364b33fa98ad1db32b43667701adeb510b081961ced54438ee",
+    "origin": "anydoc v0.2.4 MIT tests/fixtures"
+  },
+  "text.rtf": {
+    "sha256": "8af25d8d79f898c5fd8c65782a6b73b04b4869fe621c6d39bf201ce4478ec731",
+    "origin": "anydoc v0.2.4 MIT tests/fixtures"
+  },
+  "sheet.xlsx": {
+    "sha256": "ddfec7c1e98c7b50611b1c3ac55c0aa0d9d413135aa7afc36732338e44f4d26c",
+    "origin": "anydoc v0.2.4 MIT tests/fixtures"
+  },
+  "pres.pptx": {
+    "sha256": "c96aa52da19f273f602040490203d9319872f512707e1a6c5a3fc53251b6d050",
+    "origin": "anydoc v0.2.4 MIT tests/fixtures"
+  }
+}

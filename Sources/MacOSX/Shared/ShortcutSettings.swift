@@ -146,7 +146,7 @@ final class ShortcutPicker: NSStackView {
             row.addArrangedSubview(label)
         }
         if allowsDoubleTap {
-            mode.addItems(withTitles: [AppLanguage.text("双击右 Option"), AppLanguage.text("双击左 Option"), AppLanguage.text("组合键")])
+            mode.addItems(withTitles: [AppLanguage.text("双击右 Option"), AppLanguage.text("双击左 Option"), AppLanguage.text("双击左 Command"), AppLanguage.text("双击右 Command"), AppLanguage.text("组合键")])
             mode.target = self; mode.action = #selector(selectTriggerMode)
             mode.setAccessibilityLabel(AppLanguage.text("唤起方式"))
             row.addArrangedSubview(mode)
@@ -178,8 +178,8 @@ final class ShortcutPicker: NSStackView {
         recorder.toolTip = AppLanguage.text("{0} · 点击修改；功能键可能需要同时按 Fn，Escape 取消", String(describing: (binding.displayName)))
         recorder.isHidden = binding.kind == .doubleModifier && !editingChord
         if binding.kind == .doubleModifier && !editingChord {
-            mode.selectItem(at: [UInt16(61), 58].firstIndex(of: binding.keyCode) ?? 0)
-        } else { mode.selectItem(at: 2) }
+            mode.selectItem(at: [UInt16(61), 58, 55, 54].firstIndex(of: binding.keyCode) ?? 0)
+        } else { mode.selectItem(at: 4) }
         notice.isHidden = presentsIssueExternally || notice.stringValue.isEmpty
         recorder.contentTintColor = issueMessage == nil ? SketchPalette.ink : SketchPalette.coral
         if reportedIssue != issueMessage {
@@ -193,9 +193,9 @@ final class ShortcutPicker: NSStackView {
     }
     @objc private func selectTriggerMode() {
         let index = mode.indexOfSelectedItem
-        if index < 2 {
+        if index < 4 {
             editingChord = false
-            propose(.init(kind: .doubleModifier, keyCode: [61, 58][index], modifiers: 0, keyLabel: ""))
+            propose(.init(kind: .doubleModifier, keyCode: [61, 58, 55, 54][index], modifiers: 0, keyLabel: ""))
         } else if binding.kind == .doubleModifier {
             editingChord = true
             notice.stringValue = ""; refresh()

@@ -11,6 +11,11 @@ jobs:
       MACOSX_TEST_LANGUAGE: zh
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.93.1
+      - name: Check single-file operations and disposable local engines
+        run: |
+          zsh tools/run-file-actions-regression.sh
+          MACOSX_TEST_LANGUAGE=en zsh tools/run-file-actions-regression.sh
       - name: Check menu bar interaction
         run: zsh tools/run-menu-bar-regression.sh
       - name: Check menu-bar shelf cancellation, restoration and dashboard

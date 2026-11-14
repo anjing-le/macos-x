@@ -81,7 +81,7 @@ import MacOSXCore
         let registryDefaults=UserDefaults(suiteName:registrySuite)!
         defer { registryDefaults.removePersistentDomain(forName:registrySuite) }
         registryDefaults.set("保留的提示词",forKey:"fixture.prompt-content")
-        try require(Tool.allCases.count == 7 && Tool(rawValue: "shortcutRadar") == nil,
+        try require(Tool.allCases.count == 8 && Tool.allCases.contains(.fileActions) && Tool(rawValue: "shortcutRadar") == nil,
                     "Removed module is absent from the home and module pool")
         registryDefaults.set(["kaomoji", "shortcutRadar", "capture"], forKey: "addedTools")
         let migratedRegistry = AddedTools(defaults: registryDefaults)

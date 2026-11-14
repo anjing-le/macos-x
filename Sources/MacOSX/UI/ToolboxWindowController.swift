@@ -9,6 +9,7 @@ enum Tool: String, CaseIterable, Hashable {
     case systemStatus
     case menuBarShelf
     case nearbyTransfer
+    case fileActions
 
     var title: String {
         switch self {
@@ -18,6 +19,7 @@ enum Tool: String, CaseIterable, Hashable {
         case .windowLayout:return AppLanguage.text("窗口布局")
         case .menuBarShelf:return AppLanguage.text("菜单栏收纳")
         case .systemStatus:return AppLanguage.text("系统状态")
+        case .fileActions:return AppLanguage.text("文件操作")
         case .nearbyTransfer:return AppLanguage.text("附近互传")
         }
     }
@@ -30,6 +32,7 @@ enum Tool: String, CaseIterable, Hashable {
         case .windowLayout:return "rectangle.split.2x1"
         case .menuBarShelf:return "menubar.rectangle"
         case .systemStatus:return "chart.xyaxis.line"
+        case .fileActions:return "doc.badge.arrow.up"
         case .nearbyTransfer:return "folder.badge.person.crop"
         }
     }
@@ -296,7 +299,8 @@ final class ToolboxWindowController: NSWindowController {
         var cards = added.tools.map { tool in
             let card=ToolCard(title:tool.title,symbol:tool.symbol) { [weak self] in
                 guard let self else { return }
-                if tool == .nearbyTransfer, self.modules.isEnabled(tool) { self.modules.showNearbyDrawer() }
+                if tool == .fileActions, self.modules.isEnabled(tool) { self.modules.showFileActions() }
+                else if tool == .nearbyTransfer, self.modules.isEnabled(tool) { self.modules.showNearbyDrawer() }
                 else { self.showSettings(tool) }
             }
             card.configureEnabled(modules.isEnabled(tool)) { [weak self] enabled in self?.modules.setEnabled(enabled,tool:tool) }
@@ -334,7 +338,7 @@ final class ToolboxWindowController: NSWindowController {
         let header = ModuleSettingsHeader(tool: tool, module: modules)
         settingsHeader = header
         header.placeEnableControl(in: content.header)
-        if tool == .systemStatus || tool == .menuBarShelf || tool == .nearbyTransfer {
+        if tool == .systemStatus || tool == .menuBarShelf || tool == .nearbyTransfer || tool == .fileActions {
             content.showDetail([header, modules.settingsView(for: tool)])
             return
         }
@@ -348,7 +352,7 @@ final class ToolboxWindowController: NSWindowController {
             label.font = .systemFont(ofSize:16); label.textColor = SketchPalette.ink; label.alignment = .center
             label.toolTip = AppLanguage.text("Tab 选择 · Shift 反向 · 松开 Command 确认")
             shortcuts = [label]
-        case .systemStatus, .menuBarShelf, .nearbyTransfer: shortcuts = []
+        case .systemStatus, .menuBarShelf, .nearbyTransfer, .fileActions: shortcuts = []
         }
         let board = SettingsBoardView(kind: tool.rawValue, settings: modules.settingsView(for: tool), shortcuts: shortcuts)
         content.showDetail([header, board])

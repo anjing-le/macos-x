@@ -1,0 +1,10 @@
+[package]
+name = "file-document-worker"
+version = "0.1.0"
+edition = "2024"
+[dependencies]
+anydoc = { path = "../anydoc" }
+[profile.release]
+lto = "thin"
+strip = "symbols"
+codegen-units = 1

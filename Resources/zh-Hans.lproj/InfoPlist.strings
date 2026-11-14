@@ -1,2 +1,4 @@
 "NSMicrophoneUsageDescription" = "仅在你开启录屏麦克风并开始录制时，将麦克风声音保留在本机视频中。";
 "NSLocalNetworkUsageDescription" = "附近互传用于发现并连接你确认的 Mac，在本地网络内发送和接收文件、文字及图片。";
+
+"NSAppleEventsUsageDescription" = "仅在你主动使用文件操作快捷键时，读取访达中选中的一个文件。";

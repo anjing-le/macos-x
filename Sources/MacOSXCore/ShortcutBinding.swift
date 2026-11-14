@@ -16,7 +16,7 @@ public struct ShortcutBinding: Codable, Equatable, Sendable {
 
     public var isValid: Bool {
         guard keyCode <= 126, modifiers <= 15 else { return false }
-        if kind == .doubleModifier { return [58, 59, 61, 62].contains(keyCode) }
+        if kind == .doubleModifier { return [54, 55, 58, 59, 61, 62].contains(keyCode) }
         return (isFunctionKey || modifiers & 9 != 0)
             && ![54, 55, 56, 57, 58, 59, 60, 61, 62, 63].contains(keyCode)
     }
@@ -28,7 +28,7 @@ public struct ShortcutBinding: Codable, Equatable, Sendable {
 
     public var displayName: String {
         if kind == .doubleModifier {
-            let names: [UInt16: String] = [58: AppLanguage.text("左 Option"), 61: AppLanguage.text("右 Option"), 59: AppLanguage.text("左 Control"), 62: AppLanguage.text("右 Control")]
+            let names: [UInt16: String] = [55: AppLanguage.text("左 Command"), 54: AppLanguage.text("右 Command"), 58: AppLanguage.text("左 Option"), 61: AppLanguage.text("右 Option"), 59: AppLanguage.text("左 Control"), 62: AppLanguage.text("右 Control")]
             return AppLanguage.text("双击 ") + (names[keyCode] ?? AppLanguage.text("修饰键"))
         }
         return (modifiers & 1 != 0 ? "⌃" : "") + (modifiers & 2 != 0 ? "⌥" : "")
@@ -63,6 +63,8 @@ public struct ModifierDoubleTap: Sendable {
     public mutating func update(keyCode: UInt16, eventFlags: UInt64, timestamp: Double) -> Bool {
         let mask: UInt64
         switch keyCode {
+        case 55: mask = 0x8
+        case 54: mask = 0x10
         case 58: mask = 0x20
         case 61: mask = 0x40
         case 59: mask = 0x1

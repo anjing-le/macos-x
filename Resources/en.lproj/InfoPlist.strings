@@ -1,2 +1,4 @@
 "NSMicrophoneUsageDescription" = "Microphone audio is saved only in your local video when you enable the microphone and start recording.";
 "NSLocalNetworkUsageDescription" = "Nearby Transfer discovers and connects to a Mac you confirm, to exchange files, text and images on your local network.";
+
+"NSAppleEventsUsageDescription" = "File Actions reads the file you select in Finder only when you invoke its shortcut.";

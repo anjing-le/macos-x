@@ -4,8 +4,8 @@ set -euo pipefail
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 configuration=release
 output_dir="$root_dir/dist"
-version=0.0.150
-build_number=152
+version=0.0.151
+build_number=153
 sign_identity="${MACOSX_SIGN_IDENTITY:-}"
 sign_keychain="${MACOSX_SIGN_KEYCHAIN:-}"
 local_signing=false
@@ -15,7 +15,7 @@ feed_url="${MACOSX_FEED_URL:-https://github.com/anjing-le/macos-x/releases/lates
 usage() {
     cat <<'USAGE'
 Usage: scripts/build.sh [--disable-updates] [--configuration debug|release]
-       [--version 0.0.150] [--build-number 152] [--output-dir path]
+       [--version 0.0.151] [--build-number 153] [--output-dir path]
        [--sign-identity pinned-certificate-SHA1 | "Apple Development: ..." | "Developer ID Application: ..."]
        [--sign-keychain path]
 Default: host architecture, OTA enabled; an explicit certificate identity is required.
@@ -140,7 +140,12 @@ if app.is_symlink():
 elif app.exists():
     shutil.rmtree(app)
 PY
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks" "$app/Contents/Resources"
+swift build --disable-keychain -c "$configuration" --product FileActionsWorker
+"$root_dir/scripts/build-file-document-worker.sh"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks" "$app/Contents/Resources" "$app/Contents/Helpers"
+cp "$bin_dir/FileActionsWorker" "$app/Contents/Helpers/FileActionsWorker"
+cp "$root_dir/vendor/file-actions/target/release/file-document-worker" "$app/Contents/Helpers/FileDocumentWorker"
+cp "$root_dir/vendor/file-actions/target/THIRD_PARTY_NOTICES.txt" "$app/Contents/Resources/FileActions-THIRD-PARTY-NOTICES.txt"
 cp "$bin_dir/MacOSX" "$app/Contents/MacOS/MacOSX"
 cp "$root_dir/Resources/Sparkle-LICENSE.txt" "$app/Contents/Resources/Sparkle-LICENSE.txt"
 cp "$root_dir/Resources/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
@@ -171,6 +176,7 @@ info = {
     'NSHighResolutionCapable': True,
     'CFBundleDevelopmentRegion': 'en',
     'CFBundleLocalizations': ['en', 'zh-Hans'],
+    'NSAppleEventsUsageDescription': 'File Actions reads the one file you selected in Finder only when you invoke its shortcut.',
     'NSMicrophoneUsageDescription': 'Microphone audio is saved only in your local video when you enable the microphone and start recording.',
     'NSLocalNetworkUsageDescription': 'Nearby Transfer discovers and connects to a Mac you confirm, to exchange files, text and images on your local network.',
     'NSBonjourServices': ['_macosx-nearby._tcp'],
@@ -207,6 +213,9 @@ elif [[ "$sign_identity" != - ]]; then
     sign_options+=(--options runtime --timestamp)
     app_sign_options+=(--options runtime --timestamp --entitlements "$root_dir/Resources/Recording.entitlements")
 fi
+for helper in "$app/Contents/Helpers/"*; do
+    /usr/bin/codesign "${sign_options[@]}" "$helper"
+done
 framework="$app/Contents/Frameworks/Sparkle.framework"
 for component in "$framework"/Versions/Current/XPCServices/*.xpc \
                  "$framework/Versions/Current/Updater.app" \

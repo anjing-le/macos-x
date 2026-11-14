@@ -10,3 +10,5 @@ dist/
 .env
 .env.*
 !*.example
+
+vendor/**/target/

@@ -4,12 +4,13 @@ import ApplicationServices
 import MacOSXCore
 
 enum ShortcutAction: UInt32, CaseIterable, Sendable {
-    case wheel = 1, capture, pin, recording, togglePins, layoutLeft, layoutRight, layoutUp, layoutDown, shelf
+    case wheel = 1, capture, pin, recording, togglePins, layoutLeft, layoutRight, layoutUp, layoutDown, shelf, fileActions
     var moduleKey:String {
-        switch self { case .wheel:return "kaomoji";case .layoutLeft,.layoutRight,.layoutUp,.layoutDown:return "windowLayout";default:return "capture" }
+        switch self { case .fileActions:return "fileActions";case .wheel:return "kaomoji";case .layoutLeft,.layoutRight,.layoutUp,.layoutDown:return "windowLayout";default:return "capture" }
     }
     var title: String {
         switch self {
+        case .fileActions: return AppLanguage.text("文件操作")
         case .wheel: return AppLanguage.text("提示词库")
         case .capture: return AppLanguage.text("截图")
         case .pin: return AppLanguage.text("贴图")
@@ -21,6 +22,7 @@ enum ShortcutAction: UInt32, CaseIterable, Sendable {
     }
     var defaultBinding: ShortcutBinding {
         switch self {
+        case .fileActions: return .init(kind: .doubleModifier, keyCode: 55, modifiers: 0, keyLabel: "")
         case .wheel: return .init(kind: .doubleModifier, keyCode: 61, modifiers: 0, keyLabel: "")
         case .capture: return .init(keyCode: 122, modifiers: 0, keyLabel: "F1")
         case .pin: return .init(keyCode: 99, modifiers: 0, keyLabel: "F3")
@@ -46,28 +48,29 @@ private final class SwitcherInputTap: @unchecked Sendable {
     private var alive = true
     private var ready = false
     private var suspended = false
-    private var doubleBinding: ShortcutBinding?
+    private var doubleBindings: [ShortcutAction: ShortcutBinding] = [:]
     private var captureBinding: ShortcutBinding?
     private var capturedKey: UInt16?
     private var session = false
-    private var recognizer = ModifierDoubleTap()
+    private var recognizers: [ShortcutAction: ModifierDoubleTap] = [:]
     private var port: CFMachPort?
     private var loop: CFRunLoop?
     private var thread: Thread?
     let delivery: @Sendable (InputAction) -> Void
+    private let observesPointer: Bool
 
-    init(delivery: @escaping @Sendable (InputAction) -> Void) {
-        self.delivery = delivery
+    init(observesPointer: Bool, delivery: @escaping @Sendable (InputAction) -> Void) {
+        self.delivery = delivery;self.observesPointer=observesPointer
         let worker = Thread { [self] in run() }
         worker.name = "macos-x.shortcuts"
         thread = worker; worker.start()
     }
 
-    func configure(ready: Bool, doubleBinding: ShortcutBinding?, captureBinding: ShortcutBinding?, suspended: Bool) {
+    func configure(ready: Bool, doubleBindings: [ShortcutAction: ShortcutBinding], captureBinding: ShortcutBinding?, suspended: Bool) {
         lock.lock()
-        self.ready = ready; self.doubleBinding = doubleBinding; self.captureBinding = captureBinding; self.suspended = suspended
+        self.ready = ready; self.doubleBindings = doubleBindings; self.captureBinding = captureBinding; self.suspended = suspended
         if !ready || suspended { session = false }
-        recognizer.reset()
+        recognizers.removeAll()
         lock.unlock()
     }
 
@@ -75,7 +78,7 @@ private final class SwitcherInputTap: @unchecked Sendable {
 
     func stop() {
         lock.lock()
-        alive = false; session = false; recognizer.reset()
+        alive = false; session = false; recognizers.removeAll()
         let activePort = port; let activeLoop = loop
         lock.unlock()
         if let activePort { CGEvent.tapEnable(tap: activePort, enable: false); CFMachPortInvalidate(activePort) }
@@ -86,9 +89,12 @@ private final class SwitcherInputTap: @unchecked Sendable {
     }
 
     private func run() {
-        let mask = (CGEventMask(1) << CGEventType.keyDown.rawValue)
+        var mask = (CGEventMask(1) << CGEventType.keyDown.rawValue)
             | (CGEventMask(1) << CGEventType.keyUp.rawValue)
             | (CGEventMask(1) << CGEventType.flagsChanged.rawValue)
+        if observesPointer {mask |= (CGEventMask(1) << CGEventType.leftMouseDown.rawValue)
+            | (CGEventMask(1) << CGEventType.leftMouseDragged.rawValue)
+            | (CGEventMask(1) << CGEventType.rightMouseDown.rawValue)}
         guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap,
             options: .defaultTap, eventsOfInterest: mask, callback: { _, kind, event, context in
                 guard let context else { return Unmanaged.passUnretained(event) }
@@ -117,7 +123,7 @@ private final class SwitcherInputTap: @unchecked Sendable {
         lock.lock()
         guard alive else { lock.unlock(); return pass }
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            session = false; recognizer.reset(); let tap = port
+            session = false; recognizers.removeAll(); let tap = port
             lock.unlock()
             delivery(.cancel)
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
@@ -129,17 +135,19 @@ private final class SwitcherInputTap: @unchecked Sendable {
             if session && !event.flags.contains(.maskCommand) {
                 session = false; lock.unlock(); delivery(.release); return pass
             }
-            if let binding = doubleBinding, binding.keyCode == code, !session {
-                let onlyModifier = binding.keyCode == 58 || binding.keyCode == 61 ? CGEventFlags.maskAlternate : .maskControl
+            for (action, binding) in doubleBindings where binding.keyCode == code && !session {
+                let onlyModifier: CGEventFlags = [54,55].contains(code) ? .maskCommand : ([58,61].contains(code) ? .maskAlternate : .maskControl)
                 let useful = event.flags.intersection([.maskCommand, .maskControl, .maskAlternate, .maskShift])
-                if !useful.subtracting(onlyModifier).isEmpty { recognizer.reset(); lock.unlock(); return pass }
+                if !useful.subtracting(onlyModifier).isEmpty { recognizers.removeAll(); lock.unlock(); return pass }
+                var recognizer = recognizers[action] ?? ModifierDoubleTap()
                 let fire = recognizer.update(keyCode: code, eventFlags: event.flags.rawValue,
                     timestamp: Double(event.timestamp) / 1_000_000_000)
+                recognizers = [action: recognizer]
                 lock.unlock()
-                if fire { delivery(.shortcut(.wheel)) }
+                if fire { delivery(.shortcut(action)) }
                 return pass
             }
-            recognizer.reset(); lock.unlock(); return pass
+            recognizers.removeAll(); lock.unlock(); return pass
         }
         if type == .keyUp {
             if capturedKey == code { capturedKey = nil; lock.unlock(); return nil }
@@ -147,7 +155,7 @@ private final class SwitcherInputTap: @unchecked Sendable {
             lock.unlock(); return swallow ? nil : pass
         }
         guard type == .keyDown else { lock.unlock(); return pass }
-        recognizer.reset()
+        recognizers.removeAll()
         // Carbon requires exact modifiers. During Cmd+Tab, F1 must also work
         // while Command is held; swallow this event to avoid double delivery.
         let flags = event.flags
@@ -217,7 +225,7 @@ final class GlobalInput {
     }
 
     func configure(bindings: [ShortcutAction: ShortcutBinding], switcherReady: Bool) -> [ShortcutAction: String] {
-        if self.switcherReady != switcherReady || desired[.wheel] != bindings[.wheel] {
+        if self.switcherReady != switcherReady || desired.filter { $0.value.kind == .doubleModifier } != bindings.filter { $0.value.kind == .doubleModifier } {
             invalidateTap()
         }
         desired = bindings; self.switcherReady = switcherReady
@@ -247,12 +255,12 @@ final class GlobalInput {
             if status == noErr, let ref { registered[action] = (binding, ref) }
             else { issues[action] = AppLanguage.text("快捷键已被占用，请换一个") }
         }
-        let wheel = desired[.wheel].flatMap { $0.kind == .doubleModifier ? $0 : nil }
-        let needsTap = !suspended && (switcherReady || wheel != nil) && AXIsProcessTrusted()
+        let doubles = desired.filter { $0.value.kind == .doubleModifier }
+        let needsTap = !suspended && (switcherReady || !doubles.isEmpty) && AXIsProcessTrusted()
         if needsTap && tap == nil {
             generation &+= 1
             let expected = generation
-            tap = SwitcherInputTap { [weak self] action in
+            tap = SwitcherInputTap(observesPointer: !doubles.isEmpty) { [weak self] action in
                 DispatchQueue.main.async { [weak self] in
                     guard let self, self.generation == expected else { return }
                     self.consume(action)
@@ -261,7 +269,7 @@ final class GlobalInput {
         } else if !needsTap, let tap {
             generation &+= 1; hasActiveTap = false; tap.stop(); self.tap = nil
         }
-        tap?.configure(ready: switcherReady, doubleBinding: wheel, captureBinding: chords[.capture], suspended: suspended)
+        tap?.configure(ready: switcherReady, doubleBindings: doubles, captureBinding: chords[.capture], suspended: suspended)
         return issues
     }
 

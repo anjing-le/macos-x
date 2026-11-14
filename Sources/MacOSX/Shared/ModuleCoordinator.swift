@@ -10,6 +10,8 @@ final class ModuleCoordinator {
     let shortcuts: ShortcutStore
     private let input = GlobalInput()
     private var tools = Set<Tool>()
+    private var fileActions: FileActionsModule?
+    private var finishingFileActions:[UUID:FileActionsModule]=[:]
     private var wheel: PhraseWheelModule?
     private var capture: CaptureModule?
     private var finishingCaptures: [UUID: CaptureModule] = [:]
@@ -50,6 +52,7 @@ final class ModuleCoordinator {
         input.onShortcut = { [weak self] action in
             guard let self else { return }
             switch action {
+            case .fileActions:self.fileActions?.summonSelection()
             case .wheel: self.wheel?.summon()
             case .capture:
                 self.layout?.cancelDrag()
@@ -74,12 +77,12 @@ final class ModuleCoordinator {
         input.onTapUnavailable = { [weak self] in
             self?.tapIssue = AppLanguage.text("快捷键监听失败 · 当前使用原生 ⌘Tab")
             self?.switcher?.setInputAvailable(false)
-            self?.onStateChanged?(.windowSwitcher); self?.onStateChanged?(.kaomoji)
+            self?.onStateChanged?(.windowSwitcher); self?.onStateChanged?(.kaomoji); self?.onStateChanged?(.fileActions)
         }
         input.onTapAvailable = { [weak self] in
             self?.tapIssue = nil
             self?.switcher?.setInputAvailable(true)
-            self?.onStateChanged?(.windowSwitcher); self?.onStateChanged?(.kaomoji)
+            self?.onStateChanged?(.windowSwitcher); self?.onStateChanged?(.kaomoji); self?.onStateChanged?(.fileActions)
         }
         activeObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification,
             object: nil, queue: .main) { [weak self] _ in
@@ -109,6 +112,8 @@ final class ModuleCoordinator {
 
     private func ensure(_ tool: Tool) {
         switch tool {
+        case .fileActions:
+            if fileActions == nil {fileActions=FileActionsModule();fileActions?.beforeOpen={ [weak self] in self?.onNearbyOpen?() }}
         case .nearbyTransfer:
             if nearbyTransfer == nil {
                 let module = NearbyTransferModule()
@@ -156,11 +161,17 @@ final class ModuleCoordinator {
 
     private func start(_ tool: Tool) {
         ensure(tool)
-        switch tool { case .kaomoji: wheel?.start(); case .capture: capture?.start(); case .windowSwitcher: switcher?.start();case .windowLayout:layout?.start(); layout?.refreshPermission(); case .systemStatus: systemStatus?.start(); case .menuBarShelf: menuBarShelf?.start(); case .nearbyTransfer: nearbyTransfer?.start() }
+        switch tool { case .fileActions:fileActions?.start();case .kaomoji: wheel?.start(); case .capture: capture?.start(); case .windowSwitcher: switcher?.start();case .windowLayout:layout?.start(); layout?.refreshPermission(); case .systemStatus: systemStatus?.start(); case .menuBarShelf: menuBarShelf?.start(); case .nearbyTransfer: nearbyTransfer?.start() }
         refreshNearbyPinAction()
     }
     private func stop(_ tool: Tool, remove: Bool) {
         switch tool {
+        case .fileActions:
+            fileActions?.stop()
+            if remove,let retiring=fileActions {
+                fileActions=nil;let id=UUID();finishingFileActions[id]=retiring
+                retiring.prepareToTerminate { [weak self] in self?.finishingFileActions[id]=nil }
+            }
         case .nearbyTransfer:
             nearbyTransfer?.stop()
             if remove, let retiring = nearbyTransfer {
@@ -218,6 +229,7 @@ final class ModuleCoordinator {
     func settingsView(for tool: Tool) -> NSView {
         ensure(tool)
         switch tool {
+        case .fileActions:return fileActions!.makeGuide(shortcut:shortcutPicker(.fileActions))
         case .nearbyTransfer:return nearbyTransfer!.makeDashboard()
         case .kaomoji: return wheel!.settingsView
         case .capture: return capture!.settingsView
@@ -228,12 +240,14 @@ final class ModuleCoordinator {
         }
     }
 
+    func showFileActions(){fileActions?.show()}
+
     func refreshSystemStatusDisplay() { systemStatus?.refreshDashboard() }
 
     func shortcutPicker(_ action: ShortcutAction, showsTitle: Bool = true) -> NSView {
         let label=action == .wheel ? AppLanguage.text("唤起") : action.title
         let picker = ShortcutPicker(title: showsTitle ? label : "",
-            binding: shortcuts.binding(for: action), allowsDoubleTap: action == .wheel,
+            binding: shortcuts.binding(for: action), allowsDoubleTap: action == .wheel || action == .fileActions,
             recordingChanged: { [weak self] value in
                 guard let self, !self.terminating else { return }
                 self.input.setRecordingShortcut(value)
@@ -256,7 +270,7 @@ final class ModuleCoordinator {
     }
 
     func needsAccessibility(_ tool: Tool) -> Bool {
-        (tool == .windowSwitcher || tool == .windowLayout || (tool == .menuBarShelf && ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27) || (tool == .kaomoji && shortcuts.binding(for: .wheel).kind == .doubleModifier))
+        (tool == .windowSwitcher || tool == .windowLayout || (tool == .menuBarShelf && ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27) || ([Tool.kaomoji,.fileActions].contains(tool) && shortcuts.binding(for: tool == .kaomoji ? .wheel : .fileActions).kind == .doubleModifier))
             && !AXIsProcessTrusted()
     }
     func needsScreenCapture(_ tool: Tool) -> Bool {
@@ -269,6 +283,7 @@ final class ModuleCoordinator {
         if tool == .menuBarShelf { return nil } // The dashboard owns actionable status.
         if tool == .systemStatus { return systemStatus?.issue }
         if tool == .nearbyTransfer { return nil }
+        if tool == .fileActions {return issues[.fileActions] ?? (needsAccessibility(tool) ? nil : tapIssue)}
         if tool == .kaomoji {
             let usesTap = shortcuts.binding(for: .wheel).kind == .doubleModifier
             return issues[.wheel] ?? (usesTap && !needsAccessibility(tool) ? tapIssue : nil)
@@ -310,11 +325,13 @@ final class ModuleCoordinator {
         terminating = true
         if let activeObserver { NotificationCenter.default.removeObserver(activeObserver); self.activeObserver = nil }
         input.stop()
-        wheel?.stop(); switcher?.stop(); layout?.stop(); systemStatus?.stop(); menuBarShelf?.stop(); nearbyTransfer?.stop()
+        fileActions?.stop(); wheel?.stop(); switcher?.stop(); layout?.stop(); systemStatus?.stop(); menuBarShelf?.stop(); nearbyTransfer?.stop()
+        let fileTasks=Array(finishingFileActions.values)+(fileActions.map {[$0]} ?? [])
         let captures = Array(finishingCaptures.values) + (capture.map { [$0] } ?? [])
         let transfers = Array(finishingTransfers.values) + (nearbyTransfer.map { [$0] } ?? [])
-        guard !captures.isEmpty || !transfers.isEmpty else { DispatchQueue.main.async { completion() }; return }
-        var outstanding = captures.count + transfers.count
+        guard !captures.isEmpty || !transfers.isEmpty || !fileTasks.isEmpty else { DispatchQueue.main.async { completion() }; return }
+        var outstanding = captures.count + transfers.count + fileTasks.count
+        for module in fileTasks {module.prepareToTerminate {outstanding -= 1;if outstanding==0 {completion()}}}
         for module in transfers {
             module.prepareToTerminate {
                 outstanding -= 1
