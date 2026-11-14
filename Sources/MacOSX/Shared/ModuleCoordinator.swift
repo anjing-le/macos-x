@@ -9,7 +9,7 @@ final class ModuleCoordinator {
     private let defaults: UserDefaults
     let shortcuts: ShortcutStore
     private let input = GlobalInput()
-    private let tools = Set(Tool.allCases)
+    private var tools = Set(Tool.allCases)
     private var fileActions: FileActionsModule?
     private var finishingFileActions:[UUID:FileActionsModule]=[:]
     private var wheel: PhraseWheelModule?
