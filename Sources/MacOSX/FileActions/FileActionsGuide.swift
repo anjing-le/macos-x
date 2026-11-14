@@ -105,7 +105,10 @@ import MacOSXCore
         width: normalized.width * artworkFrame.width,
         height: normalized.height * artworkFrame.height)
     }
-    shortcut.frame = frame(CGRect(x: 0.36, y: 0.205, width: 0.28, height: 0.13))
+    // AppKit stack layout rounds child frames to whole points on older systems.
+    // Keep its manual container integral too, so a rounded control cannot
+    // extend past a fractional bottom edge and lose hit testing.
+    shortcut.frame = frame(CGRect(x: 0.36, y: 0.205, width: 0.28, height: 0.13)).integral
     for (label, normalized) in captions { label.frame = frame(normalized) }
   }
 }
