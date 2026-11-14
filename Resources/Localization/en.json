@@ -685,5 +685,8 @@
   "选择操作": "Choose an action",
   "转格式 · 压缩 · 缩尺寸": "Convert · Compress · Resize",
   "文档转 Markdown / TXT": "Documents to Markdown / TXT",
-  "PDF 按页导出图片": "PDF pages to images"
+  "PDF 按页导出图片": "PDF pages to images",
+  "请在访达或桌面选中一个文件。": "Select one file in Finder or on the desktop.",
+  "全部页（最多 20 页）": "All pages (up to 20)",
+  "无法保存结果，请确认原文件所在目录可写。": "Cannot save the result. Check that the original file’s folder is writable."
 }

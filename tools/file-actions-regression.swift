@@ -129,60 +129,61 @@ import PDFKit
       $0.hasPrefix(".file-actions-")
     }
     precondition(temporary.isEmpty)
-    // Real offscreen controls and isolated pasteboard: no desktop or user clipboard.
-    let board = NSPasteboard(name: NSPasteboard.Name("file-actions-fixture-" + UUID().uuidString))
-    defer { board.releaseGlobally() }
+    // Inspect actual native contextual menu without opening it or reading Finder.
     let service = FileActionService()
-    let view = FileActionsView(service: service, clipboard: board)
-    precondition(view.accept([source]))
-    precondition(view.operations == [.jpeg, .png, .compress, .resize])
-    precondition(!view.accept([source, doc]))
-    precondition(view.input == source)
-    precondition(view.accept([doc]))
-    precondition(view.operations == [.markdown, .text])
-    for width in [CGFloat(320), 448] {
-      view.frame = CGRect(x: 0, y: 0, width: width, height: 470)
-      view.layoutSubtreeIfNeeded()
-      for sub in view.subviews where !sub.isHidden {
-        precondition(sub.frame.minX >= 0 && sub.frame.maxX <= width + 1)
-      }
+    let actions = FileActionsMenu()
+    var selected: (FileActionOperation, FileActionOptions)?
+    actions.onRun = { selected = ($0, $1) }
+    func invoke(_ item: NSMenuItem) {
+      precondition(item.isEnabled && item.action != nil && item.target != nil)
+      precondition(NSApp.sendAction(item.action!, to: item.target, from: item))
     }
-    let key = NSEvent.keyEvent(
-      with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: 0,
-      context: nil, characters: "v", charactersIgnoringModifiers: "v", isARepeat: false, keyCode: 9)!
-    board.writeObjects([source as NSURL])
-    precondition(view.performKeyEquivalent(with: key))
-    precondition(view.input == source)
-    if let directory = ProcessInfo.processInfo.environment["FILE_ACTIONS_PREVIEW_DIRECTORY"] {
-      try fm.createDirectory(atPath: directory, withIntermediateDirectories: true)
-      for (name, url) in [("image", source), ("document", doc), ("pdf", pdf)] {
-        view.accept([url])
-        view.frame = CGRect(x: 0, y: 0, width: 448, height: 470)
-        view.layoutSubtreeIfNeeded()
-        let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
-        view.cacheDisplay(in: view.bounds, to: bitmap)
-        try bitmap.representation(using: .png, properties: [:])!.write(
-          to: URL(fileURLWithPath: directory).appendingPathComponent(name + ".png"))
-      }
-    }
-    service.run(
-      input: doc, operation: .markdown, options: FileActionOptions(), parent: output,
-      helperOverride: document)
+    let imageMenu = actions.make(input: source)
+    precondition(imageMenu.items.count == 5) // filename + four applicable operations
+    invoke(imageMenu.items[2])
+    precondition(selected?.0 == .png)
+    invoke(imageMenu.items[1].submenu!.items[1])
+    precondition(selected?.0 == .jpeg && selected?.1.background == "black")
+    invoke(imageMenu.items[3].submenu!.items[2])
+    precondition(selected?.0 == .compress && selected?.1.quality == 0.65)
+    invoke(imageMenu.items[4].submenu!.items[0])
+    precondition(selected?.0 == .resize && selected?.1.longestSide == 1280)
+    let documentMenu = actions.make(input: doc)
+    precondition(documentMenu.items.count == 3)
+    invoke(documentMenu.items[1])
+    precondition(selected?.0 == .markdown)
+    invoke(documentMenu.items[2])
+    precondition(selected?.0 == .text)
+    let pdfMenu = actions.make(input: pdf)
+    let pdfItems = pdfMenu.items[1].submenu!.items
+    invoke(pdfItems[0])
+    precondition(selected?.0 == .pdfImages && selected?.1.pages == "")
+    let entry = pdfItems[1].view as! FileActionPageEntry
+    entry.pages.stringValue = "1,3"
+    entry.run.performClick(nil)
+    precondition(selected?.0 == .pdfImages && selected?.1.pages == "1,3")
+    var cancelled = false
+    actions.onCancel = { cancelled = true }
+    let busyMenu = actions.make(input: source, busy: true)
+    precondition(busyMenu.items.count == 2)
+    invoke(busyMenu.items[1]); precondition(cancelled)
+    precondition(actions.make(input: nil).items.allSatisfy { !$0.isEnabled })
+    let invalidMenu = actions.make(input: root.appendingPathComponent("unsupported.zip"))
+    precondition(invalidMenu.items.allSatisfy { !$0.isEnabled })
+    // Default output must be beside the original, including collision numbering.
+    let beside = try FileActionJob().run(input: source, operation: .png,
+      options: FileActionOptions(), helper: native)
+    let besideAgain = try FileActionJob().run(input: source, operation: .png,
+      options: FileActionOptions(), helper: native)
+    precondition(beside.url.deletingLastPathComponent() == source.deletingLastPathComponent())
+    precondition(besideAgain.url != beside.url)
+    let preservedSource = try Data(contentsOf: source)
+    precondition(preservedSource == original)
+    precondition(!fm.fileExists(atPath: root.appendingPathComponent(AppLanguage.text("转换结果")).path))
+    service.run(input: source, operation: .png, options: FileActionOptions(), helperOverride: native)
     let deadline = Date().addingTimeInterval(8)
-    while service.busy && Date() < deadline {
-      RunLoop.current.run(until: Date().addingTimeInterval(0.01))
-    }
-    precondition(!service.busy && service.result != nil)
-    let copyKey = NSEvent.keyEvent(
-      with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: 0,
-      context: nil, characters: "c", charactersIgnoringModifiers: "c", isARepeat: false, keyCode: 8)!
-    precondition(view.performKeyEquivalent(with: copyKey))
-    let copied =
-      board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
-      as? [URL]
-    precondition(copied?.first == service.result?.url)
-    view.accept([source])
-    precondition(service.result == nil)
+    while service.busy && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+    precondition(!service.busy && service.result?.url.deletingLastPathComponent() == root)
     let delayed = root.appendingPathComponent("delayed-worker")
     try Data("#!/bin/sh\nexec /bin/sleep 20\n".utf8).write(to: delayed)
     try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: delayed.path)
@@ -253,7 +254,7 @@ import PDFKit
     module.stop()
     precondition(!module.running)
     print(
-      "PASS file actions: real image/Markdown/assets/text/PDF output, transparency, compression fallback, no-overwrite, source preservation, damaged/locked/range/symlink/cancel cleanup, single-file native controls, named pasteboard and offscreen layouts; no Finder automation or live UI"
+      "PASS file actions: real image/Markdown/assets/text/PDF output, transparency, compression fallback, no-overwrite, source preservation, damaged/locked/range/symlink/cancel cleanup, single-file contextual menu dispatch, original-directory outputs and offscreen layouts; no Finder automation or live UI"
     )
   }
 }

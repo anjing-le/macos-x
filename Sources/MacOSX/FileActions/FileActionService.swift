@@ -105,8 +105,7 @@ final class FileActionJob: @unchecked Sendable {
     guard fm.isExecutableFile(atPath: helper.path) else { throw FileActionFailure.unavailable }
     let folder =
       parent
-      ?? input.deletingLastPathComponent().appendingPathComponent(
-        AppLanguage.text("转换结果"), isDirectory: true)
+      ?? input.deletingLastPathComponent()
     try fm.createDirectory(at: folder, withIntermediateDirectories: true)
     let stage = folder.appendingPathComponent(
       ".file-actions-" + UUID().uuidString, isDirectory: true)
@@ -291,7 +290,7 @@ final class FileActionJob: @unchecked Sendable {
             ? AppLanguage.text("未能进一步缩小，已保留原始文件。") : AppLanguage.text("已完成，原文件未修改。")
         case .failure(let error):
           self.message =
-            (error as? FileActionFailure)?.message ?? AppLanguage.text("无法保存结果，请选择有写入权限的文件夹。")
+            (error as? FileActionFailure)?.message ?? AppLanguage.text("无法保存结果，请确认原文件所在目录可写。")
         }
         self.onChange?()
       }

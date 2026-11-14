@@ -4,14 +4,23 @@ import MacOSXCore
 @MainActor final class FileActionsModule {
   let service = FileActionService()
   private(set) var running = false
-  private var panel: FileActionsPanel?
-  private var view: FileActionsView?
+  private var menu: NSMenu?
+  private let actions = FileActionsMenu()
+  private var input: URL?
   private var selectionProcess: Process?
   private var selectionToken: FileActionJob?
   private var selectionGeneration = UUID()
-  private var monitor: Any?
   var beforeOpen: (() -> Void)?
-  func start() { running = true }
+  func start() {
+    running = true
+    service.onChange = { [weak self] in
+      guard let self, self.running, !self.service.busy,
+        self.service.result == nil, !self.service.message.isEmpty,
+        self.service.message != FileActionFailure.cancelled.message else { return }
+      // A failed command must have a visible outcome, never a blank form.
+      self.show()
+    }
+  }
   func stop() {
     running = false
     selectionGeneration = UUID()
@@ -21,70 +30,39 @@ import MacOSXCore
     selectionProcess = nil
     service.cancel()
     hide()
-    panel = nil
-    view = nil
+    menu = nil
+    input = nil
   }
   func prepareToTerminate(_ completion: @escaping @MainActor () -> Void) {
     stop()
     service.prepareToTerminate(completion)
   }
-  func hide() {
-    if panel?.isVisible == true { panel?.orderOut(nil) }
-    if let monitor {
-      NSEvent.removeMonitor(monitor)
-      self.monitor = nil
-    }
-  }
+  func hide() { menu?.cancelTracking(); menu = nil }
   func show() {
     guard running else { return }
-    if panel == nil {
-      let v = FileActionsView(service: service)
-      let p = FileActionsPanel(
-        contentRect: CGRect(x: 0, y: 0, width: 448, height: 470),
-        styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
-      p.backgroundColor = .clear
-      p.isOpaque = false
-      p.hasShadow = true
-      p.level = .popUpMenu
-      p.hidesOnDeactivate = false
-      p.isReleasedWhenClosed = false
-      p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-      p.onDismiss = { [weak self] in self?.hide() }
-      p.contentView = v
-      v.onClose = { [weak self] in self?.hide() }
-      view = v
-      panel = p
+    hide()
+    actions.onRun = { [weak self] operation, options in
+      guard let self, let input = self.input, self.running, !self.service.busy else { return }
+      self.service.run(input: input, operation: operation, options: options)
     }
-    let point = NSEvent.mouseLocation
-    let screen = NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main
-    let area = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1000, height: 800)
-    let w = min(448, area.width - 16)
-    let h = min(470, area.height - 16)
-    let frame = CGRect(
-      x: min(max(area.minX + 8, point.x - 50), area.maxX - w - 8),
-      y: min(max(area.minY + 8, point.y - h + 12), area.maxY - h - 8), width: w, height: h)
+    actions.onCancel = { [weak self] in self?.service.cancel() }
+    actions.onReveal = { [weak self] in
+      if let result = self?.service.result { NSWorkspace.shared.activateFileViewerSelecting([result.url]) }
+    }
+    let menu = actions.make(input: input, busy: service.busy,
+      message: service.message, result: service.result?.url)
+    self.menu = menu
     beforeOpen?()
-    panel?.setFrame(frame, display: true)
-    panel?.orderFrontRegardless()
-    panel?.makeKey()
-    panel?.makeFirstResponder(view)
-    view?.refresh()
-    if monitor == nil {
-      monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) {
-        [weak self] event in
-        if let self, event.window !== self.panel { self.hide() }
-        return event
-      }
-    }
+    menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
   }
   func summonSelection() {
-    guard running, !service.busy, selectionProcess == nil else {
-      show()
-      return
-    }
+    guard running else { return }
+    if service.busy { show(); return }
+    guard selectionProcess == nil else { return }
+    input = nil
+    service.reset()
     guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder" else {
       show()
-      view?.notice(AppLanguage.text("请在访达或桌面选中一个文件，或拖入这里。"))
       return
     }
     let process = Process()
@@ -129,28 +107,14 @@ import MacOSXCore
         guard let self, self.running, self.selectionGeneration == epoch else { return }
         self.selectionProcess = nil
         self.selectionToken = nil
+        self.input = result
         self.show()
-        if let result {
-          self.view?.accept([result])
-        } else {
-          self.view?.notice(AppLanguage.text("请只选中一个文件；如访达访问被拒绝，可直接拖入文件。"))
-        }
       }
     }
   }
   func makeGuide(shortcut: NSView) -> NSView {
     let guide = FileActionsGuide(shortcut: shortcut)
-    guide.onOpen = { [weak self] in self?.show() }
+    guide.onOpen = { [weak self] in self?.summonSelection() }
     return guide
-  }
-}
-final class FileActionsPanel: NSPanel {
-  var onDismiss: (() -> Void)?
-  override var canBecomeKey: Bool { true }
-  override var canBecomeMain: Bool { false }
-  override func cancelOperation(_ sender: Any?) { onDismiss?() }
-  override func resignKey() {
-    super.resignKey()
-    if attachedSheet == nil { onDismiss?() }
   }
 }

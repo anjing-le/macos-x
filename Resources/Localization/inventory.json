@@ -5883,5 +5883,29 @@
   "选择操作": [],
   "转格式 · 压缩 · 缩尺寸": [],
   "文档转 Markdown / TXT": [],
-  "PDF 按页导出图片": []
+  "PDF 按页导出图片": [],
+  "全部页（最多 20 页）": [
+    {
+      "file": "Sources/MacOSX/FileActions/FileActionsView.swift",
+      "line": 1,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "请在访达或桌面选中一个文件。": [
+    {
+      "file": "Sources/MacOSX/FileActions/FileActionsView.swift",
+      "line": 1,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "无法保存结果，请确认原文件所在目录可写。": [
+    {
+      "file": "Sources/MacOSX/FileActions/FileActionService.swift",
+      "line": 300,
+      "raw": false,
+      "multiline": false
+    }
+  ]
 }
