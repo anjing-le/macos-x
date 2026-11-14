@@ -230,7 +230,7 @@ import PDFKit
       mode.sendAction(mode.action!, to: mode.target)
       guidePicker.layoutSubtreeIfNeeded()
       for control in row.arrangedSubviews where !control.isHidden {
-        precondition(guidePicker.bounds.contains(control.convert(control.bounds, to: guidePicker)))
+        precondition(guidePicker.bounds.contains(control.convert(control.bounds, to: guidePicker)), "guide width=\(width) picker=\(guidePicker.bounds) row=\(row.frame) control=\(type(of: control)) frame=\(control.convert(control.bounds, to: guidePicker)) fitting=\(guidePicker.fittingSize)")
       }
       mode.selectItem(at: 2)
       mode.sendAction(mode.action!, to: mode.target)
