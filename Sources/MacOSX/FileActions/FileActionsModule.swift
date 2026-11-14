@@ -139,23 +139,8 @@ import MacOSXCore
     }
   }
   func makeGuide(shortcut: NSView) -> NSView {
-    let guide = NSStackView()
-    guide.orientation = .vertical
-    guide.alignment = .centerX
-    guide.spacing = 18
-    let art = FileActionIllustration()
-    art.heightAnchor.constraint(equalToConstant: 150).isActive = true
-    art.widthAnchor.constraint(equalToConstant: 260).isActive = true
-    let title = NSTextField(labelWithString: AppLanguage.text("选中文件，双击 Command"))
-    title.font = SketchPalette.heading(21)
-    title.textColor = SketchPalette.ink
-    let note = NSTextField(wrappingLabelWithString: AppLanguage.text("一次一个 · 按文件显示操作 · 保留原件"))
-    note.alignment = .center
-    note.font = .systemFont(ofSize: 13)
-    note.textColor = SketchPalette.muted
-    let open = FileActionButton(AppLanguage.text("打开文件操作"))
-    open.invoke = { [weak self] in self?.show() }
-    for v in [art, title, note, shortcut, open] { guide.addArrangedSubview(v) }
+    let guide = FileActionsGuide(shortcut: shortcut)
+    guide.onOpen = { [weak self] in self?.show() }
     return guide
   }
 }

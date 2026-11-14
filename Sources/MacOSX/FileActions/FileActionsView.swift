@@ -14,11 +14,6 @@ import MacOSXCore
   required init?(coder: NSCoder) { nil }
   @objc private func fire() { invoke?() }
 }
-@MainActor final class FileActionIllustration: NSView {
-  override func draw(_ dirtyRect: NSRect) {
-    SketchFileArt.draw(bounds)
-  }
-}
 @MainActor final class FileActionsView: NSView, NSDraggingSource {
   let service: FileActionService
   private let clipboard: NSPasteboard

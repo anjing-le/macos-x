@@ -1,0 +1,9 @@
+Purpose: File Actions settings guide, production language-neutral artwork.
+Style reference: SettingsMenuBarBoard.png, used only for pencil/crayon/paper style.
+New composition: 2:1 canvas, warm paper, graphite outlines and restrained blue/green/purple/yellow.
+Top: one selected file and pointer -> empty real-shortcut control region -> action sheet.
+Bottom: landscape image -> JPG/PNG and smaller image; DOC -> MD/TXT with embedded photo; PDF -> PNG pages.
+No title bar, outer frame, computer, people, Chinese/English prose, variable shortcut or state baked into artwork.
+Only fixed file-format labels remain. Captions, shortcut picker and open button are real native controls.
+Final edit removes the decorative multiplier; the selected trigger's own native caption expresses double-tap or chord accurately.
+Artwork anchors and localized captions are implemented by FileActionsGuideCanvas; narrow views scroll together.

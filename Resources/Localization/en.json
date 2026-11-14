@@ -678,5 +678,12 @@
   "导出页码": "Pages to export",
   "每次只处理一个文件。": "Choose one file at a time.",
   "选择操作，结果保存为新文件。": "Choose an action. Results are saved as new files.",
-  "包含暂不支持的嵌入对象，可尝试纯文字。": "This file contains an unsupported embedded object. Try plain text."
+  "包含暂不支持的嵌入对象，可尝试纯文字。": "This file contains an unsupported embedded object. Try plain text.",
+  "文件操作使用图示": "File Actions guide",
+  "点击修改唤起快捷键": "Click to change the activation shortcut",
+  "选中一个文件": "Select one file",
+  "选择操作": "Choose an action",
+  "转格式 · 压缩 · 缩尺寸": "Convert · Compress · Resize",
+  "文档转 Markdown / TXT": "Documents to Markdown / TXT",
+  "PDF 按页导出图片": "PDF pages to images"
 }

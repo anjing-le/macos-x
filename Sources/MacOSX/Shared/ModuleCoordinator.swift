@@ -229,7 +229,7 @@ final class ModuleCoordinator {
     func settingsView(for tool: Tool) -> NSView {
         ensure(tool)
         switch tool {
-        case .fileActions:return fileActions!.makeGuide(shortcut:shortcutPicker(.fileActions))
+        case .fileActions:return fileActions!.makeGuide(shortcut:shortcutPicker(.fileActions, showsTitle: false))
         case .nearbyTransfer:return nearbyTransfer!.makeDashboard()
         case .kaomoji: return wheel!.settingsView
         case .capture: return capture!.settingsView

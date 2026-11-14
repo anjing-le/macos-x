@@ -212,6 +212,42 @@ import PDFKit
       (try! fm.contentsOfDirectory(atPath: output.path)).allSatisfy {
         !$0.hasPrefix(".file-actions-")
       })
+    // Actual shortcut control over the generated board; no visible window or input tap.
+    let guidePicker = ShortcutPicker(
+      title: "", binding: ShortcutAction.fileActions.defaultBinding, allowsDoubleTap: true,
+      recordingChanged: { _ in }, accepts: { _ in nil }, didChange: { _ in })
+    let guide = FileActionsGuide(shortcut: guidePicker)
+    for width in [CGFloat(312), 840, 912] {
+      guide.frame = CGRect(x: 0, y: 0, width: width, height: 468)
+      guide.layoutSubtreeIfNeeded()
+      let scroll = guide.subviews.compactMap { $0 as? NSScrollView }.first!
+      let canvas = scroll.documentView as! FileActionsGuideCanvas
+      precondition(canvas.artworkFrame.contains(guidePicker.frame))
+      precondition(guidePicker.frame.width > 200)
+      let row = guidePicker.arrangedSubviews[0] as! NSStackView
+      let mode = row.arrangedSubviews.compactMap { $0 as? NSPopUpButton }.first!
+      mode.selectItem(at: 4)
+      mode.sendAction(mode.action!, to: mode.target)
+      guidePicker.layoutSubtreeIfNeeded()
+      for control in row.arrangedSubviews where !control.isHidden {
+        precondition(guidePicker.bounds.contains(control.convert(control.bounds, to: guidePicker)))
+      }
+      mode.selectItem(at: 2)
+      mode.sendAction(mode.action!, to: mode.target)
+    }
+    var opened = 0
+    guide.onOpen = { opened += 1 }
+    let open = guide.subviews.compactMap { $0 as? FileActionButton }.first!
+    open.performClick(nil)
+    precondition(opened == 1)
+    if let directory = ProcessInfo.processInfo.environment["FILE_ACTIONS_PREVIEW_DIRECTORY"] {
+      guide.frame = CGRect(x: 0, y: 0, width: 840, height: 468)
+      guide.layoutSubtreeIfNeeded()
+      let bitmap = guide.bitmapImageRepForCachingDisplay(in: guide.bounds)!
+      guide.cacheDisplay(in: guide.bounds, to: bitmap)
+      try bitmap.representation(using: .png, properties: [:])!.write(
+        to: URL(fileURLWithPath: directory).appendingPathComponent("guide.png"))
+    }
     let module = FileActionsModule()
     module.start()
     module.stop()
