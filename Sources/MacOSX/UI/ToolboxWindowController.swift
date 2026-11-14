@@ -299,8 +299,7 @@ final class ToolboxWindowController: NSWindowController {
         var cards = added.tools.map { tool in
             let card=ToolCard(title:tool.title,symbol:tool.symbol) { [weak self] in
                 guard let self else { return }
-                if tool == .fileActions, self.modules.isEnabled(tool) { self.modules.showFileActions() }
-                else if tool == .nearbyTransfer, self.modules.isEnabled(tool) { self.modules.showNearbyDrawer() }
+                if tool == .nearbyTransfer, self.modules.isEnabled(tool) { self.modules.showNearbyDrawer() }
                 else { self.showSettings(tool) }
             }
             card.configureEnabled(modules.isEnabled(tool)) { [weak self] enabled in self?.modules.setEnabled(enabled,tool:tool) }

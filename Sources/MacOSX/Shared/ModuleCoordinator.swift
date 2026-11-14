@@ -240,8 +240,6 @@ final class ModuleCoordinator {
         }
     }
 
-    func showFileActions(){fileActions?.show()}
-
     func refreshSystemStatusDisplay() { systemStatus?.refreshDashboard() }
 
     func shortcutPicker(_ action: ShortcutAction, showsTitle: Bool = true) -> NSView {
