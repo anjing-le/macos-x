@@ -145,8 +145,7 @@ final class MenuBarConcealmentGuard {
     /// unsupported/overflow entries remain protected by aliases and AX geometry.
     private func hitReader(_ snapshot: MenuBarContainerSnapshot, token: MenuBarReadToken,
                            deadline: TimeInterval) -> (MenuBarContainer) -> pid_t? {
-        let root = AXUIElementCreateSystemWide()
-        AXUIElementSetMessagingTimeout(root, 0.025)
+        let windows = MenuBarRemoteHitTest.windows()
         let own = ProcessInfo.processInfo.processIdentifier
         var cache: [String: pid_t] = [:]
         return { item in
@@ -156,9 +155,9 @@ final class MenuBarConcealmentGuard {
             if snapshot.entries.contains(where: { $0.pid == own && $0.frame.contains(point) }) { return own }
             let key = NSStringFromPoint(point)
             if let cached = cache[key] { return cached > 0 ? cached : nil }
-            var element: AXUIElement?, pid: pid_t = 0
-            if AXUIElementCopyElementAtPosition(root, Float(point.x), Float(point.y), &element) == .success,
-               let element, AXUIElementGetPid(element, &pid) == .success, pid > 0 {
+            var pid: pid_t = 0
+            if let element = MenuBarRemoteHitTest.element(at: point, windows: windows, token: token, timeout: 0.025),
+               AXUIElementGetPid(element, &pid) == .success, pid > 0 {
                 cache[key] = pid; return pid
             }
             cache[key] = 0; return nil

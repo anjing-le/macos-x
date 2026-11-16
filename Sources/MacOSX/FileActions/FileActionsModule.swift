@@ -1,6 +1,17 @@
 import AppKit
 import MacOSXCore
 
+enum FileActionsSelection {
+  // Called only on the selection worker, never from the input callback.
+  static func supported(_ url: URL) -> Bool {
+    guard url.isFileURL, !FileActionPolicy.operations(extension: url.pathExtension).isEmpty,
+      let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
+      values.isRegularFile == true, values.isSymbolicLink != true else { return false }
+    let size = Int64(values.fileSize ?? 0)
+    return size > 0 && size <= FileActionPolicy.maximumInput
+  }
+}
+
 @MainActor final class FileActionsModule {
   let service = FileActionService()
   private(set) var running = false
@@ -52,6 +63,7 @@ import MacOSXCore
     let menu = actions.make(input: input, busy: service.busy,
       message: service.message, result: service.result?.url)
     self.menu = menu
+    guard !menu.items.isEmpty else { self.menu = nil; return }
     beforeOpen?()
     menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
   }
@@ -99,7 +111,7 @@ import MacOSXCore
           let text = String(data: data, encoding: .utf8)?.trimmingCharacters(
             in: .whitespacesAndNewlines), let url = URL(string: text), url.isFileURL
         {
-          selected = url
+          if FileActionsSelection.supported(url) { selected = url }
         }
       } catch {}
       let result = selected

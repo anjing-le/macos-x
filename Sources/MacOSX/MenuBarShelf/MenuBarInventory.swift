@@ -2,6 +2,42 @@ import AppKit
 import ApplicationServices
 import Darwin
 
+/// System-wide AX hit tests can synchronously enter our AppKit on the calling
+/// background thread. Resolve the compositor owner first, then scope AX to an
+/// external application. A geometry race cannot expand that application scope.
+enum MenuBarRemoteHitTest {
+    static func windows() -> [[String: Any]] {
+        CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] ?? []
+    }
+    static func owner(at point: CGPoint, windows: [[String: Any]], own: pid_t = getpid()) -> pid_t? {
+        for window in windows {
+            guard let bounds = window[kCGWindowBounds as String] as? [String: Any],
+                  let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary),
+                  frame.width > 0, frame.height > 0, frame.contains(point),
+                  let value = window[kCGWindowOwnerPID as String] as? NSNumber else { continue }
+            let pid = value.int32Value
+            // Do not look through an own-process overlay to a window underneath it.
+            return pid > 0 && pid != own ? pid : nil
+        }
+        return nil
+    }
+    static func element(at point: CGPoint, windows: [[String: Any]], token: MenuBarReadToken,
+                        timeout: Float = 0.08,
+                        query: ((AXUIElement, CGPoint) -> AXUIElement?)? = nil) -> AXUIElement? {
+        guard !token.isCancelled, let pid = owner(at: point, windows: windows) else { return nil }
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, timeout)
+        var hit: AXUIElement?
+        if let query { hit = query(app, point) }
+        else if AXUIElementCopyElementAtPosition(app, Float(point.x), Float(point.y), &hit) != .success { return nil }
+        var hitPID: pid_t = 0
+        guard !token.isCancelled, let hit, AXUIElementGetPid(hit, &hitPID) == .success,
+              hitPID > 0, hitPID != getpid() else { return nil }
+        return hit
+    }
+}
+
 struct MenuBarEntry {
     let bundle: String
     let frame: CGRect

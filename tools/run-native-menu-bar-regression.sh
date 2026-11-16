@@ -29,6 +29,8 @@ for forbidden in ('CGEvent.tapCreate', 'CGEvent(mouseEventSource:', '.post(tap:'
 module = (root / 'MenuBarShelfModule.swift').read_text()
 for forbidden in ('MenuBarDrawer(', '.openMenu(', '.onActivate', '.replay('):
     assert forbidden not in module, forbidden
+assert 'AXUIElementCreateSystemWide' not in source and 'AXUIElementCreateSystemWide' not in guard
+assert 'AXUIElementCreateSystemWide' not in Path('Sources/MacOSX/WindowLayout/WindowLayoutWorker.swift').read_text()
 assert 'self?.observe(event); return event' in source
 print('PASS runtime wiring: native events pass through; proxy capture/replay is disconnected')
 PY

@@ -38,6 +38,31 @@ extension MenuBarNativeShelf {
 
 @main struct NativeMenuBarRegression {
     @MainActor static func main() async {
+        // No AX messages or live window inventory: injected compositor snapshots
+        // and a fake remote application verify the crash boundary itself.
+        let point = CGPoint(x: 12, y: 12)
+        let own = getpid(), remote = own + 100_000
+        func window(_ pid: pid_t) -> [String: Any] {
+            [kCGWindowOwnerPID as String: NSNumber(value: pid),
+             kCGWindowBounds as String: ["X": 0, "Y": 0, "Width": 100, "Height": 30]]
+        }
+        var queries = 0
+        let query: (AXUIElement, CGPoint) -> AXUIElement? = { app, position in
+            var pid: pid_t = 0
+            precondition(AXUIElementGetPid(app, &pid) == .success && pid == remote)
+            precondition(position == point); queries += 1
+            return app
+        }
+        let token = MenuBarReadToken()
+        precondition(MenuBarRemoteHitTest.element(at: point, windows: [window(own), window(remote)], token: token, query: query) == nil)
+        precondition(queries == 0, "Own-process windows must never enter background AppKit AX")
+        precondition(MenuBarRemoteHitTest.element(at: point, windows: [], token: token, query: query) == nil)
+        precondition(MenuBarRemoteHitTest.element(at: point, windows: [window(remote)], token: token, query: query) != nil)
+        precondition(queries == 1, "Queries are scoped to the compositor's external owner")
+        precondition(MenuBarRemoteHitTest.element(at: point, windows: [window(remote)], token: token, query: { _, _ in AXUIElementCreateApplication(own) }) == nil,
+                     "Unexpected own-process results cannot be followed")
+        token.cancel()
+        precondition(MenuBarRemoteHitTest.element(at: point, windows: [window(remote)], token: token, query: query) == nil && queries == 1)
         do { try await run() }
         catch { FileHandle.standardError.write(Data("FAIL: \(error)\n".utf8)); exit(1) }
     }

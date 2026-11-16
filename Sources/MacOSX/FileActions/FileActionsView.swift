@@ -32,18 +32,14 @@ import MacOSXCore
       item.isEnabled = false
       menu.addItem(item)
     }
-    if let input { label(input.lastPathComponent) }
+    guard let input, !FileActionPolicy.operations(extension: input.pathExtension).isEmpty else { return menu }
+    label(input.lastPathComponent)
     if !message.isEmpty { label(message) }
     if busy {
       add(AppLanguage.text("取消"), to: menu) { [weak self] in self?.onCancel?() }
       return menu
     }
-    guard let input else {
-      label(AppLanguage.text("请在访达或桌面选中一个文件。"))
-      return menu
-    }
     let operations = FileActionPolicy.operations(extension: input.pathExtension)
-    if operations.isEmpty { label(FileActionFailure.unsupported.message) }
     for operation in operations {
       switch operation {
       case .png, .markdown, .text:

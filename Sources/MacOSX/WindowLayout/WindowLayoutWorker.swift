@@ -39,9 +39,8 @@ final class WindowLayoutWorker:@unchecked Sendable {
             let app=AXUIElementCreateApplication(pid); AXUIElementSetMessagingTimeout(app,0.12)
             var window:AXUIElement?
             if let point {
-                let system=AXUIElementCreateSystemWide(); AXUIElementSetMessagingTimeout(system,0.12)
                 var hit:AXUIElement?
-                if AXUIElementCopyElementAtPosition(system,Float(point.x),Float(point.y),&hit) == .success,let hit {
+                if AXUIElementCopyElementAtPosition(app,Float(point.x),Float(point.y),&hit) == .success,let hit {
                     var owner:pid_t=0; AXUIElementGetPid(hit,&owner)
                     guard owner != getpid() else { deliver(nil,epoch:epoch,completion:completion); return }
                     var cursor=hit

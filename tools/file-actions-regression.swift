@@ -167,9 +167,11 @@ import PDFKit
     let busyMenu = actions.make(input: source, busy: true)
     precondition(busyMenu.items.count == 2)
     invoke(busyMenu.items[1]); precondition(cancelled)
-    precondition(actions.make(input: nil).items.allSatisfy { !$0.isEnabled })
+    precondition(actions.make(input: nil).items.isEmpty)
     let invalidMenu = actions.make(input: root.appendingPathComponent("unsupported.zip"))
-    precondition(invalidMenu.items.allSatisfy { !$0.isEnabled })
+    precondition(invalidMenu.items.isEmpty)
+    precondition(FileActionsSelection.supported(source) && FileActionsSelection.supported(doc))
+    precondition(!FileActionsSelection.supported(root) && !FileActionsSelection.supported(root.appendingPathComponent("missing.png")))
     // Default output must be beside the original, including collision numbering.
     let beside = try FileActionJob().run(input: source, operation: .png,
       options: FileActionOptions(), helper: native)

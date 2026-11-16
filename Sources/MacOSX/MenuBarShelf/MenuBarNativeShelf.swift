@@ -601,11 +601,7 @@ struct NativeMenuBarChoice {
 private final class NativeMenuBarActivityProbe {
     private let queue = DispatchQueue(label: "cc.anjing.macos-x.native-bar-activity", qos: .userInitiated)
     private func element(at point: CGPoint, token: MenuBarReadToken) -> AXUIElement? {
-        guard !token.isCancelled else { return nil }
-        let system = AXUIElementCreateSystemWide(); AXUIElementSetMessagingTimeout(system, 0.08)
-        var element: AXUIElement?
-        guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &element) == .success else { return nil }
-        return token.isCancelled ? nil : element
+        MenuBarRemoteHitTest.element(at: point, windows: MenuBarRemoteHitTest.windows(), token: token)
     }
     func begin(at point: CGPoint, token: MenuBarReadToken, onClosed: @escaping () -> Void,
                completion: @escaping (pid_t?, MenuBarMenuWatch?) -> Void) {
