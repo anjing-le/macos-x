@@ -251,7 +251,7 @@ final class SketchWindowHeader: SketchSurface {
 @MainActor
 enum SketchCardArt {
     private static let nearbyImage = entryIllustration("CardNearbyTransferV2", region: CGRect(x: 0, y: 0, width: 1, height: 1))
-    private static let fileActionsImage = entryIllustration("CardFileActions", region: CGRect(x: 0, y: 0, width: 1, height: 1))
+    private static let fileActionsImage = entryIllustration("CardFileActionsV2", region: CGRect(x: 0, y: 0, width: 1, height: 1))
     // One approved contact sheet, decoded once. Source rectangles exclude its
     // decorative card borders and captions; real card controls remain native.
     private static let images: [String: NSImage] = {
