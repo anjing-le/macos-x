@@ -12,7 +12,7 @@ for language in ['en','zh-Hans']:
         assert source.read_bytes()==(resources/(language+'.lproj')/source.name).read_bytes()
 assert (resources/'SettingsMenuBarBoard.png').read_bytes()==(root/'Resources/SettingsMenuBarBoard.png').read_bytes()
 assert (resources/'SettingsFileActionsBoard.png').read_bytes()==(root/'Resources/SettingsFileActionsBoard.png').read_bytes()
-for name in ['CardNearbyTransferV2.png','CardFileActionsV2.png']:
+for name in ['CardNearbyTransferV2.png','CardFileActionsV3.png']:
     assert (resources/name).read_bytes()==(root/'Resources'/name).read_bytes()
 assert info['NSBonjourServices']==['_macosx-nearby._tcp'] and info['NSLocalNetworkUsageDescription']
 print('PASS bundle: two languages, permission descriptions, English bitmaps and original Chinese artwork')
