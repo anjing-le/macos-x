@@ -238,11 +238,7 @@ import PDFKit
       mode.selectItem(at: 2)
       mode.sendAction(mode.action!, to: mode.target)
     }
-    var opened = 0
-    guide.onOpen = { opened += 1 }
-    let open = guide.subviews.compactMap { $0 as? FileActionButton }.first!
-    open.performClick(nil)
-    precondition(opened == 1)
+    precondition(guide.subviews.compactMap { $0 as? FileActionButton }.isEmpty)
     if let directory = ProcessInfo.processInfo.environment["FILE_ACTIONS_PREVIEW_DIRECTORY"] {
       guide.frame = CGRect(x: 0, y: 0, width: 840, height: 468)
       guide.layoutSubtreeIfNeeded()
@@ -251,6 +247,41 @@ import PDFKit
       try bitmap.representation(using: .png, properties: [:])!.write(
         to: URL(fileURLWithPath: directory).appendingPathComponent("guide.png"))
     }
+    // The real source must resolve Finder's selection before counting it.
+    precondition(FileActionsFinderQuery.script.contains("set selectedItems to (get selection)"))
+    precondition(!FileActionsFinderQuery.script.contains("count of selection"))
+    precondition(FileActionsFinderQuery.process().arguments == ["-e", FileActionsFinderQuery.script])
+    // Full trigger -> worker -> validated file -> actual menu pipeline, without
+    // Finder, real menu presentation, clipboard access or global key events.
+    let selectionModule = FileActionsModule()
+    selectionModule.finderIsFrontmost = { true }
+    var presented: [NSMenu] = []
+    selectionModule.presentMenuOverride = { presented.append($0) }
+    func fakeSelection(_ url: URL?) -> Process {
+      let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/printf")
+      p.arguments = ["%s", url?.absoluteString ?? ""]
+      return p
+    }
+    selectionModule.selectionProcessFactory = { fakeSelection(source) }
+    selectionModule.start()
+    selectionModule.summonSelection()
+    let selectionDeadline = Date().addingTimeInterval(5)
+    while presented.isEmpty && Date() < selectionDeadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+    precondition(presented.count == 1 && presented[0].items.count == 5, "Selected image reaches the menu")
+    selectionModule.selectionProcessFactory = { fakeSelection(doc) }
+    selectionModule.summonSelection()
+    let documentDeadline = Date().addingTimeInterval(5)
+    while presented.count < 2 && Date() < documentDeadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+    precondition(presented.count == 2 && presented[1].items.count == 3, "Selected document reaches its own operations")
+    selectionModule.selectionProcessFactory = { fakeSelection(nil) }
+    selectionModule.summonSelection()
+    RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+    precondition(presented.count == 2, "No selection stays silent")
+    selectionModule.selectionProcessFactory = { fakeSelection(source) }
+    selectionModule.summonSelection()
+    selectionModule.stop()
+    RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+    precondition(presented.count == 2, "Stopping invalidates pending menu presentation")
     let module = FileActionsModule()
     module.start()
     module.stop()

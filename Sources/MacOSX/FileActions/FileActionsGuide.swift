@@ -5,13 +5,11 @@ import MacOSXCore
 /// One shared, language-neutral illustration. Real captions and shortcut controls
 /// stay native and use the same geometry as the artwork, including when scrolled.
 @MainActor final class FileActionsGuide: NSView {
-  var onOpen: (() -> Void)?
   private let scroll = NSScrollView()
   private let canvas: FileActionsGuideCanvas
-  private let open = FileActionButton(AppLanguage.text("打开文件操作"))
   override var isFlipped: Bool { true }
   override var intrinsicContentSize: NSSize {
-    NSSize(width: 840, height: min(840, max(800, bounds.width)) / 2 + 48)
+    NSSize(width: 840, height: min(840, max(800, bounds.width)) / 2 + 4)
   }
   init(shortcut: NSView) {
     canvas = FileActionsGuideCanvas(shortcut: shortcut)
@@ -22,8 +20,6 @@ import MacOSXCore
     scroll.autohidesScrollers = true
     scroll.documentView = canvas
     addSubview(scroll)
-    addSubview(open)
-    open.invoke = { [weak self] in self?.onOpen?() }
     scroll.setAccessibilityLabel(AppLanguage.text("文件操作使用图示"))
   }
   required init?(coder: NSCoder) { nil }
@@ -42,8 +38,6 @@ import MacOSXCore
     canvas.artworkFrame = CGRect(
       x: max(0, (canvas.bounds.width - width) / 2), y: 0, width: width, height: height)
     canvas.layoutSubtreeIfNeeded()
-    open.frame = CGRect(
-      x: max(0, bounds.width - 152), y: height + 12, width: min(152, bounds.width), height: 30)
   }
 }
 

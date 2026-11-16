@@ -1,5 +1,6 @@
 import AppKit
 import MacOSXCore
+import os
 
 enum FileActionsSelection {
   // Called only on the selection worker, never from the input callback.
@@ -9,6 +10,25 @@ enum FileActionsSelection {
       values.isRegularFile == true, values.isSymbolicLink != true else { return false }
     let size = Int64(values.fileSize ?? 0)
     return size > 0 && size <= FileActionPolicy.maximumInput
+  }
+}
+
+enum FileActionsFinderQuery {
+  // Finder's `count of selection` is a remote count specifier, not a count
+  // of the resolved selection list. Resolve once before checking and indexing.
+  static let script = """
+    tell application id "com.apple.finder"
+      set selectedItems to (get selection)
+      if (count of selectedItems) is not 1 then return ""
+      set selectedItem to item 1 of selectedItems
+      return (get URL of selectedItem) as text
+    end tell
+    """
+  static func process() -> Process {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+    process.arguments = ["-e", script]
+    return process
   }
 }
 
@@ -22,6 +42,10 @@ enum FileActionsSelection {
   private var selectionToken: FileActionJob?
   private var selectionGeneration = UUID()
   var beforeOpen: (() -> Void)?
+  var finderIsFrontmost: () -> Bool = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder" }
+  var selectionProcessFactory: () -> Process = FileActionsFinderQuery.process
+  var presentMenuOverride: ((NSMenu) -> Void)?
+  private let logger = Logger(subsystem: "cc.anjing.macos-x", category: "file-actions-selection")
   func start() {
     running = true
     service.onChange = { [weak self] in
@@ -65,7 +89,8 @@ enum FileActionsSelection {
     self.menu = menu
     guard !menu.items.isEmpty else { self.menu = nil; return }
     beforeOpen?()
-    menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+    if let presentMenuOverride { presentMenuOverride(menu) }
+    else { menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil) }
   }
   func summonSelection() {
     guard running else { return }
@@ -73,16 +98,11 @@ enum FileActionsSelection {
     guard selectionProcess == nil else { return }
     input = nil
     service.reset()
-    guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder" else {
+    guard finderIsFrontmost() else {
       show()
       return
     }
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-    process.arguments = [
-      "-e",
-      "tell application \"Finder\"\nif (count of selection) is not 1 then return \"\"\nreturn URL of item 1 of selection\nend tell",
-    ]
+    let process = selectionProcessFactory()
     let pipe = Pipe()
     process.standardOutput = pipe
     process.standardError = FileHandle.nullDevice
@@ -91,6 +111,7 @@ enum FileActionsSelection {
     selectionGeneration = epoch
     selectionProcess = process
     selectionToken = token
+    let logger = self.logger
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
       var selected: URL?
       do {
@@ -107,13 +128,15 @@ enum FileActionsSelection {
           }
         }
         let data = try pipe.fileHandleForReading.read(upToCount: 8192) ?? Data()
+        logger.info("Finder query exited status=\(process.terminationStatus) bytes=\(data.count)")
         if process.terminationStatus == 0,
           let text = String(data: data, encoding: .utf8)?.trimmingCharacters(
             in: .whitespacesAndNewlines), let url = URL(string: text), url.isFileURL
         {
           if FileActionsSelection.supported(url) { selected = url }
         }
-      } catch {}
+      } catch { logger.error("Finder query failed before receiving a selection") }
+      logger.info("Finder query selectedSupportedFile=\(selected != nil)")
       let result = selected
       DispatchQueue.main.async { [weak self] in
         guard let self, self.running, self.selectionGeneration == epoch else { return }
@@ -125,8 +148,6 @@ enum FileActionsSelection {
     }
   }
   func makeGuide(shortcut: NSView) -> NSView {
-    let guide = FileActionsGuide(shortcut: shortcut)
-    guide.onOpen = { [weak self] in self?.summonSelection() }
-    return guide
+    FileActionsGuide(shortcut: shortcut)
   }
 }
