@@ -108,6 +108,20 @@ import MacOSXCore
             try require(cards.count == Tool.allCases.count, "Home has all tools and no plus card")
             try require(cards.allSatisfy { $0.frame.minX >= 0 && $0.frame.maxX <= width }, "All cards fit narrow and wide home layouts")
         }
+        if let directory = ProcessInfo.processInfo.environment["MACOSX_SETTINGS_PREVIEW"] {
+            try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+            let home = ToolboxContent(frame: CGRect(x: 0, y: 0, width: 960, height: 640))
+            home.header.title = "macos-x"
+            home.showCards(Tool.allCases.map { tool in
+                let card = ToolCard(title: tool.title, symbol: tool.symbol) {}
+                card.configureEnabled(true) { _ in }
+                return card
+            })
+            home.layoutSubtreeIfNeeded()
+            let bitmap = home.bitmapImageRepForCachingDisplay(in: home.bounds)!
+            home.cacheDisplay(in: home.bounds, to: bitmap)
+            try bitmap.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: directory).appendingPathComponent("home-illustrations.png"))
+        }
         for index in [0, 8, 127, 255, 0] {
             canvas.scrollToVisible(layout.card(at: index))
             scroll.reflectScrolledClipView(scroll.contentView)

@@ -7,7 +7,7 @@ cd "$nearby_repo"
 swift build --disable-keychain --target MacOSXCore
 nearby_bin="$(swift build --disable-keychain --show-bin-path)"
 mkdir -p "$nearby_fixture/Preview.app/Contents/MacOS" "$nearby_fixture/Preview.app/Contents/Resources"
-cp Resources/SketchFont.ttf Resources/SketchPaper.png Resources/CardNearbyTransfer.png "$nearby_fixture/Preview.app/Contents/Resources/"
+cp Resources/SketchFont.ttf Resources/SketchPaper.png Resources/CardNearbyTransferV2.png "$nearby_fixture/Preview.app/Contents/Resources/"
 python3 - "$nearby_fixture" <<'PY'
 import pathlib,sys
 p=pathlib.Path(sys.argv[1])/'Preview.app/Contents/Info.plist'

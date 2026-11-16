@@ -250,17 +250,8 @@ final class SketchWindowHeader: SketchSurface {
 /// Small bundled illustrations, lazily decoded and shared by home/catalog.
 @MainActor
 enum SketchCardArt {
-    private static let nearbyImage: NSImage? = {
-        guard let url = Bundle.main.url(forResource: "CardNearbyTransfer", withExtension: "png"),
-              let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCache: false] as CFDictionary),
-              image.width == 1536, image.height == 1024,
-              let content = image.cropping(to: CGRect(x: 160, y: 250, width: 1240, height: 520)),
-              let context = CGContext(data: nil, width: 384, height: 354, bitsPerComponent: 8, bytesPerRow: 384 * 4,
-                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        context.interpolationQuality = .high; context.draw(content, in: CGRect(x: 0, y: 96, width: 384, height: 161))
-        return context.makeImage().map { NSImage(cgImage: $0, size: NSSize(width: 256, height: 236)) }
-    }()
+    private static let nearbyImage = entryIllustration("CardNearbyTransferV2", region: CGRect(x: 0, y: 0, width: 1, height: 1))
+    private static let fileActionsImage = entryIllustration("CardFileActions", region: CGRect(x: 0, y: 0, width: 1, height: 1))
     // One approved contact sheet, decoded once. Source rectangles exclude its
     // decorative card borders and captions; real card controls remain native.
     private static let images: [String: NSImage] = {
@@ -332,28 +323,11 @@ enum SketchCardArt {
         return image
     }
     static func image(_ symbol: String) -> NSImage? {
-        if symbol == "doc.badge.arrow.up" {
-            return NSImage(size:NSSize(width:256,height:236),flipped:false) { rect in
-                NSGraphicsContext.saveGraphicsState();let t=NSAffineTransform();t.translateX(by:0,yBy:43);t.concat();SketchFileArt.draw(CGRect(x:0,y:0,width:256,height:150));NSGraphicsContext.restoreGraphicsState();return true
-            }
-        }
+        if symbol == "doc.badge.arrow.up" { return fileActionsImage }
         if symbol == "folder.badge.person.crop" { return nearbyImage }
         if symbol == "rectangle.split.2x1" { return layoutImage }
         if symbol == "menubar.rectangle" { return menuBarImage }
         if symbol == "chart.xyaxis.line" { return systemStatusImage }
         return images[symbol]
-    }
-}
-
-@MainActor enum SketchFileArt {
-    static func draw(_ rect:NSRect) {
-        let scale=min(rect.width/260,rect.height/150)
-        NSGraphicsContext.saveGraphicsState();let t=NSAffineTransform();t.scale(by:scale);t.concat()
-        for (x,color) in [(CGFloat(35),SketchPalette.blue),(CGFloat(165),SketchPalette.green)] {
-            let p=NSBezierPath(roundedRect:CGRect(x:x,y:30,width:65,height:90),xRadius:7,yRadius:7);color.withAlphaComponent(0.12).setFill();p.fill();SketchPencil.stroke(p,color:SketchPalette.ink,width:1.7)
-            for row in 0..<4 {let line=NSBezierPath();line.move(to:CGPoint(x:x+12,y:48+CGFloat(row)*14));line.line(to:CGPoint(x:x+50,y:48+CGFloat(row)*14));SketchPencil.stroke(line,color:color,width:2)}
-        }
-        let arrow=NSBezierPath();arrow.move(to:CGPoint(x:110,y:75));arrow.line(to:CGPoint(x:150,y:75));arrow.move(to:CGPoint(x:141,y:83));arrow.line(to:CGPoint(x:150,y:75));arrow.line(to:CGPoint(x:141,y:67));SketchPencil.stroke(arrow,color:SketchPalette.blue,width:2.5)
-        NSGraphicsContext.restoreGraphicsState()
     }
 }
