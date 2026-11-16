@@ -71,8 +71,8 @@ import MacOSXCore
     }
     func summon() { guard enabled else { return }; presentWheel() }
     private func presentWheel() {
-        dismissWheel()
         let mouse = NSEvent.mouseLocation
+        dismissWheel()
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) ?? NSScreen.main else { return }
         let snapshot = collection
         let panel = PhraseWheelPanel(anchor: mouse, screen: screen.visibleFrame, collection: snapshot, presentation: presentation)

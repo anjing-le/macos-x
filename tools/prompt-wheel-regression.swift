@@ -14,6 +14,29 @@ final class CountingPromptDefaults: UserDefaults {
         try checkPromptManagement()
         try checkPromptPolish()
         let collection = PromptCollection(legacy: (1...10).map { PromptEntry(title: "办公 \($0)", content: "正文 \($0)") })
+        let pointer = CGPoint(x: 430, y: 720)
+        let display = CGRect(x: 0, y: 0, width: 1200, height: 900)
+        let contextual = PhraseWheelPanel(anchor: pointer, screen: display, collection: collection,
+                                         presentation: .init(style: .list, listCount: 4))
+        precondition(contextual.frame.minX == pointer.x + 8 && contextual.frame.maxY == pointer.y - 8,
+                     "List opens beside the pointer, not centered on the selected row")
+        let contextualView = contextual.contentView as! PromptWheelView
+        let top = contextual.frame.maxY, left = contextual.frame.minX
+        for query in ["办公 1", "missing-query", ""] {
+            contextualView.search.stringValue = query
+            contextualView.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: contextualView.search))
+            precondition(contextual.frame.minX == left && contextual.frame.maxY == top,
+                         "Search resizing preserves the pointer anchor")
+        }
+        contextual.dismiss()
+        for screen in [display, CGRect(x: -1600, y: -300, width: 1440, height: 900)] {
+            for point in [CGPoint(x: screen.minX, y: screen.minY), CGPoint(x: screen.maxX - 1, y: screen.maxY - 1), CGPoint(x: screen.midX, y: screen.midY)] {
+                for style in [PromptPresentation.Style.list, .ring] {
+                    let rect = PhraseWheelPanel.popupFrame(anchor: point, screen: screen, size: CGSize(width: 320, height: 360), style: style)
+                    precondition(screen.insetBy(dx: 8, dy: 8).contains(rect), "Popup remains within its active display")
+                }
+            }
+        }
         // Exercise every display count with real, non-presented AppKit views.
         for style in [PromptPresentation.Style.ring, .list] {
             for count in 0...10 {

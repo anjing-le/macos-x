@@ -144,14 +144,21 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
     private let wheel: PromptWheelView
     private var outsideMonitor: Any?
     private var localOutsideMonitor: Any?
+    static func popupFrame(anchor: CGPoint, screen: CGRect, size: CGSize, style: PromptPresentation.Style) -> CGRect {
+        // List menus open beside the pointer, with a stable top while filtering.
+        // Rings keep the pointer at their center for radial selection.
+        let x = style == .list ? anchor.x + 8 : anchor.x - size.width / 2
+        let y = style == .list ? anchor.y - 8 - size.height : anchor.y - size.height / 2
+        return CGRect(x: min(max(screen.minX + 8, x), screen.maxX - size.width - 8),
+                      y: min(max(screen.minY + 8, y), screen.maxY - size.height - 8),
+                      width: size.width, height: size.height)
+    }
     init(anchor: CGPoint, screen: CGRect, collection: PromptCollection, presentation: PromptPresentation = .init()) {
         let maximum = CGSize(width:min(360,screen.width-16),height:min(360,screen.height-16))
         wheel = PromptWheelView(size: maximum, collection: collection, presentation: presentation)
         let size = wheel.preferredSize
-        let width = size.width, height = size.height
-        let x = min(max(screen.minX + 8, anchor.x - width / 2), screen.maxX - width - 8)
-        let y = min(max(screen.minY + 8, anchor.y - height / 2), screen.maxY - height - 8)
-        super.init(contentRect: CGRect(x: x, y: y, width: width, height: height), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        let popup = Self.popupFrame(anchor: anchor, screen: screen, size: size, style: presentation.style)
+        super.init(contentRect: popup, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         appearance = NSAppearance(named: .aqua)
         backgroundColor = .clear; isOpaque = false; hasShadow = true; isReleasedWhenClosed = false
         level = .popUpMenu; hidesOnDeactivate = false; becomesKeyOnlyIfNeeded = false; animationBehavior = .none
@@ -161,9 +168,7 @@ private func promptTitle(_ title: String, occupied: Bool) -> String {
         wheel.onCancel = { [weak self] in self?.onCancel?() }
         wheel.onResize = { [weak self] size in
             guard let self else { return }
-            let x = min(max(screen.minX+8, anchor.x-size.width/2),screen.maxX-size.width-8)
-            let y = min(max(screen.minY+8, anchor.y-size.height/2),screen.maxY-size.height-8)
-            self.setFrame(CGRect(x:x,y:y,width:size.width,height:size.height), display:true, animate:false)
+            self.setFrame(Self.popupFrame(anchor: anchor, screen: screen, size: size, style: presentation.style), display: true, animate: false)
             self.wheel.needsLayout = true; self.wheel.layoutSubtreeIfNeeded()
         }
     }
