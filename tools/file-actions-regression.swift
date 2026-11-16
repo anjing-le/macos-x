@@ -40,7 +40,11 @@ import PDFKit
     var o = FileActionOptions()
     o.background = "white"
     let jpeg = try run(source, .jpeg, o)
+    precondition(jpeg.url.lastPathComponent == "source.jpg")
     let decoded = CGImageSourceCreateWithURL(jpeg.url as CFURL, nil)!
+    precondition(CGImageSourceGetType(decoded) as String? == "public.jpeg", "The content is really JPEG, not a renamed PNG")
+    let repeatedJPEG = try run(source, .jpeg, o)
+    precondition(repeatedJPEG.url.lastPathComponent == "source (2).jpg")
     let props = CGImageSourceCopyPropertiesAtIndex(decoded, 0, nil) as! [CFString: Any]
     precondition(props[kCGImagePropertyPixelWidth] as? Int == 320)
     let compressed = try run(source, .compress)
@@ -178,6 +182,8 @@ import PDFKit
     let besideAgain = try FileActionJob().run(input: source, operation: .png,
       options: FileActionOptions(), helper: native)
     precondition(beside.url.deletingLastPathComponent() == source.deletingLastPathComponent())
+    precondition(beside.url.lastPathComponent == "source (2).png")
+    precondition(besideAgain.url.lastPathComponent == "source (3).png")
     precondition(besideAgain.url != beside.url)
     let preservedSource = try Data(contentsOf: source)
     precondition(preservedSource == original)

@@ -201,10 +201,12 @@ final class FileActionJob: @unchecked Sendable {
     }
     if stem.isEmpty { stem = "file" }
     let suffix = single ? "." + files[0].pathExtension : ""
+    let conversion = single && [.jpeg, .png, .markdown, .text].contains(operation)
+    let basename = stem + (conversion ? "" : "-" + operation.rawValue)
     for n in 1...999 {
       if isCancelled { throw FileActionFailure.cancelled }
       let target = folder.appendingPathComponent(
-        stem + "-" + operation.rawValue + (n == 1 ? "" : " (\(n))") + suffix)
+        basename + (n == 1 ? "" : " (\(n))") + suffix)
       do {
         try fm.moveItem(at: single ? files[0] : stage, to: target)
         let ownership = try FileActionOutputOwnership(target)
