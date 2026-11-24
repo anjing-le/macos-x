@@ -261,6 +261,7 @@ extension SystemStatusModule {
                     "module retains at most 31 samples within one minute")
         let activePage = module.makeDashboard()
         try require(labels(activePage).contains("正在监控") && labels(activePage).contains("30%"), "new monitoring page receives the latest sampled values immediately")
+        let previousSessionTime = module.fixtureLatest!.timestamp
         module.stop()
         try require(module.fixtureHistory.isEmpty && module.fixtureLatest == nil && module.issue == nil, "stop releases latest/history/issues")
         try require(labels(activePage).contains("已关闭 · 开启后开始监控") && !labels(activePage).contains("30%"),
@@ -268,11 +269,21 @@ extension SystemStatusModule {
         let afterStopReads = reader.count
         try await settle(0.05)
         try require(reader.count == afterStopReads, "stopped module owns no continuing background reads")
+        // Observe the first actual delivery at its callback boundary, not after
+        // an async polling task happens to resume on a busy CI main thread.
+        let receive = sampler.onUpdate
+        var restartDelivered = false
+        sampler.onUpdate = { snapshot in
+            receive?(snapshot)
+            restartDelivered = true
+            sampler.stop()
+        }
         module.start()
         let reopenedPage = module.makeDashboard()
         try require(labels(reopenedPage).contains("等待首次采样"), "re-enabling does not redisplay the previous session's cached values")
-        try await wait("module restarts sampling") { module.fixtureLatest != nil }
-        try require(module.fixtureHistory.count <= 2 && module.fixtureHistory.first?.cpuPercent == nil, "re-enable starts a short new history with a fresh baseline")
+        try await wait("module restarts sampling") { restartDelivered }
+        try require(module.fixtureHistory.count == 1 && module.fixtureHistory[0].timestamp > previousSessionTime,
+                    "first actual restart delivery begins a fresh history without any previous session samples")
         module.stop()
     }
 
