@@ -44,6 +44,13 @@ extension SystemStatusModule {
     fileprivate var fixtureLatest: SystemStatusSnapshot? { latest }
 }
 
+extension TemperatureSMC {
+    fileprivate var fixtureCursor: Int { cursor }
+    fileprivate var fixtureCandidates: [String] { candidates }
+    fileprivate var fixtureLimited: Bool { limited }
+    fileprivate var fixtureFailed: Bool { discoveryFailed }
+}
+
 @main struct SystemStatusRegression {
     @MainActor private static func temperatureReadings() throws {
         try require(TemperatureSMC.decode(type: 0x73703738, bytes: [0x2a, 0x80]) == 42.5, "Intel signed fixed-point temperature decodes correctly")
@@ -54,8 +61,32 @@ extension SystemStatusModule {
         try require(TemperatureSMC.decode(type: 0x73703738, bytes: [0xff, 0]) == nil && TemperatureSMC.decode(type: 0x666c7420, bytes: [0]) == nil, "negative and malformed readings are rejected")
         try require(TemperatureSMC.sensorKeys(brand: "Apple M999 Pro").cpu.isEmpty, "unknown chips never inherit guessed sensor meanings")
         try require(!TemperatureSMC.sensorKeys(brand: "Apple M5 Pro").cpu.isEmpty && !TemperatureSMC.sensorKeys(brand: "Intel Core i7").cpu.contains("Tp0P"), "Apple and Intel use independent sensor maps")
+        let catalogue = TemperatureSMC()
+        catalogue.discover(total: 2200, deadline: 1, now: { 0 }) { index in
+            index.isMultiple(of: 2) ? String(format: "T%03X", index) : "PWR0"
+        }
+        try require(catalogue.fixtureCursor == 1024 && catalogue.fixtureCandidates.count == 512 && !catalogue.fixtureLimited, "discovery caps per-tick calls and retained sensors without retaining power keys")
+        catalogue.discover(total: 2200, deadline: 1, now: { 0 }) { String(format: "T%03X", $0) }
+        try require(catalogue.fixtureCursor == 2048 && catalogue.fixtureCandidates.count == 1024 && catalogue.fixtureLimited, "subsequent ticks resume discovery instead of repeating a full scan")
+        catalogue.discover(total: 2200, deadline: 0, now: { 0 }) { _ in "Txxx" }
+        try require(catalogue.fixtureCursor == 2048, "discovery respects the between-call time budget")
+        catalogue.discover(total: 2200, deadline: 1, now: { 0 }) { _ in nil }
+        try require(catalogue.fixtureCursor == 2200 && catalogue.fixtureFailed, "failed catalogue entries are explicit and do not cause infinite retry")
+        try require(TemperatureSMC.group(key: "TB1T", brand: "Apple M5 Pro") == .battery && TemperatureSMC.group(key: "TH0x", brand: "Apple M5 Pro") == .storage, "documented battery/storage keys retain their meanings")
+        try require(TemperatureSMC.group(key: "Tm02", brand: "Apple M1") == .memory && TemperatureSMC.group(key: "Tm02", brand: "Apple M5 Pro") == .other, "memory mappings cannot leak into an unverified generation")
+        try require(TemperatureSMC.group(key: "TB1T", brand: "Apple M999") == .other, "unknown chips retain raw IDs instead of inferred hardware labels")
+        let sensor = SystemTemperatureSensor(key: "TB1T", group: .battery, celsius: 32)!
+        let list = SystemTemperatureStatus(cpuCelsius: nil, gpuCelsius: nil, pressure: .nominal, sensors: [sensor, sensor])
+        try require(list.sensors == [sensor] && SystemTemperatureSensor(key: "not-a-key", group: .other, celsius: 0) == nil, "sensor identity deduplicates eagerly without losing actual rows")
+        var discoveringReads = 0
+        let discovering = SystemTemperatureReader(read: {
+            discoveringReads += 1
+            return .init(cpu: nil, gpu: nil, isDiscovering: true)
+        })
+        _ = discovering.sample(at: 0); _ = discovering.sample(at: 1.9); _ = discovering.sample(at: 2)
+        try require(discoveringReads == 2, "incremental discovery reuses two-second existing ticks instead of waiting for thirty-second backoff")
         var reads = 0
-        let reader = SystemTemperatureReader(read: { reads += 1; return reads == 2 ? (nil, nil) : (42.5, 39.0) })
+        let reader = SystemTemperatureReader(read: { reads += 1; return reads == 2 ? .init(cpu: nil, gpu: nil) : .init(cpu: 42.5, gpu: 39.0) })
         try require(reader.sample(at: 100).cpuCelsius == 42.5 && reads == 1, "first temperature sample is immediate")
         _ = reader.sample(at: 103.99)
         try require(reads == 1, "temperature reuses the existing timer with four second throttling")
@@ -125,6 +156,9 @@ extension SystemStatusModule {
     }
     @MainActor private static func labels(_ view: NSView) -> [String] {
         descendants(view).compactMap { ($0 as? NSTextField)?.stringValue }
+            + descendants(view).compactMap { $0 as? SystemStatusTemperatureList }.flatMap {
+                ($0.accessibilityChildren() ?? []).compactMap { ($0 as? NSAccessibilityElement)?.accessibilityLabel() }
+            }
     }
     @MainActor private static func layout(_ view: NSView, width: CGFloat) {
         view.frame = CGRect(x: 0, y: 0, width: width, height: max(1, view.intrinsicContentSize.height))
@@ -284,6 +318,7 @@ extension SystemStatusModule {
         try await wait("module restarts sampling") { restartDelivered }
         try require(module.fixtureHistory.count == 1 && module.fixtureHistory[0].timestamp > previousSessionTime,
                     "first actual restart delivery begins a fresh history without any previous session samples")
+        sampler.onUpdate = receive
         module.stop()
     }
 
@@ -299,7 +334,15 @@ extension SystemStatusModule {
             let network = SystemNetworkStatus(interfaceName: "en0", downloadBytesPerSecond: download, uploadBytesPerSecond: upload)
             return SystemStatusSnapshot(timestamp: end - Double(99 - index) * 2.0, cpuPercent: cpu, memory: memory, network: network,
                                         disk: .init(totalBytes: 500_000_000_000, availableBytes: 125_000_000_000),
-                                        temperature: .init(cpuCelsius: 42.5, gpuCelsius: 39, pressure: .nominal))
+                                        temperature: .init(cpuCelsius: 42.5, gpuCelsius: 39, pressure: .nominal,
+                                             sensors: [.init(key: "Tp00", group: .cpu, celsius: 42.5)!,
+                                                       .init(key: "Tg0U", group: .gpu, celsius: 39)!,
+                                                       .init(key: "TB1T", group: .battery, celsius: 32)!,
+                                                       .init(key: "TH0x", group: .storage, celsius: 40)!,
+                                                       .init(key: "Tm02", group: .memory, celsius: 38)!,
+                                                       .init(key: "Tm0P", group: .board, celsius: 36)!,
+                                                       .init(key: "TaLP", group: .environment, celsius: 28)!,
+                                                       .init(key: "Txyz", group: .other, celsius: 35)!]))
         }
         let view = SystemStatusDashboardView(frame: .zero)
         view.update(snapshot: history.last, history: history, isEnabled: true)
@@ -308,10 +351,11 @@ extension SystemStatusModule {
         for width: CGFloat in [912, 312] {
             layout(view, width: width)
             try assertBounds(view, name: "dashboard \(Int(width))")
-            if width == 912 { try require(view.intrinsicContentSize.height < 560, "capacity strip and live cards fit the normal settings page") }
+            if width == 912 { try require(view.intrinsicContentSize.height < 850, "capacity strip and live cards fit the normal settings page") }
             try require(labels(view).contains("硬盘") && labels(view).contains(where: { $0.contains((AppLanguage.current == .english ? "Available 125" : "可用 125")) }), "real capacity values appear alongside existing live charts")
             let charts = descendants(view).compactMap { $0 as? SystemStatusHistoryChart }
             try require(labels(view).contains("温度") && labels(view).contains(where: { $0.contains("CPU 42") && $0.contains("GPU 39") }), "actual Celsius readings appear without replacing existing metrics")
+            try require(labels(view).contains(where: { $0.contains("TB1T") }) && labels(view).contains(where: { $0.contains("32.0 °C") }) && labels(view).contains(where: { $0.contains("Txyz") }), "battery and unknown identified sensor readings are visible alongside every CPU/GPU value")
             try require(charts.count == 3, "dashboard exposes three native metric charts")
             try require(charts.allSatisfy { ($0.accessibilityLabel() ?? "").contains((AppLanguage.current == .english ? "up to 31 samples" : "最多 31 个采样点")) },
                         "UI histories also cap at 31 samples for oversized input")
@@ -323,6 +367,18 @@ extension SystemStatusModule {
         partial.temperature = .init(cpuCelsius: nil, gpuCelsius: 60, pressure: .critical)
         view.update(snapshot: partial, history: history, isEnabled: true)
         try require(labels(view).contains("CPU —   GPU 60 °C") && labels(view).contains(where: { $0.contains(AppLanguage.text("散热压力严重")) }), "partial sensor failures retain the available GPU and independent critical OS pressure")
+        let many = (0..<1100).map { SystemTemperatureSensor(key: String(format: "T%03X", $0), group: .other, celsius: 42)! }
+        var populated = history.last!
+        populated.temperature = .init(cpuCelsius: 42, gpuCelsius: 39, pressure: .nominal, sensors: many)
+        try require(populated.temperature?.sensors.count == 1024 && populated.temperature?.isLimited == true, "a pathological catalogue is bounded and the limit is explicit")
+        view.update(snapshot: populated, history: history, isEnabled: true)
+        for width: CGFloat in [912, 312] {
+            layout(view, width: width)
+            let list = descendants(view).compactMap { $0 as? SystemStatusTemperatureList }.first!
+            let rows = (list.accessibilityChildren() ?? []).compactMap { $0 as? NSAccessibilityElement }
+            try require(rows.count == 1024 && list.subviews.count == 2, "all bounded readings are accessible without allocating a view or field per row")
+            try require(rows.allSatisfy { list.bounds.contains(CGRect(x: $0.accessibilityFrameInParentSpace().minX, y: $0.accessibilityFrameInParentSpace().minY, width: $0.accessibilityFrameInParentSpace().width, height: $0.accessibilityFrameInParentSpace().height)) }, "wide/narrow final sensor rows retain finite accessible geometry")
+        }
         view.update(snapshot: nil, history: history, isEnabled: true)
         try require(labels(view).contains("等待首次采样") && labels(view).contains("建立采样基线") == false,
                     "initial waiting state is clear and does not invent stale measurements")
@@ -510,7 +566,11 @@ extension SystemStatusModule {
                                        "lastIssues": samples.last?.issues ?? [],
                                        "temperatureSamples": samples.filter { $0.temperature?.cpuCelsius != nil }.count,
                                        "cpuCelsius": samples.last?.temperature?.cpuCelsius as Any? ?? NSNull(),
-                                       "gpuCelsius": samples.last?.temperature?.gpuCelsius as Any? ?? NSNull()]
+                                       "gpuCelsius": samples.last?.temperature?.gpuCelsius as Any? ?? NSNull(),
+                                       "discoveredSensors": samples.last?.temperature?.sensors.count ?? 0,
+                                       "sensorDiscoveryPending": samples.last?.temperature?.isDiscovering ?? false,
+                                       "sensorReadLimited": samples.last?.temperature?.isLimited ?? false,
+                                       "sensors": samples.last?.temperature?.sensors.map { ["key": $0.key, "group": String(describing: $0.group), "celsius": $0.celsius as Any? ?? NSNull()] } ?? []]
         let json = try JSONSerialization.data(withJSONObject: evidence, options: [.sortedKeys])
         print("LIVE system status: " + String(decoding: json, as: UTF8.self))
     }

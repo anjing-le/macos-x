@@ -204,13 +204,41 @@ public struct SystemTemperatureStatus: Equatable, Sendable {
     public let cpuCelsius: Double?
     public let gpuCelsius: Double?
     public let pressure: Pressure
-    public init(cpuCelsius: Double?, gpuCelsius: Double?, pressure: Pressure) {
+    public let sensors: [SystemTemperatureSensor]
+    public let isDiscovering: Bool
+    public let isLimited: Bool
+    public init(cpuCelsius: Double?, gpuCelsius: Double?, pressure: Pressure,
+                sensors: [SystemTemperatureSensor] = [], isDiscovering: Bool = false, isLimited: Bool = false) {
         self.cpuCelsius = Self.valid(cpuCelsius)
         self.gpuCelsius = Self.valid(gpuCelsius)
         self.pressure = pressure
+        var seen = Set<String>()
+        var unique: [SystemTemperatureSensor] = []
+        for sensor in sensors.prefix(2048) where seen.insert(sensor.key).inserted {
+            guard unique.count < 1024 else { break }
+            unique.append(sensor)
+        }
+        self.sensors = unique
+        self.isDiscovering = isDiscovering
+        self.isLimited = isLimited || sensors.count > 1024
     }
     public static func valid(_ value: Double?) -> Double? {
         guard let value, value.isFinite, value > 0, value <= 150 else { return nil }
         return value
+    }
+}
+
+/// A hardware key is identity, not a guess about its physical location.
+public struct SystemTemperatureSensor: Equatable, Sendable {
+    public enum Group: Int, Sendable, CaseIterable {
+        case cpu, gpu, battery, memory, storage, board, environment, other
+    }
+    public let key: String
+    public let group: Group
+    public let celsius: Double?
+    public init?(key: String, group: Group, celsius: Double?) {
+        guard key.utf8.count == 4, key.utf8.allSatisfy({ (32...126).contains($0) }), key.first == "T" else { return nil }
+        self.key = key; self.group = group
+        self.celsius = SystemTemperatureStatus.valid(celsius)
     }
 }

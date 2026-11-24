@@ -744,5 +744,15 @@ public enum AppLanguage {
         "部分温度不可用": "Some sensors unavailable",
         "温度暂不可用": "Temperature unavailable",
         "正在读取温度": "Reading temperatures",
+        "全部温度": "All temperatures",
+        "正在发现更多传感器…": "Discovering more sensors…",
+        "部分传感器未能读取或已达读取上限": "Some sensors could not be read or a read limit was reached",
+        "尚无可读取的温度传感器": "No readable temperature sensors yet",
+        "仅显示本机可读取项 · 未知位置保留编号": "Available sensors on this Mac · Unknown locations retain their IDs",
+        "电池": "Battery",
+        "存储": "Storage",
+        "主板与供电": "Board and power",
+        "环境与散热": "Ambient and cooling",
+        "其他传感器": "Other sensors",
     ]
 }

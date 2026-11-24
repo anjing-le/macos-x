@@ -3,26 +3,37 @@ import IOKit
 import MacOSXCore
 
 /// Serial-worker only. Opens a read-only SMC session per refresh and always closes it.
-/// No helper, subprocess, root access, key writes, full key enumeration or extra timer.
+/// No helper, subprocess, root access, key writes or extra timer.
 final class SystemTemperatureReader {
-    typealias Reading = (cpu: Double?, gpu: Double?)
+    struct Reading {
+        var cpu: Double?
+        var gpu: Double?
+        var sensors: [SystemTemperatureSensor] = []
+        var isDiscovering = false
+        var isLimited = false
+    }
     private var nextRead: TimeInterval?
     private var previousTime: TimeInterval?
-    private var cached: Reading = (nil, nil)
+    private var cached = Reading(cpu: nil, gpu: nil)
     private let read: () -> Reading
 
-    init(read: (() -> Reading)? = nil) { self.read = read ?? { TemperatureSMC.read() } }
+    init(read: (() -> Reading)? = nil) {
+        let native = TemperatureSMC()
+        self.read = read ?? { native.read() }
+    }
 
     func sample(at time: TimeInterval) -> SystemTemperatureStatus {
         if time.isFinite, time >= 0 {
             if nextRead == nil || time >= nextRead! || time < (previousTime ?? time) {
                 let value = read()
-                cached = (SystemTemperatureStatus.valid(value.cpu), SystemTemperatureStatus.valid(value.gpu))
+                cached = value
+                cached.cpu = SystemTemperatureStatus.valid(value.cpu)
+                cached.gpu = SystemTemperatureStatus.valid(value.gpu)
                 // Unsupported hardware/failed reads do not cause a rapid retry loop.
-                nextRead = time + (cached.cpu == nil && cached.gpu == nil ? 30 : 4)
+                nextRead = time + (cached.isDiscovering ? 2 : cached.sensors.contains(where: { $0.celsius != nil }) || cached.cpu != nil || cached.gpu != nil ? 4 : 30)
             }
             previousTime = time
-        } else { cached = (nil, nil); nextRead = nil; previousTime = nil }
+        } else { cached = Reading(cpu: nil, gpu: nil); nextRead = nil; previousTime = nil }
         let pressure: SystemTemperatureStatus.Pressure
         switch ProcessInfo.processInfo.thermalState {
         case .nominal: pressure = .nominal
@@ -31,33 +42,134 @@ final class SystemTemperatureReader {
         case .critical: pressure = .critical
         @unknown default: pressure = .unknown
         }
-        return .init(cpuCelsius: cached.cpu, gpuCelsius: cached.gpu, pressure: pressure)
+        return .init(cpuCelsius: cached.cpu, gpuCelsius: cached.gpu, pressure: pressure, sensors: cached.sensors, isDiscovering: cached.isDiscovering, isLimited: cached.isLimited)
     }
 }
 
-/// Isolated undocumented sensor protocol. Unknown generations/types return no temperature.
+/// Isolated undocumented sensor protocol. Unknown sensor meanings retain their raw key.
 /// Protocol references and sensor mapping provenance: docs/computer-status.md.
-enum TemperatureSMC {
-    static func read() -> SystemTemperatureReader.Reading {
-        let keys = sensorKeys(brand: cpuBrand())
-        guard !keys.cpu.isEmpty || !keys.gpu.isEmpty else { return (nil, nil) }
+final class TemperatureSMC {
+    struct KeyInfo { let size: UInt32; let type: UInt32 }
+    private var brand: String?
+    private var cpuKeys: [String] = []
+    private var gpuKeys: [String] = []
+    private var candidates: [String] = []
+    private var candidateSet = Set<String>()
+    private var groups: [String: SystemTemperatureSensor.Group] = [:]
+    private var infoCache: [String: KeyInfo] = [:]
+    private var displayed = Set<String>()
+    private var keyCount: Int?
+    private var cursor = 0
+    private var limited = false
+    private var discoveryFailed = false
+
+    func read() -> SystemTemperatureReader.Reading {
+        if brand == nil {
+            brand = Self.cpuBrand()
+            let known = Self.sensorKeys(brand: brand!)
+            cpuKeys = known.cpu; gpuKeys = known.gpu
+            for key in cpuKeys + gpuKeys + Self.additionalKeys(brand: brand!) { remember(key) }
+        }
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSMC"))
-        guard service != 0 else { return (nil, nil) }
+        guard service != 0 else { return unavailable() }
         defer { IOObjectRelease(service) }
         var connection: io_connect_t = 0
-        guard IOServiceOpen(service, mach_task_self_, 0, &connection) == KERN_SUCCESS else { return (nil, nil) }
+        guard IOServiceOpen(service, mach_task_self_, 0, &connection) == KERN_SUCCESS else { return unavailable() }
         defer { IOServiceClose(connection) }
-        // Small explicit key set, with a cooperative total budget between driver calls.
-        let deadline = ProcessInfo.processInfo.systemUptime + 0.05
-        func average(_ keys: [String]) -> Double? {
-            var values: [Double] = []
-            for key in keys.prefix(32) {
-                guard ProcessInfo.processInfo.systemUptime < deadline else { break }
-                if let value = temperature(key: key, connection: connection) { values.append(value) }
-            }
-            return values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
+        // Discovery is one bounded, incremental catalogue walk per worker lifetime.
+        // Only temperature keys are retained; the next tick resumes at the cursor.
+        let deadline = ProcessInfo.processInfo.systemUptime + 0.03
+        if keyCount == nil, let bytes = bytes(key: "#KEY", connection: connection), bytes.count == 4 {
+            let count = bytes.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+            keyCount = min(Int(count), 8192)
+            limited = count > 8192
         }
-        return (average(keys.cpu), average(keys.gpu))
+        if let keyCount { discover(total: keyCount, deadline: deadline) { Self.key(at: $0, connection: connection) } }
+        var values: [String: Double] = [:]
+        for key in candidates {
+            guard let bytes = bytes(key: key, connection: connection), let info = infoCache[key],
+                  let value = Self.decode(type: info.type, bytes: bytes) else { continue }
+            values[key] = value; displayed.insert(key)
+        }
+        func average(_ keys: [String]) -> Double? {
+            let found = keys.compactMap { values[$0] }
+            return found.isEmpty ? nil : found.reduce(0, +) / Double(found.count)
+        }
+        let sensors = displayed.sorted().compactMap { key in
+            SystemTemperatureSensor(key: key, group: groups[key] ?? .other, celsius: values[key])
+        }
+        return .init(cpu: average(cpuKeys), gpu: average(gpuKeys), sensors: sensors,
+                     isDiscovering: keyCount.map { cursor < $0 } ?? false,
+                     isLimited: limited || discoveryFailed || keyCount == nil)
+    }
+
+    // Shared by native discovery and deterministic transport-free regressions.
+    func discover(total: Int, deadline: TimeInterval, now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+                  keyAt: (Int) -> String?) {
+        let total = min(max(0, total), 8192)
+        var steps = 0
+        while cursor < total, steps < 1024, now() < deadline {
+            if let key = keyAt(cursor) { remember(key) } else { discoveryFailed = true }
+            cursor += 1; steps += 1
+        }
+    }
+
+    private func unavailable() -> SystemTemperatureReader.Reading {
+        .init(cpu: nil, gpu: nil, sensors: displayed.sorted().compactMap {
+            .init(key: $0, group: groups[$0] ?? .other, celsius: nil)
+        }, isLimited: true)
+    }
+
+    private func remember(_ key: String) {
+        guard key.utf8.count == 4, key.utf8.allSatisfy({ (32...126).contains($0) }), key.first == "T", !candidateSet.contains(key) else { return }
+        guard candidates.count < 1024 else { limited = true; return }
+        candidateSet.insert(key); candidates.append(key)
+        groups[key] = Self.group(key: key, brand: brand ?? "")
+    }
+
+    static func additionalKeys(brand: String) -> [String] {
+        if brand.hasPrefix("Apple M") {
+            return ["TB1T", "TB2T", "TH0x", "TaLP", "TaRF", "TW0P"]
+                + ["Tm02", "Tm06", "Tm08", "Tm09", "Tm0p", "Tm1p", "Tm2p"]
+        }
+        if brand.contains("Intel") {
+            return ["TB1T", "Tm0P", "Tp0P", "TN0D", "TN0H", "TN0P", "TW0P", "TL0P", "TTLD", "TTRD"]
+                + (0...9).flatMap { ["TA\($0)P", "Th\($0)H", "TI\($0)P", "TH\($0)A", "TH\($0)B", "TH\($0)C"] }
+                + ["TMA1", "TMA2", "TMA3", "TMA4", "TMB1", "TMB2", "TMB3", "TMB4"]
+        }
+        return []
+    }
+
+    static func group(key: String, brand: String) -> SystemTemperatureSensor.Group {
+        let known = sensorKeys(brand: brand)
+        if known.cpu.contains(key) { return .cpu }
+        if known.gpu.contains(key) { return .gpu }
+        let silicon = brand.hasPrefix("Apple M") && !known.cpu.isEmpty
+        let intel = brand.contains("Intel")
+        guard silicon || intel else { return .other }
+        if key == "TB1T" || (silicon && key == "TB2T") { return .battery }
+        if silicon {
+            if key == "TH0x" { return .storage }
+            if key == "TaLP" || key == "TaRF" { return .environment }
+            if brand.hasPrefix("Apple M1"), ["Tm02", "Tm06", "Tm08", "Tm09"].contains(key) { return .memory }
+            if brand.hasPrefix("Apple M4"), ["Tm0p", "Tm1p", "Tm2p"].contains(key) { return .memory }
+        }
+        if intel {
+            if ["Tm0P", "Tp0P", "TN0D", "TN0H", "TN0P"].contains(key) { return .board }
+            if key.hasPrefix("TMA") || key.hasPrefix("TMB") { return .memory }
+            if key.hasPrefix("TH"), ["A", "B", "C"].contains(String(key.suffix(1))) { return .storage }
+            if key.hasPrefix("TA") || key.hasPrefix("Th") { return .environment }
+        }
+        return .other
+    }
+
+    private static func key(at index: Int, connection: io_connect_t) -> String? {
+        var request = [UInt8](repeating: 0, count: 80)
+        write(UInt32(index), at: 44, to: &request)
+        request[42] = 8 // read key by index, never a write command
+        guard let result = call(request, connection: connection) else { return nil }
+        let code = uint32(result, at: 0)
+        return String(bytes: (0..<4).reversed().map { UInt8(truncatingIfNeeded: code >> ($0 * 8)) }, encoding: .ascii)
     }
 
     static func sensorKeys(brand: String) -> (cpu: [String], gpu: [String]) {
@@ -87,23 +199,24 @@ enum TemperatureSMC {
         return String(decoding: bytes.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 
-    private static func temperature(key: String, connection: io_connect_t) -> Double? {
+    private func bytes(key: String, connection: io_connect_t) -> [UInt8]? {
         guard key.utf8.count == 4 else { return nil }
-        let keyCode = key.utf8.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
-        // The SMC ABI uses an 80-byte record on both architectures. Explicit byte
-        // offsets avoid depending on Swift struct padding/alignment.
         var request = [UInt8](repeating: 0, count: 80)
-        write(keyCode, at: 0, to: &request)
-        request[42] = 9 // key information, never write (6)
-        guard let info = call(request, connection: connection) else { return nil }
-        let size = uint32(info, at: 28)
-        guard size == 2 || size == 4 else { return nil }
-        let type = uint32(info, at: 32)
-        guard type == 0x73703738 || type == 0x666c7420 else { return nil } // sp78 / flt
-        write(size, at: 28, to: &request)
+        Self.write(key.utf8.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }, at: 0, to: &request)
+        if infoCache[key] == nil {
+            request[42] = 9 // key information
+            guard let info = Self.call(request, connection: connection) else { return nil }
+            let size = Self.uint32(info, at: 28), type = Self.uint32(info, at: 32)
+            guard size > 0, size <= 32 else { return nil }
+            // Keep only temperature encodings or the catalogue's ui32 count.
+            guard key == "#KEY" || type == 0x73703738 || type == 0x666c7420 else { return nil }
+            infoCache[key] = .init(size: size, type: type)
+        }
+        guard let info = infoCache[key] else { return nil }
+        Self.write(info.size, at: 28, to: &request)
         request[42] = 5 // read bytes
-        guard let response = call(request, connection: connection) else { return nil }
-        return decode(type: type, bytes: Array(response[48..<48 + Int(size)]))
+        guard let response = Self.call(request, connection: connection) else { return nil }
+        return Array(response[48..<48 + Int(info.size)])
     }
 
     static func decode(type: UInt32, bytes: [UInt8]) -> Double? {

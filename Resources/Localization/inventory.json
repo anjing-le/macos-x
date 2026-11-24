@@ -6027,5 +6027,91 @@
       "raw": false,
       "multiline": false
     }
+  ],
+  "全部温度": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 613,
+      "raw": false,
+      "multiline": false
+    },
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 633,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在发现更多传感器…": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 635,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "部分传感器未能读取或已达读取上限": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 636,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "尚无可读取的温度传感器": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 637,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "仅显示本机可读取项 · 未知位置保留编号": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 638,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "电池": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 670,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "存储": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 672,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "主板与供电": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 673,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "环境与散热": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 674,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "其他传感器": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 675,
+      "raw": false,
+      "multiline": false
+    }
   ]
 }
