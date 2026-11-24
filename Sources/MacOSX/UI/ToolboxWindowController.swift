@@ -18,7 +18,7 @@ enum Tool: String, CaseIterable, Hashable {
         case .kaomoji: return AppLanguage.text("提示词库")
         case .windowLayout:return AppLanguage.text("窗口布局")
         case .menuBarShelf:return AppLanguage.text("菜单栏收纳")
-        case .systemStatus:return AppLanguage.text("系统状态")
+        case .systemStatus:return AppLanguage.text("电脑状态")
         case .fileActions:return AppLanguage.text("文件操作")
         case .nearbyTransfer:return AppLanguage.text("附近互传")
         }

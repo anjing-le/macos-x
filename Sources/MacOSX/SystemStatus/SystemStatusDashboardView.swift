@@ -12,6 +12,7 @@ final class SystemStatusDashboardView: NSView {
     private let memory = SystemStatusMetricCard(kind: .memory)
     private let network = SystemStatusMetricCard(kind: .network)
     private let disk = SystemStatusDiskCard()
+    private let temperature = SystemStatusTemperatureCard()
     private let timeFormatter = DateFormatter()
     private var isEnabled = false
     private var measuredHeight: CGFloat = 436
@@ -32,14 +33,14 @@ final class SystemStatusDashboardView: NSView {
         issue.textColor = SketchPalette.ink
         issue.maximumNumberOfLines = 2
         issue.lineBreakMode = .byTruncatingTail
-        for view in [activity, updated, footnote, issue, cpu, memory, network, disk] { addSubview(view) }
+        for view in [activity, updated, footnote, issue, cpu, memory, network, disk, temperature] { addSubview(view) }
         update(snapshot: nil, history: [], isEnabled: false)
     }
     required init?(coder: NSCoder) { nil }
 
     func update(snapshot: SystemStatusSnapshot?, history: [SystemStatusSnapshot], isEnabled: Bool) {
         self.isEnabled = isEnabled
-        footnote.stringValue = isEnabled ? AppLanguage.text("曲线每 2 秒 · 硬盘每 30 秒 · 本机读取") : AppLanguage.text("开启后显示实时状态与硬盘容量")
+        footnote.stringValue = isEnabled ? AppLanguage.text("曲线 2 秒 · 温度 4 秒 · 硬盘 30 秒") : AppLanguage.text("开启后显示电脑状态与温度")
         let latest = isEnabled ? snapshot : nil
         let points: [SystemStatusSnapshot]
         if let time = latest?.timestamp, time.isFinite {
@@ -51,6 +52,7 @@ final class SystemStatusDashboardView: NSView {
         memory.update(snapshot: latest, history: points, isEnabled: isEnabled)
         network.update(snapshot: latest, history: points, isEnabled: isEnabled)
         disk.update(latest?.disk, isEnabled: isEnabled, hasSample: latest != nil)
+        temperature.update(latest?.temperature, isEnabled: isEnabled, hasSample: latest != nil)
         if !isEnabled {
             activity.stringValue = AppLanguage.text("已关闭 · 开启后开始监控")
             updated.stringValue = ""
@@ -67,7 +69,7 @@ final class SystemStatusDashboardView: NSView {
         } else {
             activity.stringValue = AppLanguage.text("等待首次采样")
             updated.stringValue = ""
-            issue.stringValue = AppLanguage.text("正在读取 CPU、内存、网络和硬盘数据")
+            issue.stringValue = AppLanguage.text("正在读取电脑状态")
         }
         activity.setAccessibilityLabel(activity.stringValue)
         issue.toolTip = issue.stringValue.isEmpty ? nil : issue.stringValue
@@ -101,8 +103,16 @@ final class SystemStatusDashboardView: NSView {
             footerY = top + cardHeight + 7
         }
         let diskHeight: CGFloat = width < 500 ? 132 : 98
-        disk.frame = CGRect(x: inset, y: footerY + 5, width: contentWidth, height: diskHeight)
-        footerY += diskHeight + 15
+        if compact {
+            disk.frame = CGRect(x: inset, y: footerY + 5, width: contentWidth, height: diskHeight)
+            temperature.frame = CGRect(x: inset, y: footerY + diskHeight + gap + 5, width: contentWidth, height: 108)
+            footerY += diskHeight + gap + 123
+        } else {
+            let half = (contentWidth - gap) / 2
+            disk.frame = CGRect(x: inset, y: footerY + 5, width: half, height: 132)
+            temperature.frame = CGRect(x: inset + half + gap, y: footerY + 5, width: half, height: 132)
+            footerY += 147
+        }
         footnote.frame = CGRect(x: inset + 2, y: footerY, width: max(1, contentWidth - 4), height: 18)
         footerY += 20
         issue.frame = CGRect(x: inset + 2, y: footerY, width: max(1, contentWidth - 4), height: 30)
@@ -519,5 +529,75 @@ private final class SystemStatusHistoryChart: NSView {
             let size = label.size(withAttributes: attributes)
             label.draw(at: CGPoint(x: plot.midX - size.width / 2, y: plot.midY - size.height / 2), withAttributes: attributes)
         }
+    }
+}
+
+/// Compact hardware readings; no arbitrary universal "overheating" threshold.
+@MainActor private final class SystemStatusTemperatureCard: NSView {
+    private let heading = NSTextField(labelWithString: AppLanguage.text("温度"))
+    private let values = NSTextField(labelWithString: "—")
+    private let detail = NSTextField(labelWithString: "")
+    private var pressure: SystemTemperatureStatus.Pressure = .unknown
+    override var isFlipped: Bool { true }
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        heading.font = SketchPalette.heading(20); heading.textColor = SketchPalette.ink
+        values.font = .monospacedDigitSystemFont(ofSize: 20, weight: .medium)
+        values.textColor = SketchPalette.ink
+        detail.font = .systemFont(ofSize: 12); detail.textColor = SketchPalette.muted
+        for label in [heading, values, detail] {
+            label.lineBreakMode = .byTruncatingTail; addSubview(label)
+        }
+        toolTip = AppLanguage.text("CPU／GPU 为可读取传感器的平均温度，不是机身温度。散热压力由 macOS 单独评估。未知机型或受系统限制时显示不可用；不控制风扇。")
+        setAccessibilityRole(.group)
+    }
+    required init?(coder: NSCoder) { nil }
+    func update(_ value: SystemTemperatureStatus?, isEnabled: Bool, hasSample: Bool) {
+        pressure = isEnabled ? value?.pressure ?? .unknown : .unknown
+        func degrees(_ number: Double?) -> String {
+            number.map { String(format: "%.0f °C", $0) } ?? "—"
+        }
+        if !isEnabled {
+            values.stringValue = "—"
+            detail.stringValue = AppLanguage.text("开启后显示温度")
+        } else if let value {
+            values.stringValue = "CPU " + degrees(value.cpuCelsius) + "   GPU " + degrees(value.gpuCelsius)
+            let state: String
+            switch value.pressure {
+            case .nominal: state = AppLanguage.text("散热压力正常")
+            case .fair: state = AppLanguage.text("散热压力略高")
+            case .serious: state = AppLanguage.text("散热压力较高")
+            case .critical: state = AppLanguage.text("散热压力严重")
+            case .unknown: state = AppLanguage.text("散热压力不可用")
+            }
+            detail.stringValue = (value.cpuCelsius == nil || value.gpuCelsius == nil)
+                ? AppLanguage.text("部分温度不可用") + " · " + state : state
+        } else {
+            values.stringValue = "—"
+            detail.stringValue = hasSample ? AppLanguage.text("温度暂不可用") : AppLanguage.text("正在读取温度")
+        }
+        detail.textColor = pressure == .serious || pressure == .critical ? SketchPalette.coral : SketchPalette.muted
+        setAccessibilityLabel([heading.stringValue, values.stringValue, detail.stringValue].joined(separator: "，"))
+        detail.toolTip = detail.stringValue
+        needsDisplay = true
+    }
+    override func layout() {
+        super.layout()
+        heading.frame = CGRect(x: 54, y: 13, width: max(1, bounds.width - 72), height: 27)
+        values.frame = CGRect(x: 18, y: 45, width: max(1, bounds.width - 36), height: 27)
+        detail.frame = CGRect(x: 18, y: bounds.height - 29, width: max(1, bounds.width - 36), height: 18)
+    }
+    override func draw(_ dirtyRect: NSRect) {
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        NSGraphicsContext.saveGraphicsState(); defer { NSGraphicsContext.restoreGraphicsState() }
+        NSBezierPath(rect: bounds).addClip()
+        let outline = SketchPencil.outline(in: bounds.insetBy(dx: 1.5, dy: 1.5), radius: 14)
+        SketchPalette.paper.setFill(); outline.fill()
+        SketchPencil.stroke(outline, color: SketchPalette.line.withAlphaComponent(0.56), width: 1.2)
+        let stem = SketchPencil.outline(in: CGRect(x: 28, y: 14, width: 7, height: 18), radius: 3.5)
+        SketchPencil.stroke(stem, color: SketchPalette.ink, width: 1.3)
+        let bulb = NSBezierPath(ovalIn: CGRect(x: 26, y: 27, width: 11, height: 11))
+        SketchPalette.fill(bulb, color: (pressure == .serious || pressure == .critical ? SketchPalette.coral : SketchPalette.green).withAlphaComponent(0.6))
+        SketchPencil.stroke(bulb, color: SketchPalette.ink, width: 1.2)
     }
 }

@@ -45,6 +45,32 @@ extension SystemStatusModule {
 }
 
 @main struct SystemStatusRegression {
+    @MainActor private static func temperatureReadings() throws {
+        try require(TemperatureSMC.decode(type: 0x73703738, bytes: [0x2a, 0x80]) == 42.5, "Intel signed fixed-point temperature decodes correctly")
+        try require(TemperatureSMC.decode(type: 0x666c7420, bytes: [0, 0, 0x2a, 0x42]) == 42.5, "Apple Silicon little-endian float temperature decodes correctly")
+        for bytes: [UInt8] in [[0, 0, 0xc0, 0x7f], [0, 0, 0x80, 0x7f], [0, 0, 0, 0]] {
+            try require(TemperatureSMC.decode(type: 0x666c7420, bytes: bytes) == nil, "nonfinite and disabled sensors are unavailable")
+        }
+        try require(TemperatureSMC.decode(type: 0x73703738, bytes: [0xff, 0]) == nil && TemperatureSMC.decode(type: 0x666c7420, bytes: [0]) == nil, "negative and malformed readings are rejected")
+        try require(TemperatureSMC.sensorKeys(brand: "Apple M999 Pro").cpu.isEmpty, "unknown chips never inherit guessed sensor meanings")
+        try require(!TemperatureSMC.sensorKeys(brand: "Apple M5 Pro").cpu.isEmpty && !TemperatureSMC.sensorKeys(brand: "Intel Core i7").cpu.contains("Tp0P"), "Apple and Intel use independent sensor maps")
+        var reads = 0
+        let reader = SystemTemperatureReader(read: { reads += 1; return reads == 2 ? (nil, nil) : (42.5, 39.0) })
+        try require(reader.sample(at: 100).cpuCelsius == 42.5 && reads == 1, "first temperature sample is immediate")
+        _ = reader.sample(at: 103.99)
+        try require(reads == 1, "temperature reuses the existing timer with four second throttling")
+        try require(reader.sample(at: 104).cpuCelsius == nil && reads == 2, "failed refresh immediately clears old degrees")
+        _ = reader.sample(at: 133.99)
+        try require(reads == 2, "unavailable sensors back off for thirty seconds")
+        try require(reader.sample(at: 134).gpuCelsius == 39 && reads == 3, "unavailable sensors can recover")
+        _ = reader.sample(at: 1)
+        try require(reads == 4, "clock reset invalidates cached temperature")
+        let value = SystemTemperatureStatus(cpuCelsius: .nan, gpuCelsius: 999, pressure: .critical)
+        try require(value.cpuCelsius == nil && value.gpuCelsius == nil && value.pressure == .critical, "OS pressure is independent of invalid degree readings")
+        var accumulator = SystemStatusAccumulator()
+        try require(accumulator.sample(timestamp: 1, cpu: nil, memory: nil, network: nil, temperature: value).temperature == value, "temperature survives the sampling accumulator")
+    }
+
     @MainActor private static func diskCapacity() throws {
         let normal = SystemDiskStatus(totalBytes: 1_000, availableBytes: 250)!
         try require(normal.usedBytes == 750 && normal.usedRatio == 0.75 && !normal.isLow, "capacity arithmetic uses one consistent filesystem basis")
@@ -119,6 +145,7 @@ extension SystemStatusModule {
 
     @MainActor static func main() async {
         do {
+            try temperatureReadings()
             try diskCapacity()
             _ = NSApplication.shared
             NSApp.appearance = NSAppearance(named: .aqua)
@@ -260,7 +287,8 @@ extension SystemStatusModule {
             let upload = 35_000.0 + 15_000.0 * cos(step / 7.0)
             let network = SystemNetworkStatus(interfaceName: "en0", downloadBytesPerSecond: download, uploadBytesPerSecond: upload)
             return SystemStatusSnapshot(timestamp: end - Double(99 - index) * 2.0, cpuPercent: cpu, memory: memory, network: network,
-                                        disk: .init(totalBytes: 500_000_000_000, availableBytes: 125_000_000_000))
+                                        disk: .init(totalBytes: 500_000_000_000, availableBytes: 125_000_000_000),
+                                        temperature: .init(cpuCelsius: 42.5, gpuCelsius: 39, pressure: .nominal))
         }
         let view = SystemStatusDashboardView(frame: .zero)
         view.update(snapshot: history.last, history: history, isEnabled: true)
@@ -269,9 +297,10 @@ extension SystemStatusModule {
         for width: CGFloat in [912, 312] {
             layout(view, width: width)
             try assertBounds(view, name: "dashboard \(Int(width))")
-            if width == 912 { try require(view.intrinsicContentSize.height < 510, "capacity strip and live cards fit the normal settings page") }
+            if width == 912 { try require(view.intrinsicContentSize.height < 560, "capacity strip and live cards fit the normal settings page") }
             try require(labels(view).contains("硬盘") && labels(view).contains(where: { $0.contains((AppLanguage.current == .english ? "Available 125" : "可用 125")) }), "real capacity values appear alongside existing live charts")
             let charts = descendants(view).compactMap { $0 as? SystemStatusHistoryChart }
+            try require(labels(view).contains("温度") && labels(view).contains(where: { $0.contains("CPU 42") && $0.contains("GPU 39") }), "actual Celsius readings appear without replacing existing metrics")
             try require(charts.count == 3, "dashboard exposes three native metric charts")
             try require(charts.allSatisfy { ($0.accessibilityLabel() ?? "").contains((AppLanguage.current == .english ? "up to 31 samples" : "最多 31 个采样点")) },
                         "UI histories also cap at 31 samples for oversized input")
@@ -279,12 +308,17 @@ extension SystemStatusModule {
             try require(fields.allSatisfy { !$0.isEditable }, "monitoring page shows live values rather than configuration inputs")
             if let output { try render(view, to: URL(fileURLWithPath: output).appendingPathComponent("system-status-fixture-\(Int(width)).png")) }
         }
+        var partial = history.last!
+        partial.temperature = .init(cpuCelsius: nil, gpuCelsius: 60, pressure: .critical)
+        view.update(snapshot: partial, history: history, isEnabled: true)
+        try require(labels(view).contains("CPU —   GPU 60 °C") && labels(view).contains(where: { $0.contains(AppLanguage.text("散热压力严重")) }), "partial sensor failures retain the available GPU and independent critical OS pressure")
         view.update(snapshot: nil, history: history, isEnabled: true)
         try require(labels(view).contains("等待首次采样") && labels(view).contains("建立采样基线") == false,
                     "initial waiting state is clear and does not invent stale measurements")
         var missing = SystemStatusSnapshot(timestamp: end, cpuPercent: nil, memory: nil, network: nil,
                                            issues: ["测试：CPU 读取失败", "测试：内存读取失败", "测试：接口读取失败"])
         view.update(snapshot: missing, history: history, isEnabled: true)
+        try require(labels(view).contains("温度暂不可用"), "missing temperatures clear old sensor values")
         try require(labels(view).contains("硬盘容量暂不可用"), "failed disk reads do not leave an old capacity visible")
         try require(labels(view).contains("部分数据暂不可用") && labels(view).contains("CPU 暂不可用") && labels(view).contains("内存数据暂不可用") && labels(view).contains("网络数据暂不可用"),
                     "partial failures expose missing metrics explicitly")
@@ -292,8 +326,8 @@ extension SystemStatusModule {
         try memoryHistoryRendering(end: end, output: output)
         view.update(snapshot: missing, history: history, isEnabled: false)
         try require(labels(view).contains("开启后显示硬盘容量"), "disabled module clears disk capacity")
-        try require(labels(view).contains("已关闭 · 开启后开始监控") && labels(view).filter { $0 == "—" }.count == 4,
-                    "disabled dashboard clears all four values")
+        try require(labels(view).contains("已关闭 · 开启后开始监控") && labels(view).filter { $0 == "—" }.count == 5,
+                    "disabled dashboard clears all five values")
         missing.cpuPercent = .nan
         missing.timestamp = .nan
         missing.network = .init(interfaceName: String(repeating: "very-long-physical-interface-", count: 8),
@@ -370,7 +404,7 @@ extension SystemStatusModule {
 
     @MainActor private static func render(_ view: NSView, to url: URL?) throws {
         let canvas = SketchSurface(frame: CGRect(x: 0, y: 0, width: view.bounds.width + 32, height: view.bounds.height + 62))
-        let title = NSTextField(labelWithString: "系统状态 · 回归示例数据")
+        let title = NSTextField(labelWithString: "电脑状态 · 回归示例数据")
         title.font = .systemFont(ofSize: 15, weight: .medium)
         title.frame = CGRect(x: 18, y: canvas.bounds.height - 31, width: canvas.bounds.width - 36, height: 21)
         canvas.addSubview(title)
@@ -462,7 +496,10 @@ extension SystemStatusModule {
                                        "networkRateSamples": samples.filter { $0.network?.downloadBytesPerSecond != nil }.count,
                                        "lastMemoryUsedBytes": samples.last?.memory?.usedBytes ?? 0,
                                        "lastMemoryTotalBytes": samples.last?.memory?.totalBytes ?? 0,
-                                       "lastIssues": samples.last?.issues ?? []]
+                                       "lastIssues": samples.last?.issues ?? [],
+                                       "temperatureSamples": samples.filter { $0.temperature?.cpuCelsius != nil }.count,
+                                       "cpuCelsius": samples.last?.temperature?.cpuCelsius as Any? ?? NSNull(),
+                                       "gpuCelsius": samples.last?.temperature?.gpuCelsius as Any? ?? NSNull()]
         let json = try JSONSerialization.data(withJSONObject: evidence, options: [.sortedKeys])
         print("LIVE system status: " + String(decoding: json, as: UTF8.self))
     }

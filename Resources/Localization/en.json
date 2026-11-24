@@ -688,5 +688,20 @@
   "PDF 按页导出图片": "PDF pages to images",
   "请在访达或桌面选中一个文件。": "Select one file in Finder or on the desktop.",
   "全部页（最多 20 页）": "All pages (up to 20)",
-  "无法保存结果，请确认原文件所在目录可写。": "Cannot save the result. Check that the original file’s folder is writable."
+  "无法保存结果，请确认原文件所在目录可写。": "Cannot save the result. Check that the original file’s folder is writable.",
+  "电脑状态": "Computer Status",
+  "温度": "Temperature",
+  "曲线 2 秒 · 温度 4 秒 · 硬盘 30 秒": "Charts: 2 s · Temperature: 4 s · Disk: 30 s",
+  "开启后显示电脑状态与温度": "Enable to view computer status and temperatures",
+  "正在读取电脑状态": "Reading computer status",
+  "CPU／GPU 为可读取传感器的平均温度，不是机身温度。散热压力由 macOS 单独评估。未知机型或受系统限制时显示不可用；不控制风扇。": "CPU/GPU values are averages of readable sensors, not case temperatures. macOS assesses thermal pressure separately. Unsupported or restricted sensors show unavailable. No fan control.",
+  "开启后显示温度": "Enable to view temperatures",
+  "散热压力正常": "Thermal pressure: normal",
+  "散热压力略高": "Thermal pressure: elevated",
+  "散热压力较高": "Thermal pressure: high",
+  "散热压力严重": "Thermal pressure: critical",
+  "散热压力不可用": "Thermal pressure unavailable",
+  "部分温度不可用": "Some sensors unavailable",
+  "温度暂不可用": "Temperature unavailable",
+  "正在读取温度": "Reading temperatures"
 }

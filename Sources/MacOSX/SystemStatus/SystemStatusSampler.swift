@@ -10,6 +10,7 @@ struct SystemStatusRawReading: Sendable {
     var network: SystemNetworkCounter?
     var issues: [String]
     var disk: SystemDiskStatus? = nil
+    var temperature: SystemTemperatureStatus? = nil
 }
 
 /// One timer on one serial queue. No metrics are sampled while the module is stopped.
@@ -122,6 +123,7 @@ private final class SystemStatusWorker: @unchecked Sendable {
 
     init(read: (@Sendable () -> SystemStatusRawReading)?) { readOverride = read }
     private var diskCache = SystemStatusDiskCache()
+    private let temperatureReader = SystemTemperatureReader()
 
     func cancel() {
         lock.lock(); defer { lock.unlock() }
@@ -151,7 +153,7 @@ private final class SystemStatusWorker: @unchecked Sendable {
     private func read() -> SystemStatusSnapshot {
         let reading = readOverride?() ?? nativeReading()
         return accumulator.sample(timestamp: reading.timestamp, cpu: reading.cpu, memory: reading.memory,
-                                  network: reading.network, issues: reading.issues, disk: reading.disk)
+                                  network: reading.network, issues: reading.issues, disk: reading.disk, temperature: reading.temperature)
     }
 
     private func nativeReading() -> SystemStatusRawReading {
@@ -162,12 +164,13 @@ private final class SystemStatusWorker: @unchecked Sendable {
         let memory = readMemory(host)
         let network = readNetwork()
         let disk = diskCache.sample(at: timestamp)
+        let temperature = temperatureReader.sample(at: timestamp)
         var issues: [String] = []
         if cpu == nil { issues.append(AppLanguage.text("CPU 数据暂不可用")) }
         if memory == nil { issues.append(AppLanguage.text("内存数据暂不可用")) }
         if network == nil { issues.append(AppLanguage.text("网络主接口暂不可用")) }
         if disk == nil { issues.append(AppLanguage.text("硬盘容量暂不可用")) }
-        return .init(timestamp: timestamp, cpu: cpu, memory: memory, network: network, issues: issues, disk: disk)
+        return .init(timestamp: timestamp, cpu: cpu, memory: memory, network: network, issues: issues, disk: disk, temperature: temperature)
     }
 
     private func readCPU(_ host: mach_port_t) -> SystemCPUCounter? {

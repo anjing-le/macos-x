@@ -5907,5 +5907,125 @@
       "raw": false,
       "multiline": false
     }
+  ],
+  "电脑状态": [
+    {
+      "file": "Sources/MacOSX/UI/ToolboxWindowController.swift",
+      "line": 21,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "温度": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 537,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "曲线 2 秒 · 温度 4 秒 · 硬盘 30 秒": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 43,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "开启后显示电脑状态与温度": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 43,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在读取电脑状态": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 72,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "CPU／GPU 为可读取传感器的平均温度，不是机身温度。散热压力由 macOS 单独评估。未知机型或受系统限制时显示不可用；不控制风扇。": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 551,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "开启后显示温度": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 562,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "散热压力正常": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 567,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "散热压力略高": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 568,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "散热压力较高": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 569,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "散热压力严重": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 570,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "散热压力不可用": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 571,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "部分温度不可用": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 574,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "温度暂不可用": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 577,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在读取温度": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 577,
+      "raw": false,
+      "multiline": false
+    }
   ]
 }

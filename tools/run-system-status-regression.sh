@@ -16,7 +16,8 @@ import sys
 root, out = map(Path, sys.argv[1:])
 # Keep private fixture inspection in this temporary compilation unit; production
 # source needs no test-only callback, metric mutator, observer or status item.
-paths = ['Sources/MacOSX/SystemStatus/SystemStatusSampler.swift',
+paths = ['Sources/MacOSX/SystemStatus/SystemTemperatureReader.swift',
+         'Sources/MacOSX/SystemStatus/SystemStatusSampler.swift',
          'Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift',
          'Sources/MacOSX/SystemStatus/SystemStatusModule.swift',
          'tools/system-status-regression.swift']

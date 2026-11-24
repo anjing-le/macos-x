@@ -6,15 +6,17 @@ public struct SystemStatusSnapshot: Equatable, Sendable {
     public var memory: SystemMemoryStatus?
     public var network: SystemNetworkStatus?
     public var issues: [String]
+    public var temperature: SystemTemperatureStatus?
     public var disk: SystemDiskStatus?
 
-    public init(timestamp: TimeInterval, cpuPercent: Double?, memory: SystemMemoryStatus?, network: SystemNetworkStatus?, issues: [String] = [], disk: SystemDiskStatus? = nil) {
+    public init(timestamp: TimeInterval, cpuPercent: Double?, memory: SystemMemoryStatus?, network: SystemNetworkStatus?, issues: [String] = [], disk: SystemDiskStatus? = nil, temperature: SystemTemperatureStatus? = nil) {
         self.timestamp = timestamp
         self.cpuPercent = cpuPercent
         self.memory = memory
         self.network = network
         self.issues = issues
         self.disk = disk
+        self.temperature = temperature
     }
 }
 
@@ -147,16 +149,16 @@ public struct SystemStatusAccumulator: Sendable {
     public init() {}
     public mutating func reset() { previousCPU = nil; previousNetwork = nil }
 
-    public mutating func sample(timestamp: TimeInterval, cpu: SystemCPUCounter?, memory: SystemMemoryStatus?, network: SystemNetworkCounter?, issues: [String] = [], disk: SystemDiskStatus? = nil) -> SystemStatusSnapshot {
+    public mutating func sample(timestamp: TimeInterval, cpu: SystemCPUCounter?, memory: SystemMemoryStatus?, network: SystemNetworkCounter?, issues: [String] = [], disk: SystemDiskStatus? = nil, temperature: SystemTemperatureStatus? = nil) -> SystemStatusSnapshot {
         guard timestamp.isFinite, timestamp >= 0 else {
             reset()
             return .init(timestamp: 0, cpuPercent: nil, memory: memory,
                          network: network.map { .init(interfaceName: $0.interfaceName, downloadBytesPerSecond: nil, uploadBytesPerSecond: nil) },
-                         issues: issues + [AppLanguage.text("采样时间无效")], disk: disk)
+                         issues: issues + [AppLanguage.text("采样时间无效")], disk: disk, temperature: temperature)
         }
         let cpuPercent = readCPU(cpu, timestamp: timestamp)
         let networkStatus = readNetwork(network, timestamp: timestamp)
-        return .init(timestamp: timestamp, cpuPercent: cpuPercent, memory: memory, network: networkStatus, issues: issues, disk: disk)
+        return .init(timestamp: timestamp, cpuPercent: cpuPercent, memory: memory, network: networkStatus, issues: issues, disk: disk, temperature: temperature)
     }
 
     private mutating func readCPU(_ current: SystemCPUCounter?, timestamp: TimeInterval) -> Double? {
@@ -193,5 +195,22 @@ public struct SystemStatusAccumulator: Sendable {
         result.downloadBytesPerSecond = download
         result.uploadBytesPerSecond = upload
         return result
+    }
+}
+
+/// Sensor averages are Celsius; thermal pressure is a separate OS assessment.
+public struct SystemTemperatureStatus: Equatable, Sendable {
+    public enum Pressure: Sendable { case nominal, fair, serious, critical, unknown }
+    public let cpuCelsius: Double?
+    public let gpuCelsius: Double?
+    public let pressure: Pressure
+    public init(cpuCelsius: Double?, gpuCelsius: Double?, pressure: Pressure) {
+        self.cpuCelsius = Self.valid(cpuCelsius)
+        self.gpuCelsius = Self.valid(gpuCelsius)
+        self.pressure = pressure
+    }
+    public static func valid(_ value: Double?) -> Double? {
+        guard let value, value.isFinite, value > 0, value <= 150 else { return nil }
+        return value
     }
 }
