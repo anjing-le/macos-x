@@ -620,7 +620,7 @@ private final class SystemStatusHistoryChart: NSView {
         for (index, cell) in cells.enumerated() where index < components.count {
             let x = 18 + CGFloat(index % columns) * (width + gap)
             let y = 46 + CGFloat(index / columns) * 27
-            cell.name.frame = CGRect(x: x, y: y + 3, width: max(1, width - 70), height: 21)
+            cell.name.frame = CGRect(x: x + 24, y: y + 3, width: max(1, width - 94), height: 21)
             cell.value.frame = CGRect(x: x + max(1, width - 68), y: y, width: min(68, width), height: 25)
         }
         detail.frame = CGRect(x: 18, y: bounds.height - 29, width: max(1, bounds.width - 36), height: 18)
@@ -632,10 +632,92 @@ private final class SystemStatusHistoryChart: NSView {
         let outline = SketchPencil.outline(in: bounds.insetBy(dx: 1.5, dy: 1.5), radius: 14)
         SketchPalette.paper.setFill(); outline.fill()
         SketchPencil.stroke(outline, color: SketchPalette.line.withAlphaComponent(0.56), width: 1.2)
+        for (index, cell) in cells.enumerated() where index < components.count {
+            let icon = CGRect(x: cell.name.frame.minX - 24, y: cell.name.frame.minY + 1, width: 18, height: 18)
+            Self.drawComponent(components[index].group, in: icon)
+        }
         let stem = SketchPencil.outline(in: CGRect(x: 28, y: 14, width: 7, height: 18), radius: 3.5)
         SketchPencil.stroke(stem, color: SketchPalette.ink, width: 1.3)
         let bulb = NSBezierPath(ovalIn: CGRect(x: 26, y: 27, width: 11, height: 11))
         SketchPalette.fill(bulb, color: (pressure == .serious || pressure == .critical ? SketchPalette.coral : SketchPalette.green).withAlphaComponent(0.6))
         SketchPencil.stroke(bulb, color: SketchPalette.ink, width: 1.2)
+    }
+}
+
+private extension SystemStatusTemperatureCard {
+    static func drawComponent(_ group: SystemTemperatureSensor.Group, in rect: CGRect) {
+        guard rect.width > 0, rect.height > 0 else { return }
+        NSGraphicsContext.saveGraphicsState(); defer { NSGraphicsContext.restoreGraphicsState() }
+        var transform = AffineTransform(translationByX: rect.minX, byY: rect.minY)
+        transform.scale(rect.width / 18)
+        (transform as NSAffineTransform).concat()
+        let ink = SketchPalette.ink.withAlphaComponent(0.78)
+        func stroke(_ path: NSBezierPath) { SketchPencil.stroke(path, color: ink, width: 1.05) }
+        func line(_ points: [CGPoint]) {
+            guard let first = points.first else { return }
+            let path = NSBezierPath(); path.move(to: first)
+            for point in points.dropFirst() { path.line(to: point) }
+            stroke(path)
+        }
+        func box(_ rect: CGRect, radius: CGFloat = 2, tint: NSColor? = nil) {
+            let path = SketchPencil.outline(in: rect, radius: radius)
+            if let tint { SketchPalette.fill(path, color: tint.withAlphaComponent(0.32)) }
+            stroke(path)
+        }
+        switch group {
+        case .cpu:
+            box(CGRect(x: 4, y: 4, width: 10, height: 10), tint: SketchPalette.blue)
+            box(CGRect(x: 6.5, y: 6.5, width: 5, height: 5), radius: 0.7)
+            for offset: CGFloat in [6, 9, 12] {
+                line([CGPoint(x: offset, y: 1.5), CGPoint(x: offset, y: 4)])
+                line([CGPoint(x: offset, y: 14), CGPoint(x: offset, y: 16.5)])
+                line([CGPoint(x: 1.5, y: offset), CGPoint(x: 4, y: offset)])
+                line([CGPoint(x: 14, y: offset), CGPoint(x: 16.5, y: offset)])
+            }
+        case .gpu:
+            box(CGRect(x: 2, y: 4, width: 14, height: 10), tint: SketchPalette.purple)
+            box(CGRect(x: 4, y: 6.5, width: 5, height: 5), radius: 1)
+            line([CGPoint(x: 11, y: 7), CGPoint(x: 14, y: 7)])
+            line([CGPoint(x: 11, y: 10), CGPoint(x: 14, y: 10)])
+            line([CGPoint(x: 4, y: 14), CGPoint(x: 4, y: 16), CGPoint(x: 12, y: 16), CGPoint(x: 12, y: 14)])
+        case .battery:
+            box(CGRect(x: 1, y: 4.5, width: 14, height: 9), tint: SketchPalette.green)
+            line([CGPoint(x: 16, y: 7), CGPoint(x: 17, y: 7), CGPoint(x: 17, y: 11), CGPoint(x: 16, y: 11)])
+            // Outline only: no fill bar that could be mistaken for charge level.
+            line([CGPoint(x: 4, y: 9), CGPoint(x: 7, y: 9)])
+            line([CGPoint(x: 5.5, y: 7.5), CGPoint(x: 5.5, y: 10.5)])
+        case .storage:
+            box(CGRect(x: 1.5, y: 3.5, width: 15, height: 11), tint: SketchPalette.blue)
+            line([CGPoint(x: 4, y: 10.5), CGPoint(x: 12, y: 10.5)])
+            let dot = NSBezierPath(ovalIn: CGRect(x: 13.5, y: 10, width: 1.6, height: 1.6))
+            ink.setFill(); dot.fill()
+        case .memory:
+            box(CGRect(x: 1, y: 4, width: 16, height: 9), radius: 1.4, tint: SketchPalette.purple)
+            for x: CGFloat in [3, 7.2, 11.4] { box(CGRect(x: x, y: 6, width: 3, height: 4), radius: 0.5) }
+            for x: CGFloat in [3, 6, 9, 12, 15] { line([CGPoint(x: x, y: 13), CGPoint(x: x, y: 15.5)]) }
+        case .board:
+            box(CGRect(x: 2, y: 2, width: 14, height: 14), tint: SketchPalette.green)
+            box(CGRect(x: 4.5, y: 4.5, width: 5, height: 5), radius: 0.8)
+            line([CGPoint(x: 12, y: 4.5), CGPoint(x: 12, y: 12), CGPoint(x: 5, y: 12)])
+            line([CGPoint(x: 14, y: 7), CGPoint(x: 14, y: 14), CGPoint(x: 9, y: 14)])
+        case .environment:
+            let ring = NSBezierPath(ovalIn: CGRect(x: 1.5, y: 1.5, width: 15, height: 15)); stroke(ring)
+            // Fixed fan blades; temperature monitoring introduces no animation.
+            for angle: CGFloat in [0, 120, 240] {
+                NSGraphicsContext.saveGraphicsState()
+                var rotation = AffineTransform(translationByX: 9, byY: 9)
+                rotation.rotate(byDegrees: angle)
+                (rotation as NSAffineTransform).concat()
+                let blade = NSBezierPath()
+                blade.move(to: CGPoint(x: 0, y: -1))
+                blade.curve(to: CGPoint(x: 0, y: -6), controlPoint1: CGPoint(x: 4, y: -5), controlPoint2: CGPoint(x: 2, y: -7))
+                blade.curve(to: CGPoint(x: -1, y: -1), controlPoint1: CGPoint(x: -3, y: -5), controlPoint2: CGPoint(x: -3, y: -2))
+                blade.close()
+                SketchPalette.fill(blade, color: SketchPalette.green.withAlphaComponent(0.38)); stroke(blade)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            ink.setFill(); NSBezierPath(ovalIn: CGRect(x: 7.5, y: 7.5, width: 3, height: 3)).fill()
+        case .other: break
+        }
     }
 }

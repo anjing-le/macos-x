@@ -31,7 +31,9 @@ wake recreates the reader. An in-flight synchronous driver call may finish, but
 cannot publish into a stopped or newer session. No extra timer or observer.
 
 The card holds at most seven component rows in one/two columns, with ordinary
-native accessible labels and the existing paper/graphite styling. Layout adapts
+native accessible labels and a small matching graphite/crayon component glyph.
+The icons are decorative native paths, not extra accessibility stops, battery
+charge indicators or animated fan controls. No new image assets or sensor reads. Layout adapts
 the adjacent disk strip height without adding another panel or reading area.
 
 `zsh tools/run-system-status-regression.sh` covers decoding, known-key selection,
