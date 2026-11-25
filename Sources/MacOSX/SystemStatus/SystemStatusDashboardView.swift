@@ -13,7 +13,6 @@ final class SystemStatusDashboardView: NSView {
     private let network = SystemStatusMetricCard(kind: .network)
     private let disk = SystemStatusDiskCard()
     private let temperature = SystemStatusTemperatureCard()
-    private let sensors = SystemStatusTemperatureList()
     private let timeFormatter = DateFormatter()
     private var isEnabled = false
     private var measuredHeight: CGFloat = 436
@@ -34,7 +33,7 @@ final class SystemStatusDashboardView: NSView {
         issue.textColor = SketchPalette.ink
         issue.maximumNumberOfLines = 2
         issue.lineBreakMode = .byTruncatingTail
-        for view in [activity, updated, footnote, issue, cpu, memory, network, disk, temperature, sensors] { addSubview(view) }
+        for view in [activity, updated, footnote, issue, cpu, memory, network, disk, temperature] { addSubview(view) }
         update(snapshot: nil, history: [], isEnabled: false)
     }
     required init?(coder: NSCoder) { nil }
@@ -54,7 +53,6 @@ final class SystemStatusDashboardView: NSView {
         network.update(snapshot: latest, history: points, isEnabled: isEnabled)
         disk.update(latest?.disk, isEnabled: isEnabled, hasSample: latest != nil)
         temperature.update(latest?.temperature, isEnabled: isEnabled, hasSample: latest != nil)
-        sensors.update(latest?.temperature, isEnabled: isEnabled)
         if !isEnabled {
             activity.stringValue = AppLanguage.text("已关闭 · 开启后开始监控")
             updated.stringValue = ""
@@ -107,18 +105,15 @@ final class SystemStatusDashboardView: NSView {
         let diskHeight: CGFloat = width < 500 ? 132 : 98
         if compact {
             disk.frame = CGRect(x: inset, y: footerY + 5, width: contentWidth, height: diskHeight)
-            temperature.frame = CGRect(x: inset, y: footerY + diskHeight + gap + 5, width: contentWidth, height: 108)
-            footerY += diskHeight + gap + 123
+            temperature.frame = CGRect(x: inset, y: footerY + diskHeight + gap + 5, width: contentWidth, height: temperature.requiredHeight(for: contentWidth))
+            footerY += diskHeight + gap + temperature.requiredHeight(for: contentWidth) + 15
         } else {
             let half = (contentWidth - gap) / 2
-            disk.frame = CGRect(x: inset, y: footerY + 5, width: half, height: 132)
-            temperature.frame = CGRect(x: inset + half + gap, y: footerY + 5, width: half, height: 132)
-            footerY += 147
+            let height = max(132, temperature.requiredHeight(for: half))
+            disk.frame = CGRect(x: inset, y: footerY + 5, width: half, height: height)
+            temperature.frame = CGRect(x: inset + half + gap, y: footerY + 5, width: half, height: height)
+            footerY += height + 15
         }
-        let sensorHeight = sensors.height(for: contentWidth)
-        sensors.isHidden = sensorHeight == 0
-        sensors.frame = CGRect(x: inset, y: footerY + 5, width: contentWidth, height: sensorHeight)
-        if sensorHeight > 0 { footerY += sensorHeight + 15 }
         footnote.frame = CGRect(x: inset + 2, y: footerY, width: max(1, contentWidth - 4), height: 18)
         footerY += 20
         issue.frame = CGRect(x: inset + 2, y: footerY, width: max(1, contentWidth - 4), height: 30)
@@ -541,33 +536,46 @@ private final class SystemStatusHistoryChart: NSView {
 /// Compact hardware readings; no arbitrary universal "overheating" threshold.
 @MainActor private final class SystemStatusTemperatureCard: NSView {
     private let heading = NSTextField(labelWithString: AppLanguage.text("温度"))
-    private let values = NSTextField(labelWithString: "—")
+    private var cells: [(name: NSTextField, value: NSTextField)] = []
+    private var components: [SystemTemperatureStatus.Component] = []
     private let detail = NSTextField(labelWithString: "")
     private var pressure: SystemTemperatureStatus.Pressure = .unknown
     override var isFlipped: Bool { true }
     override init(frame: NSRect) {
         super.init(frame: frame)
         heading.font = SketchPalette.heading(20); heading.textColor = SketchPalette.ink
-        values.font = .monospacedDigitSystemFont(ofSize: 20, weight: .medium)
-        values.textColor = SketchPalette.ink
         detail.font = .systemFont(ofSize: 12); detail.textColor = SketchPalette.muted
-        for label in [heading, values, detail] {
+        for label in [heading, detail] {
             label.lineBreakMode = .byTruncatingTail; addSubview(label)
         }
-        toolTip = AppLanguage.text("CPU／GPU 为可读取传感器的平均温度，不是机身温度。散热压力由 macOS 单独评估。未知机型或受系统限制时显示不可用；不控制风扇。")
+        toolTip = AppLanguage.text("CPU／GPU 显示平均温度；电池、存储等显示已确认测点的最高温度。仅展示本机可读取的部件，不是机身或室温。散热压力由 macOS 单独评估。")
         setAccessibilityRole(.group)
     }
     required init?(coder: NSCoder) { nil }
     func update(_ value: SystemTemperatureStatus?, isEnabled: Bool, hasSample: Bool) {
         pressure = isEnabled ? value?.pressure ?? .unknown : .unknown
-        func degrees(_ number: Double?) -> String {
-            number.map { String(format: "%.0f °C", $0) } ?? "—"
+        components = (isEnabled ? value : nil)?.components
+            ?? SystemTemperatureStatus(cpuCelsius: nil, gpuCelsius: nil, pressure: .unknown).components
+        while cells.count < components.count {
+            let name = NSTextField(labelWithString: ""), number = NSTextField(labelWithString: "—")
+            name.font = .systemFont(ofSize: 13); name.textColor = SketchPalette.muted
+            name.lineBreakMode = .byTruncatingTail
+            number.font = .monospacedDigitSystemFont(ofSize: 18, weight: .medium)
+            number.textColor = SketchPalette.ink; number.alignment = .right
+            addSubview(name); addSubview(number); cells.append((name, number))
+        }
+        for (index, cell) in cells.enumerated() {
+            cell.name.isHidden = index >= components.count; cell.value.isHidden = index >= components.count
+            guard index < components.count else { cell.name.stringValue = ""; cell.value.stringValue = ""; continue }
+            let item = components[index]
+            cell.name.stringValue = Self.name(item.group)
+            cell.name.toolTip = cell.name.stringValue
+            cell.value.stringValue = item.celsius.map { String(format: "%.0f °C", $0) } ?? "—"
+            cell.value.setAccessibilityLabel(cell.name.stringValue + ", " + cell.value.stringValue)
         }
         if !isEnabled {
-            values.stringValue = "—"
             detail.stringValue = AppLanguage.text("开启后显示温度")
         } else if let value {
-            values.stringValue = "CPU " + degrees(value.cpuCelsius) + "   GPU " + degrees(value.gpuCelsius)
             let state: String
             switch value.pressure {
             case .nominal: state = AppLanguage.text("散热压力正常")
@@ -579,18 +587,42 @@ private final class SystemStatusHistoryChart: NSView {
             detail.stringValue = (value.cpuCelsius == nil || value.gpuCelsius == nil)
                 ? AppLanguage.text("部分温度不可用") + " · " + state : state
         } else {
-            values.stringValue = "—"
             detail.stringValue = hasSample ? AppLanguage.text("温度暂不可用") : AppLanguage.text("正在读取温度")
         }
         detail.textColor = pressure == .serious || pressure == .critical ? SketchPalette.coral : SketchPalette.muted
-        setAccessibilityLabel([heading.stringValue, values.stringValue, detail.stringValue].joined(separator: "，"))
+        setAccessibilityLabel(([heading.stringValue] + cells.prefix(components.count).map { $0.name.stringValue + " " + $0.value.stringValue } + [detail.stringValue]).joined(separator: "，"))
         detail.toolTip = detail.stringValue
+        needsLayout = true
         needsDisplay = true
+    }
+    func requiredHeight(for width: CGFloat) -> CGFloat {
+        let columns = width < 380 ? 1 : 2
+        return max(132, 76 + CGFloat((components.count + columns - 1) / columns) * 27)
+    }
+    private static func name(_ group: SystemTemperatureSensor.Group) -> String {
+        switch group {
+        case .cpu: return "CPU"
+        case .gpu: return "GPU"
+        case .battery: return AppLanguage.text("电池")
+        case .storage: return AppLanguage.text("存储")
+        case .memory: return AppLanguage.text("内存")
+        case .board: return AppLanguage.text("主板")
+        case .environment: return AppLanguage.text("散热区域")
+        case .other: return ""
+        }
     }
     override func layout() {
         super.layout()
         heading.frame = CGRect(x: 54, y: 13, width: max(1, bounds.width - 72), height: 27)
-        values.frame = CGRect(x: 18, y: 45, width: max(1, bounds.width - 36), height: 27)
+        let columns = bounds.width < 380 ? 1 : 2
+        let gap: CGFloat = 16
+        let width = max(1, (bounds.width - 36 - CGFloat(columns - 1) * gap) / CGFloat(columns))
+        for (index, cell) in cells.enumerated() where index < components.count {
+            let x = 18 + CGFloat(index % columns) * (width + gap)
+            let y = 46 + CGFloat(index / columns) * 27
+            cell.name.frame = CGRect(x: x, y: y + 3, width: max(1, width - 70), height: 21)
+            cell.value.frame = CGRect(x: x + max(1, width - 68), y: y, width: min(68, width), height: 25)
+        }
         detail.frame = CGRect(x: 18, y: bounds.height - 29, width: max(1, bounds.width - 36), height: 18)
     }
     override func draw(_ dirtyRect: NSRect) {
@@ -605,111 +637,5 @@ private final class SystemStatusHistoryChart: NSView {
         let bulb = NSBezierPath(ovalIn: CGRect(x: 26, y: 27, width: 11, height: 11))
         SketchPalette.fill(bulb, color: (pressure == .serious || pressure == .critical ? SketchPalette.coral : SketchPalette.green).withAlphaComponent(0.6))
         SketchPencil.stroke(bulb, color: SketchPalette.ink, width: 1.2)
-    }
-}
-
-/// Bounded reusable labels, no chart, input monitor or independent sampling.
-@MainActor private final class SystemStatusTemperatureList: NSView {
-    private let heading = NSTextField(labelWithString: AppLanguage.text("全部温度"))
-    private let note = NSTextField(wrappingLabelWithString: "")
-    private var accessibilityRows: [NSAccessibilityElement] = []
-    private var names: [String] = []
-    private var values: [String] = []
-    private var lastStatus: SystemTemperatureStatus?
-    private var entries: [SystemTemperatureSensor] = []
-    private var enabled = false
-    override var isFlipped: Bool { true }
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        heading.font = SketchPalette.heading(20); heading.textColor = SketchPalette.ink
-        note.font = .systemFont(ofSize: 12); note.textColor = SketchPalette.muted
-        note.maximumNumberOfLines = 2; note.lineBreakMode = .byTruncatingTail
-        addSubview(heading); addSubview(note)
-        setAccessibilityRole(.group)
-    }
-    required init?(coder: NSCoder) { nil }
-    func update(_ status: SystemTemperatureStatus?, isEnabled: Bool) {
-        if enabled == isEnabled && lastStatus == status { return }
-        enabled = isEnabled; lastStatus = status
-        entries = isEnabled ? (status?.sensors ?? []).sorted {
-            $0.group.rawValue == $1.group.rawValue ? $0.key < $1.key : $0.group.rawValue < $1.group.rawValue
-        } : []
-        heading.stringValue = AppLanguage.text("全部温度") + (entries.isEmpty ? "" : " · \(entries.count)")
-        let message: String
-        if status?.isDiscovering == true { message = AppLanguage.text("正在发现更多传感器…") }
-        else if status?.isLimited == true { message = AppLanguage.text("部分传感器未能读取或已达读取上限") }
-        else if entries.isEmpty { message = AppLanguage.text("尚无可读取的温度传感器") }
-        else { message = AppLanguage.text("仅显示本机可读取项 · 未知位置保留编号") }
-        note.stringValue = message
-        note.toolTip = message
-        let old = Dictionary(uniqueKeysWithValues: zip(names, accessibilityRows))
-        names = entries.map { Self.groupName($0.group) + " · " + $0.key }
-        values = entries.map { $0.celsius.map { String(format: "%.1f °C", $0) } ?? "—" }
-        accessibilityRows = entries.indices.map { index in
-            let element = old[names[index]] ?? NSAccessibilityElement()
-            element.setAccessibilityParent(self)
-            element.setAccessibilityRole(.staticText)
-            element.setAccessibilityLabel(names[index] + ", " + values[index])
-            return element
-        }
-        setAccessibilityLabel(heading.stringValue)
-        needsLayout = true; needsDisplay = true
-    }
-    func height(for width: CGFloat) -> CGFloat {
-        guard enabled else { return 0 }
-        let columns = width >= 620 ? 2 : 1
-        return 82 + CGFloat((entries.count + columns - 1) / columns) * 27
-    }
-    static func groupName(_ group: SystemTemperatureSensor.Group) -> String {
-        switch group {
-        case .cpu: return "CPU"
-        case .gpu: return "GPU"
-        case .battery: return AppLanguage.text("电池")
-        case .memory: return AppLanguage.text("内存")
-        case .storage: return AppLanguage.text("存储")
-        case .board: return AppLanguage.text("主板与供电")
-        case .environment: return AppLanguage.text("环境与散热")
-        case .other: return AppLanguage.text("其他传感器")
-        }
-    }
-    override func layout() {
-        super.layout()
-        heading.frame = CGRect(x: 18, y: 13, width: max(1, bounds.width - 36), height: 27)
-        note.frame = CGRect(x: 18, y: 44, width: max(1, bounds.width - 36), height: 32)
-        let columns = bounds.width >= 620 ? 2 : 1
-        let gap: CGFloat = 28
-        let columnWidth = max(1, (bounds.width - 36 - CGFloat(columns - 1) * gap) / CGFloat(columns))
-        for (index, element) in accessibilityRows.enumerated() {
-            let x = 18 + CGFloat(index % columns) * (columnWidth + gap)
-            let y = 78 + CGFloat(index / columns) * 27
-            element.setAccessibilityFrameInParentSpace(CGRect(x: x, y: bounds.height - y - 21, width: columnWidth, height: 21))
-        }
-    }
-    override func accessibilityChildren() -> [Any]? { [heading, note] + accessibilityRows }
-    override func draw(_ dirtyRect: NSRect) {
-        guard bounds.width > 0, bounds.height > 0 else { return }
-        NSGraphicsContext.saveGraphicsState(); defer { NSGraphicsContext.restoreGraphicsState() }
-        NSBezierPath(rect: bounds).addClip()
-        let outline = SketchPencil.outline(in: bounds.insetBy(dx: 1.5, dy: 1.5), radius: 14)
-        SketchPalette.paper.setFill(); outline.fill()
-        SketchPencil.stroke(outline, color: SketchPalette.line.withAlphaComponent(0.56), width: 1.2)
-        let columns = bounds.width >= 620 ? 2 : 1
-        let gap: CGFloat = 28
-        let columnWidth = max(1, (bounds.width - 36 - CGFloat(columns - 1) * gap) / CGFloat(columns))
-        let nameStyle: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 13), .foregroundColor: SketchPalette.ink]
-        let valueStyle: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 14, weight: .medium), .foregroundColor: SketchPalette.ink]
-        let visible = dirtyRect.intersection(bounds)
-        guard !visible.isEmpty, visible.minY.isFinite, visible.maxY.isFinite else { return }
-        let count = (entries.count + columns - 1) / columns
-        let firstRow = Int(min(Double(count), max(0, floor(Double((visible.minY - 78) / 27)))))
-        let lastRow = Int(min(Double(count), max(0, ceil(Double((visible.maxY - 78) / 27)))))
-        guard lastRow > firstRow else { return }
-        for index in (firstRow * columns)..<min(entries.count, lastRow * columns) {
-            let x = 18 + CGFloat(index % columns) * (columnWidth + gap)
-            let y = 78 + CGFloat(index / columns) * 27
-            (names[index] as NSString).draw(in: CGRect(x: x, y: y + 2, width: max(1, columnWidth - 80), height: 21), withAttributes: nameStyle)
-            let value = values[index] as NSString
-            value.draw(at: CGPoint(x: x + columnWidth - value.size(withAttributes: valueStyle).width, y: y), withAttributes: valueStyle)
-        }
     }
 }

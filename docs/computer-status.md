@@ -1,61 +1,42 @@
 # Computer Status / 电脑状态
 
-The former System Status display name is now Computer Status. The `systemStatus`
-module identity and saved enablement are unchanged. CPU, memory, network and
-startup-volume capacity retain their existing behavior.
+The module keeps its `systemStatus` identity, saved enablement, CPU, memory,
+network and startup-disk metrics. The temperature card directly shows common
+components: CPU, GPU, and readable battery/storage/memory/board/cooling values.
+There is no raw sensor list, per-core ID display, count or catalogue scan.
 
-The compact temperature card reports CPU/GPU averages in Celsius from readable
-sensors, and separately shows `ProcessInfo.thermalState` pressure. The average
-is not case temperature, a single package sensor, or the hottest core. Missing,
-zero, nonfinite, negative and above-150-degree readings are unavailable, never
-fabricated as zero. No universal CPU warning threshold is inferred from degrees.
+CPU/GPU keep the existing averages. Other component values use the hottest
+readable confirmed point in that component, avoiding an average that conceals
+one hotter battery or storage point. The tooltip states this policy. macOS
+`ProcessInfo.thermalState` pressure remains a separate OS assessment; the app
+infers no universal overheating threshold and controls no fans.
 
-## Sensor boundary
+Unknown-location keys are neither queried nor promoted into component labels.
+Only platform-specific known CPU/GPU keys and confirmed additional component
+keys are read, capped at 128. Unsupported optional components are absent;
+previously available components retain an unavailable placeholder on read
+failure. Zero, negative, nonfinite and above-150-degree values are unavailable.
+The cooling-region reading is not advertised as room or case temperature.
 
-`SystemTemperatureReader.swift` isolates the undocumented AppleSMC read protocol.
-It calls IOKit directly, without Homebrew, Stats, root, shell commands, drivers,
-privileged helpers, fan control or writes. Only key-info (9), key-by-index (8) and read-bytes (5)
-commands are issued. Every session is closed before returning. The 80-byte ABI
-uses explicit offsets and only recognized sp78 and little-endian flt formats.
+`SystemTemperatureReader.swift` isolates the undocumented AppleSMC protocol,
+using IOKit read-bytes (5) and key-info (9) only. There is no key-by-index command,
+full catalogue discovery, root, helper, subprocess, driver or third-party runtime.
+Sessions are always closed before returning; cached key metadata is bounded by
+the fixed monitored set. Source facts: [Stats sensor definitions](https://github.com/exelban/stats/blob/master/Modules/Sensors/values.swift)
+and [SMC layout research](https://github.com/agoodkind/macos-smc-fan/blob/main/docs/research.md).
 
-Known M1–M5 CPU/GPU mappings are generation-specific. All readable temperature
-keys are additionally discovered from the machine's actual SMC catalogue. Known
-battery, storage, memory, board and cooling mappings get category labels; other
-keys retain their raw identity without guessed location, including on unknown
-hardware generations. Some SMC values are derived/overlapping telemetry rather
-than a unique physical sensor; the list counts readings, not physical probes. Intel reads known CPU
-and GPU diode/package keys. Not every supported Mac necessarily exposes these
-sensors; this is graceful compatibility, not a claim of testing every model.
-No sensors from another hardware generation are guessed. Mapping facts were
-checked against [Stats sensor definitions](https://github.com/exelban/stats/blob/master/Modules/Sensors/values.swift).
-Protocol layout can be checked against [SMC protocol research](https://github.com/agoodkind/macos-smc-fan/blob/main/docs/research.md).
-The implementation is independent and does not embed the Stats runtime.
+The existing serial sampler owns the four-second temperature cache and
+thirty-second all-unavailable backoff. Stop/sleep cancels delivery generations;
+wake recreates the reader. An in-flight synchronous driver call may finish, but
+cannot publish into a stopped or newer session. No extra timer or observer.
 
-## Resource lifetime
+The card holds at most seven component rows in one/two columns, with ordinary
+native accessible labels and the existing paper/graphite styling. Layout adapts
+the adjacent disk strip height without adding another panel or reading area.
 
-The existing two-second serial sampler owns temperature reads, with a four-second
-cache; fully unavailable readings back off for thirty seconds. Failed refreshes
-clear old degree values. Catalogue discovery happens incrementally on existing
-two-second ticks: up to 1,024 indices and a 30 ms between-call budget per step,
-up to 8,192 catalogue indices and 1,024 retained temperature candidates. Completed
-catalogues are not rescanned during the worker lifetime. Limits and discovery
-failures are visible, not silently reported as a complete list. Only sp78/flt
-readings in the valid range are displayed. Previously readable failed sensors
-remain as unavailable rows instead of retaining stale temperatures. Discovery's
-budget is cooperative, not a kernel-call timeout; reading the bounded candidate
-list is serial. There is no retained connection, extra timer or idle subprocess.
-
-The detailed list draws only rows intersecting its dirty region and retains two
-native text fields total, plus bounded accessibility elements. No view per sensor
-or new histories/charts are created; unchanged lists skip updates. Wide pages
-use two columns, narrow pages one. Disabling clears list contents. Supported
-categories are only shown when actually present; unknown raw keys stay visible.
-Stop/sleep cancel the existing worker generation; an in-flight native call may
-finish but cannot publish stale readings. Wake creates a fresh cache.
-
-Use `zsh tools/run-system-status-regression.sh` for deterministic decoding,
-throttling, missing-data, lifecycle and wide/narrow offscreen UI checks. Add
-`--live-sample` for ten isolated read-only native samples and measured CPU/time.
-English uses `MACOSX_TEST_LANGUAGE=en`. These checks do not operate the user's
-installed app, desktop UI, clipboard or preferences. Native sample results on one
-machine are not proof of all hardware compatibility.
+`zsh tools/run-system-status-regression.sh` covers decoding, known-key selection,
+aggregation, unknown-key exclusion, unavailable values, serial sampling,
+stop/sleep/restart generations and Chinese/English wide/narrow offscreen UI.
+`--live-sample` measures ten isolated read-only native samples; it does not drive
+the installed app, desktop, preferences or clipboard. One machine's results are
+not proof of all hardware compatibility.

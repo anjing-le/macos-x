@@ -6113,5 +6113,29 @@
       "raw": false,
       "multiline": false
     }
+  ],
+  "主板": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 609,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "散热区域": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 610,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "CPU／GPU 显示平均温度；电池、存储等显示已确认测点的最高温度。仅展示本机可读取的部件，不是机身或室温。散热压力由 macOS 单独评估。": [
+    {
+      "file": "Sources/MacOSX/SystemStatus/SystemStatusDashboardView.swift",
+      "line": 551,
+      "raw": false,
+      "multiline": false
+    }
   ]
 }

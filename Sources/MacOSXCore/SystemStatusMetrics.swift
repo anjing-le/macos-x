@@ -205,22 +205,33 @@ public struct SystemTemperatureStatus: Equatable, Sendable {
     public let gpuCelsius: Double?
     public let pressure: Pressure
     public let sensors: [SystemTemperatureSensor]
-    public let isDiscovering: Bool
-    public let isLimited: Bool
     public init(cpuCelsius: Double?, gpuCelsius: Double?, pressure: Pressure,
-                sensors: [SystemTemperatureSensor] = [], isDiscovering: Bool = false, isLimited: Bool = false) {
+                sensors: [SystemTemperatureSensor] = []) {
         self.cpuCelsius = Self.valid(cpuCelsius)
         self.gpuCelsius = Self.valid(gpuCelsius)
         self.pressure = pressure
         var seen = Set<String>()
         var unique: [SystemTemperatureSensor] = []
-        for sensor in sensors.prefix(2048) where seen.insert(sensor.key).inserted {
-            guard unique.count < 1024 else { break }
+        for sensor in sensors.prefix(256) where seen.insert(sensor.key).inserted {
+            guard unique.count < 128 else { break }
             unique.append(sensor)
         }
         self.sensors = unique
-        self.isDiscovering = isDiscovering
-        self.isLimited = isLimited || sensors.count > 1024
+    }
+    public struct Component: Equatable, Sendable {
+        public let group: SystemTemperatureSensor.Group
+        public let celsius: Double?
+    }
+    /// CPU/GPU retain their established averages. Other components report the
+    /// hottest confirmed point; no unknown key is promoted to a component.
+    public var components: [Component] {
+        var result: [Component] = [.init(group: .cpu, celsius: cpuCelsius), .init(group: .gpu, celsius: gpuCelsius)]
+        for group: SystemTemperatureSensor.Group in [.battery, .storage, .memory, .board, .environment] {
+            let matching = sensors.filter { $0.group == group }
+            guard !matching.isEmpty else { continue }
+            result.append(.init(group: group, celsius: matching.compactMap(\.celsius).max()))
+        }
+        return result
     }
     public static func valid(_ value: Double?) -> Double? {
         guard let value, value.isFinite, value > 0, value <= 150 else { return nil }

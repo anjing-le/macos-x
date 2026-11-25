@@ -44,13 +44,6 @@ extension SystemStatusModule {
     fileprivate var fixtureLatest: SystemStatusSnapshot? { latest }
 }
 
-extension TemperatureSMC {
-    fileprivate var fixtureCursor: Int { cursor }
-    fileprivate var fixtureCandidates: [String] { candidates }
-    fileprivate var fixtureLimited: Bool { limited }
-    fileprivate var fixtureFailed: Bool { discoveryFailed }
-}
-
 @main struct SystemStatusRegression {
     @MainActor private static func temperatureReadings() throws {
         try require(TemperatureSMC.decode(type: 0x73703738, bytes: [0x2a, 0x80]) == 42.5, "Intel signed fixed-point temperature decodes correctly")
@@ -61,30 +54,22 @@ extension TemperatureSMC {
         try require(TemperatureSMC.decode(type: 0x73703738, bytes: [0xff, 0]) == nil && TemperatureSMC.decode(type: 0x666c7420, bytes: [0]) == nil, "negative and malformed readings are rejected")
         try require(TemperatureSMC.sensorKeys(brand: "Apple M999 Pro").cpu.isEmpty, "unknown chips never inherit guessed sensor meanings")
         try require(!TemperatureSMC.sensorKeys(brand: "Apple M5 Pro").cpu.isEmpty && !TemperatureSMC.sensorKeys(brand: "Intel Core i7").cpu.contains("Tp0P"), "Apple and Intel use independent sensor maps")
-        let catalogue = TemperatureSMC()
-        catalogue.discover(total: 2200, deadline: 1, now: { 0 }) { index in
-            index.isMultiple(of: 2) ? String(format: "T%03X", index) : "PWR0"
-        }
-        try require(catalogue.fixtureCursor == 1024 && catalogue.fixtureCandidates.count == 512 && !catalogue.fixtureLimited, "discovery caps per-tick calls and retained sensors without retaining power keys")
-        catalogue.discover(total: 2200, deadline: 1, now: { 0 }) { String(format: "T%03X", $0) }
-        try require(catalogue.fixtureCursor == 2048 && catalogue.fixtureCandidates.count == 1024 && catalogue.fixtureLimited, "subsequent ticks resume discovery instead of repeating a full scan")
-        catalogue.discover(total: 2200, deadline: 0, now: { 0 }) { _ in "Txxx" }
-        try require(catalogue.fixtureCursor == 2048, "discovery respects the between-call time budget")
-        catalogue.discover(total: 2200, deadline: 1, now: { 0 }) { _ in nil }
-        try require(catalogue.fixtureCursor == 2200 && catalogue.fixtureFailed, "failed catalogue entries are explicit and do not cause infinite retry")
+        let monitored = TemperatureSMC.monitoredKeys(brand: "Apple M5 Pro")
+        try require(monitored.contains("TB1T") && monitored.contains("TH0x") && !monitored.contains("Tm02") && monitored.count < 128, "common component reads include battery/storage without scanning unrelated or unverified keys")
+        try require(TemperatureSMC.monitoredKeys(brand: "Apple M999").isEmpty, "unsupported chips do not query guessed component keys")
         try require(TemperatureSMC.group(key: "TB1T", brand: "Apple M5 Pro") == .battery && TemperatureSMC.group(key: "TH0x", brand: "Apple M5 Pro") == .storage, "documented battery/storage keys retain their meanings")
         try require(TemperatureSMC.group(key: "Tm02", brand: "Apple M1") == .memory && TemperatureSMC.group(key: "Tm02", brand: "Apple M5 Pro") == .other, "memory mappings cannot leak into an unverified generation")
         try require(TemperatureSMC.group(key: "TB1T", brand: "Apple M999") == .other, "unknown chips retain raw IDs instead of inferred hardware labels")
         let sensor = SystemTemperatureSensor(key: "TB1T", group: .battery, celsius: 32)!
         let list = SystemTemperatureStatus(cpuCelsius: nil, gpuCelsius: nil, pressure: .nominal, sensors: [sensor, sensor])
         try require(list.sensors == [sensor] && SystemTemperatureSensor(key: "not-a-key", group: .other, celsius: 0) == nil, "sensor identity deduplicates eagerly without losing actual rows")
-        var discoveringReads = 0
-        let discovering = SystemTemperatureReader(read: {
-            discoveringReads += 1
-            return .init(cpu: nil, gpu: nil, isDiscovering: true)
-        })
-        _ = discovering.sample(at: 0); _ = discovering.sample(at: 1.9); _ = discovering.sample(at: 2)
-        try require(discoveringReads == 2, "incremental discovery reuses two-second existing ticks instead of waiting for thirty-second backoff")
+        let componentStatus = SystemTemperatureStatus(cpuCelsius: 50, gpuCelsius: 45, pressure: .nominal, sensors: [
+            .init(key: "TB1T", group: .battery, celsius: 31)!, .init(key: "TB2T", group: .battery, celsius: 33)!,
+            .init(key: "TH0x", group: .storage, celsius: 40)!, .init(key: "Txyz", group: .other, celsius: 99)!])
+        try require(componentStatus.components.count == 4 && componentStatus.components.first(where: { $0.group == .battery })?.celsius == 33,
+                    "one battery value uses the hottest known point while unknown measurements never become components")
+        let failed = SystemTemperatureStatus(cpuCelsius: nil, gpuCelsius: nil, pressure: .nominal, sensors: [.init(key: "TB1T", group: .battery, celsius: nil)!])
+        try require(failed.components.contains { $0.group == .battery && $0.celsius == nil }, "previously readable components remain unavailable rather than stale on failure")
         var reads = 0
         let reader = SystemTemperatureReader(read: { reads += 1; return reads == 2 ? .init(cpu: nil, gpu: nil) : .init(cpu: 42.5, gpu: 39.0) })
         try require(reader.sample(at: 100).cpuCelsius == 42.5 && reads == 1, "first temperature sample is immediate")
@@ -156,9 +141,6 @@ extension TemperatureSMC {
     }
     @MainActor private static func labels(_ view: NSView) -> [String] {
         descendants(view).compactMap { ($0 as? NSTextField)?.stringValue }
-            + descendants(view).compactMap { $0 as? SystemStatusTemperatureList }.flatMap {
-                ($0.accessibilityChildren() ?? []).compactMap { ($0 as? NSAccessibilityElement)?.accessibilityLabel() }
-            }
     }
     @MainActor private static func layout(_ view: NSView, width: CGFloat) {
         view.frame = CGRect(x: 0, y: 0, width: width, height: max(1, view.intrinsicContentSize.height))
@@ -351,11 +333,11 @@ extension TemperatureSMC {
         for width: CGFloat in [912, 312] {
             layout(view, width: width)
             try assertBounds(view, name: "dashboard \(Int(width))")
-            if width == 912 { try require(view.intrinsicContentSize.height < 850, "capacity strip and live cards fit the normal settings page") }
+            if width == 912 { try require(view.intrinsicContentSize.height < 600, "capacity strip and live cards fit the normal settings page") }
             try require(labels(view).contains("硬盘") && labels(view).contains(where: { $0.contains((AppLanguage.current == .english ? "Available 125" : "可用 125")) }), "real capacity values appear alongside existing live charts")
             let charts = descendants(view).compactMap { $0 as? SystemStatusHistoryChart }
-            try require(labels(view).contains("温度") && labels(view).contains(where: { $0.contains("CPU 42") && $0.contains("GPU 39") }), "actual Celsius readings appear without replacing existing metrics")
-            try require(labels(view).contains(where: { $0.contains("TB1T") }) && labels(view).contains(where: { $0.contains("32.0 °C") }) && labels(view).contains(where: { $0.contains("Txyz") }), "battery and unknown identified sensor readings are visible alongside every CPU/GPU value")
+            try require(labels(view).contains("温度") && labels(view).contains("CPU") && labels(view).contains("GPU") && labels(view).contains("42 °C") && labels(view).contains("39 °C"), "actual Celsius readings appear without replacing existing metrics")
+            try require(labels(view).contains("电池") && labels(view).contains("存储") && labels(view).contains("32 °C") && labels(view).contains("40 °C") && !labels(view).contains(where: { $0.contains("TB1T") || $0.contains("Txyz") || $0.contains("全部温度") }), "common battery/storage values appear inside the compact temperature card without raw identifiers or a sensor list")
             try require(charts.count == 3, "dashboard exposes three native metric charts")
             try require(charts.allSatisfy { ($0.accessibilityLabel() ?? "").contains((AppLanguage.current == .english ? "up to 31 samples" : "最多 31 个采样点")) },
                         "UI histories also cap at 31 samples for oversized input")
@@ -366,19 +348,7 @@ extension TemperatureSMC {
         var partial = history.last!
         partial.temperature = .init(cpuCelsius: nil, gpuCelsius: 60, pressure: .critical)
         view.update(snapshot: partial, history: history, isEnabled: true)
-        try require(labels(view).contains("CPU —   GPU 60 °C") && labels(view).contains(where: { $0.contains(AppLanguage.text("散热压力严重")) }), "partial sensor failures retain the available GPU and independent critical OS pressure")
-        let many = (0..<1100).map { SystemTemperatureSensor(key: String(format: "T%03X", $0), group: .other, celsius: 42)! }
-        var populated = history.last!
-        populated.temperature = .init(cpuCelsius: 42, gpuCelsius: 39, pressure: .nominal, sensors: many)
-        try require(populated.temperature?.sensors.count == 1024 && populated.temperature?.isLimited == true, "a pathological catalogue is bounded and the limit is explicit")
-        view.update(snapshot: populated, history: history, isEnabled: true)
-        for width: CGFloat in [912, 312] {
-            layout(view, width: width)
-            let list = descendants(view).compactMap { $0 as? SystemStatusTemperatureList }.first!
-            let rows = (list.accessibilityChildren() ?? []).compactMap { $0 as? NSAccessibilityElement }
-            try require(rows.count == 1024 && list.subviews.count == 2, "all bounded readings are accessible without allocating a view or field per row")
-            try require(rows.allSatisfy { list.bounds.contains(CGRect(x: $0.accessibilityFrameInParentSpace().minX, y: $0.accessibilityFrameInParentSpace().minY, width: $0.accessibilityFrameInParentSpace().width, height: $0.accessibilityFrameInParentSpace().height)) }, "wide/narrow final sensor rows retain finite accessible geometry")
-        }
+        try require(labels(view).contains("CPU") && labels(view).contains("60 °C") && labels(view).contains("—") && labels(view).contains(where: { $0.contains(AppLanguage.text("散热压力严重")) }), "partial sensor failures retain the available GPU and independent critical OS pressure")
         view.update(snapshot: nil, history: history, isEnabled: true)
         try require(labels(view).contains("等待首次采样") && labels(view).contains("建立采样基线") == false,
                     "initial waiting state is clear and does not invent stale measurements")
@@ -393,8 +363,8 @@ extension TemperatureSMC {
         try memoryHistoryRendering(end: end, output: output)
         view.update(snapshot: missing, history: history, isEnabled: false)
         try require(labels(view).contains("开启后显示硬盘容量"), "disabled module clears disk capacity")
-        try require(labels(view).contains("已关闭 · 开启后开始监控") && labels(view).filter { $0 == "—" }.count == 5,
-                    "disabled dashboard clears all five values")
+        try require(labels(view).contains("已关闭 · 开启后开始监控") && labels(view).filter { $0 == "—" }.count == 6,
+                    "disabled dashboard clears live metrics and both temperature placeholders")
         missing.cpuPercent = .nan
         missing.timestamp = .nan
         missing.network = .init(interfaceName: String(repeating: "very-long-physical-interface-", count: 8),
@@ -567,10 +537,8 @@ extension TemperatureSMC {
                                        "temperatureSamples": samples.filter { $0.temperature?.cpuCelsius != nil }.count,
                                        "cpuCelsius": samples.last?.temperature?.cpuCelsius as Any? ?? NSNull(),
                                        "gpuCelsius": samples.last?.temperature?.gpuCelsius as Any? ?? NSNull(),
-                                       "discoveredSensors": samples.last?.temperature?.sensors.count ?? 0,
-                                       "sensorDiscoveryPending": samples.last?.temperature?.isDiscovering ?? false,
-                                       "sensorReadLimited": samples.last?.temperature?.isLimited ?? false,
-                                       "sensors": samples.last?.temperature?.sensors.map { ["key": $0.key, "group": String(describing: $0.group), "celsius": $0.celsius as Any? ?? NSNull()] } ?? []]
+                                       "monitoredSensorReadings": samples.last?.temperature?.sensors.count ?? 0,
+                                       "components": samples.last?.temperature?.components.map { ["group": String(describing: $0.group), "celsius": $0.celsius as Any? ?? NSNull()] } ?? []]
         let json = try JSONSerialization.data(withJSONObject: evidence, options: [.sortedKeys])
         print("LIVE system status: " + String(decoding: json, as: UTF8.self))
     }

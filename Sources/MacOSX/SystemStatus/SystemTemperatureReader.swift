@@ -9,8 +9,6 @@ final class SystemTemperatureReader {
         var cpu: Double?
         var gpu: Double?
         var sensors: [SystemTemperatureSensor] = []
-        var isDiscovering = false
-        var isLimited = false
     }
     private var nextRead: TimeInterval?
     private var previousTime: TimeInterval?
@@ -30,7 +28,7 @@ final class SystemTemperatureReader {
                 cached.cpu = SystemTemperatureStatus.valid(value.cpu)
                 cached.gpu = SystemTemperatureStatus.valid(value.gpu)
                 // Unsupported hardware/failed reads do not cause a rapid retry loop.
-                nextRead = time + (cached.isDiscovering ? 2 : cached.sensors.contains(where: { $0.celsius != nil }) || cached.cpu != nil || cached.gpu != nil ? 4 : 30)
+                nextRead = time + (cached.sensors.contains(where: { $0.celsius != nil }) || cached.cpu != nil || cached.gpu != nil ? 4 : 30)
             }
             previousTime = time
         } else { cached = Reading(cpu: nil, gpu: nil); nextRead = nil; previousTime = nil }
@@ -42,11 +40,11 @@ final class SystemTemperatureReader {
         case .critical: pressure = .critical
         @unknown default: pressure = .unknown
         }
-        return .init(cpuCelsius: cached.cpu, gpuCelsius: cached.gpu, pressure: pressure, sensors: cached.sensors, isDiscovering: cached.isDiscovering, isLimited: cached.isLimited)
+        return .init(cpuCelsius: cached.cpu, gpuCelsius: cached.gpu, pressure: pressure, sensors: cached.sensors)
     }
 }
 
-/// Isolated undocumented sensor protocol. Unknown sensor meanings retain their raw key.
+/// Isolated read-only protocol: only confirmed common-component keys are queried.
 /// Protocol references and sensor mapping provenance: docs/computer-status.md.
 final class TemperatureSMC {
     struct KeyInfo { let size: UInt32; let type: UInt32 }
@@ -58,33 +56,21 @@ final class TemperatureSMC {
     private var groups: [String: SystemTemperatureSensor.Group] = [:]
     private var infoCache: [String: KeyInfo] = [:]
     private var displayed = Set<String>()
-    private var keyCount: Int?
-    private var cursor = 0
-    private var limited = false
-    private var discoveryFailed = false
 
     func read() -> SystemTemperatureReader.Reading {
         if brand == nil {
             brand = Self.cpuBrand()
             let known = Self.sensorKeys(brand: brand!)
             cpuKeys = known.cpu; gpuKeys = known.gpu
-            for key in cpuKeys + gpuKeys + Self.additionalKeys(brand: brand!) { remember(key) }
+            for key in Self.monitoredKeys(brand: brand!) { remember(key) }
         }
+        guard !candidates.isEmpty else { return unavailable() }
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSMC"))
         guard service != 0 else { return unavailable() }
         defer { IOObjectRelease(service) }
         var connection: io_connect_t = 0
         guard IOServiceOpen(service, mach_task_self_, 0, &connection) == KERN_SUCCESS else { return unavailable() }
         defer { IOServiceClose(connection) }
-        // Discovery is one bounded, incremental catalogue walk per worker lifetime.
-        // Only temperature keys are retained; the next tick resumes at the cursor.
-        let deadline = ProcessInfo.processInfo.systemUptime + 0.03
-        if keyCount == nil, let bytes = bytes(key: "#KEY", connection: connection), bytes.count == 4 {
-            let count = bytes.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
-            keyCount = min(Int(count), 8192)
-            limited = count > 8192
-        }
-        if let keyCount { discover(total: keyCount, deadline: deadline) { Self.key(at: $0, connection: connection) } }
         var values: [String: Double] = [:]
         for key in candidates {
             guard let bytes = bytes(key: key, connection: connection), let info = infoCache[key],
@@ -98,33 +84,28 @@ final class TemperatureSMC {
         let sensors = displayed.sorted().compactMap { key in
             SystemTemperatureSensor(key: key, group: groups[key] ?? .other, celsius: values[key])
         }
-        return .init(cpu: average(cpuKeys), gpu: average(gpuKeys), sensors: sensors,
-                     isDiscovering: keyCount.map { cursor < $0 } ?? false,
-                     isLimited: limited || discoveryFailed || keyCount == nil)
-    }
-
-    // Shared by native discovery and deterministic transport-free regressions.
-    func discover(total: Int, deadline: TimeInterval, now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-                  keyAt: (Int) -> String?) {
-        let total = min(max(0, total), 8192)
-        var steps = 0
-        while cursor < total, steps < 1024, now() < deadline {
-            if let key = keyAt(cursor) { remember(key) } else { discoveryFailed = true }
-            cursor += 1; steps += 1
-        }
+        return .init(cpu: average(cpuKeys), gpu: average(gpuKeys), sensors: sensors)
     }
 
     private func unavailable() -> SystemTemperatureReader.Reading {
         .init(cpu: nil, gpu: nil, sensors: displayed.sorted().compactMap {
             .init(key: $0, group: groups[$0] ?? .other, celsius: nil)
-        }, isLimited: true)
+        })
     }
 
     private func remember(_ key: String) {
         guard key.utf8.count == 4, key.utf8.allSatisfy({ (32...126).contains($0) }), key.first == "T", !candidateSet.contains(key) else { return }
-        guard candidates.count < 1024 else { limited = true; return }
+        guard candidates.count < 128 else { return }
         candidateSet.insert(key); candidates.append(key)
         groups[key] = Self.group(key: key, brand: brand ?? "")
+    }
+
+    static func monitoredKeys(brand: String) -> [String] {
+        let known = sensorKeys(brand: brand)
+        var seen = Set<String>()
+        return (known.cpu + known.gpu + additionalKeys(brand: brand)).filter {
+            group(key: $0, brand: brand) != .other && seen.insert($0).inserted
+        }
     }
 
     static func additionalKeys(brand: String) -> [String] {
@@ -155,21 +136,13 @@ final class TemperatureSMC {
             if brand.hasPrefix("Apple M4"), ["Tm0p", "Tm1p", "Tm2p"].contains(key) { return .memory }
         }
         if intel {
+            guard additionalKeys(brand: brand).contains(key) else { return .other }
             if ["Tm0P", "Tp0P", "TN0D", "TN0H", "TN0P"].contains(key) { return .board }
             if key.hasPrefix("TMA") || key.hasPrefix("TMB") { return .memory }
             if key.hasPrefix("TH"), ["A", "B", "C"].contains(String(key.suffix(1))) { return .storage }
             if key.hasPrefix("TA") || key.hasPrefix("Th") { return .environment }
         }
         return .other
-    }
-
-    private static func key(at index: Int, connection: io_connect_t) -> String? {
-        var request = [UInt8](repeating: 0, count: 80)
-        write(UInt32(index), at: 44, to: &request)
-        request[42] = 8 // read key by index, never a write command
-        guard let result = call(request, connection: connection) else { return nil }
-        let code = uint32(result, at: 0)
-        return String(bytes: (0..<4).reversed().map { UInt8(truncatingIfNeeded: code >> ($0 * 8)) }, encoding: .ascii)
     }
 
     static func sensorKeys(brand: String) -> (cpu: [String], gpu: [String]) {
@@ -208,8 +181,8 @@ final class TemperatureSMC {
             guard let info = Self.call(request, connection: connection) else { return nil }
             let size = Self.uint32(info, at: 28), type = Self.uint32(info, at: 32)
             guard size > 0, size <= 32 else { return nil }
-            // Keep only temperature encodings or the catalogue's ui32 count.
-            guard key == "#KEY" || type == 0x73703738 || type == 0x666c7420 else { return nil }
+            // Only recognized temperature encodings are decoded.
+            guard type == 0x73703738 || type == 0x666c7420 else { return nil }
             infoCache[key] = .init(size: size, type: type)
         }
         guard let info = infoCache[key] else { return nil }
