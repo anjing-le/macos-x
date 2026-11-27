@@ -50,6 +50,7 @@ import os
     var onEditorRecognize: (() -> Void)?
     var onEditorCancel: (() -> Void)?
     var onAdjustmentStarted: (() -> Void)?
+    var onSelectionTranslated: ((CGSize) -> Void)?
     private var acceptsInput = false
     private var mode: Mode = .screenshot
     private var recordingControls: NSPanel?
@@ -228,7 +229,7 @@ import os
         redraw()
     }
     func clearEditorCallbacks() {
-        onEditorKey = nil; onEditorCopy = nil; onEditorActivate = nil; onEditorRecognize = nil; onEditorCancel = nil; onAdjustmentStarted = nil
+        onEditorKey = nil; onEditorCopy = nil; onEditorActivate = nil; onEditorRecognize = nil; onEditorCancel = nil; onAdjustmentStarted = nil; onSelectionTranslated = nil
         awaitingEditor = false; pendingCopy = false; pendingRecognition = false
     }
     func setEditing(_ editing: Bool) {
@@ -290,7 +291,9 @@ import os
         }
         snappedWindow = nil
         if spaceDown, !spaceRegion.isNull {
+            let previous = selection
             selection = CaptureSelectionGeometry.moved(spaceRegion, dx: point.x - spaceAnchor.x, dy: point.y - spaceAnchor.y, in: desktop)
+            reportTranslation(from: previous)
             redraw(); return
         }
         switch drag {
@@ -298,7 +301,9 @@ import os
             selection = CaptureSelectionGeometry.clamped(CGRect(x: min(start.x, point.x), y: min(start.y, point.y),
                     width: abs(start.x - point.x), height: abs(start.y - point.y)), to: desktop)
         case let .move(start, original):
+            let previous = selection
             selection = CaptureSelectionGeometry.moved(original, dx: point.x - start.x, dy: point.y - start.y, in: desktop)
+            reportTranslation(from: previous)
         case let .resize(handle, start, original):
             let dx = point.x - start.x, dy = point.y - start.y
             var x0 = original.minX, x1 = original.maxX, y0 = original.minY, y1 = original.maxY
@@ -307,6 +312,11 @@ import os
             selection = CaptureSelectionGeometry.clamped(CGRect(x: min(x0, x1), y: min(y0, y1), width: abs(x1 - x0), height: abs(y1 - y0)), to: desktop)
         }
         redraw()
+    }
+    private func reportTranslation(from previous: CGRect) {
+        guard !previous.isNull, !selection.isNull else { return }
+        let delta = CGSize(width: selection.minX - previous.minX, height: selection.minY - previous.minY)
+        if delta != .zero { onSelectionTranslated?(delta) }
     }
     private func mouseUp(_ point: CGPoint) {
         guard acceptsInput, let drag else { return }
@@ -332,7 +342,9 @@ import os
         let unit = step(at: point)
         if !selection.isNull && (selection.width < unit.width || selection.height < unit.height) { selection = .null }
         if snappedWindow == nil, let frame = frames.first(where: { $0.screen.frame.contains(selection) }) {
+            let previous = selection
             selection = CaptureSelectionGeometry.pixelAligned(selection,in:frame.screen.frame,width:frame.image.width,height:frame.image.height)
+            if case .move = drag { reportTranslation(from: previous) }
         }
         redraw(); beginInlineEditing(adjustmentStarted: wasMoved)
     }
@@ -424,16 +436,18 @@ import os
             else { selection = CaptureSelectionGeometry.moved(region,
                 dx: event.keyCode == 123 ? -unit.width : event.keyCode == 124 ? unit.width : 0,
                 dy: event.keyCode == 125 ? -unit.height : event.keyCode == 126 ? unit.height : 0, in: desktop) }
-            drag = nil; redraw(); beginInlineEditing()
+            drag = nil; redraw()
+            beginInlineEditing(translation: command || shift ? nil : CGSize(width: selection.minX - region.minX, height: selection.minY - region.minY))
         default: return false
         }
         return true
     }
 
-    private func beginInlineEditing(adjustmentStarted: Bool = false) {
+    private func beginInlineEditing(adjustmentStarted: Bool = false, translation: CGSize? = nil) {
         guard drag == nil, !selection.isNull, let region = validRegion() else { return }
         if mode == .recording { showRecordingControls(at: region); return }
         if !adjustmentStarted { onAdjustmentStarted?() }
+        if let translation, translation != .zero { onSelectionTranslated?(translation) }
         // Keep the complete tool strip while replacing the crop from frozen pixels.
         finish(.edit(region))
     }

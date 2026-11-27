@@ -143,6 +143,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
     var onEditingChanged: ((Bool) -> Void)?
     private var adjustingRegion = false
     private var regionWasVisible = false
+    private var regionTranslation = CGSize.zero
     var selectionFrame: CGRect { window.frame }
     var onReselect: (() -> Void)?
     var colorAtPointer: ((Bool) -> String?)?
@@ -362,24 +363,40 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
     func beginRegionAdjustment() {
         guard !editingPin, !closed, !exporting, !adjustingRegion else { return }
         regionWasVisible = window.isVisible
+        regionTranslation = .zero
         adjustingRegion = true
         canvas.pointerActive = false; window.acceptsMouseMovedEvents = false
         cancelRecognition()
         revision &+= 1; preview?.cancel()
         window.orderOut(nil); toolbar.orderOut(nil)
     }
+    func translateSelection(by delta: CGSize) {
+        guard adjustingRegion, !closed, delta.width.isFinite, delta.height.isFinite else { return }
+        regionTranslation.width += delta.width; regionTranslation.height += delta.height
+    }
     func replaceSelectionImage(_ image: CGImage, at region: CGRect) {
         guard !closed, !editingPin, !exporting else { return }
-        let old = window.frame, oldPixels = CGSize(width: canvas.base.width, height: canvas.base.height)
+        // Moving carries marks with the selection; edge adjustments still crop
+        // around their screen positions. Keep both effects for mixed gestures.
+        let old = window.frame.offsetBy(dx: regionTranslation.width, dy: regionTranslation.height)
+        let oldPixels = CGSize(width: canvas.base.width, height: canvas.base.height)
         let newPixels = CGSize(width: image.width, height: image.height)
         func remap(_ marks: [CaptureAnnotation]) -> [CaptureAnnotation] {
             marks.map { $0.reframed(from: old, pixels: oldPixels, to: region, pixels: newPixels) }
         }
-        annotations = remap(annotations); undo = undo.map(remap); redo = redo.map(remap)
+        if old != region || oldPixels != newPixels {
+            annotations = remap(annotations); undo = undo.map(remap); redo = redo.map(remap)
+        }
+        let reveal = regionWasVisible || window.isVisible
         canvas.base = image; canvas.image = image
-        window.setFrame(region, display: false); adjustingRegion = false
-        if regionWasVisible || window.isVisible { window.orderFrontRegardless(); positionToolbar() }
-        regionWasVisible = false; refresh(); updateSelectionInput()
+        window.setFrame(region, display: false); adjustingRegion = false; regionTranslation = .zero
+        // A recrop must not expose fresh pixels before committed redactions.
+        window.orderOut(nil); toolbar.orderOut(nil); regionWasVisible = false
+        refresh { [weak self] in
+            guard let self, reveal else { return }
+            self.window.orderFrontRegardless(); self.positionToolbar(); self.updateSelectionInput()
+        }
+        updateSelectionInput()
     }
     private func updateSelectionInput() {
         canvas.inputEnabled = !closed && !exporting && !adjustingRegion && !annotationEditingSuspended
@@ -644,7 +661,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         guard let next = redo.popLast() else { return }
         undo.append(annotations); annotations = next; refresh()
     }
-    private func refresh() {
+    private func refresh(onReady: (() -> Void)? = nil) {
         cancelRecognition()
         revision &+= 1; let expected = revision
         preview?.cancel()
@@ -652,6 +669,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         render(ticket: ticket) { [weak self] image in
             guard let self, self.revision == expected else { return }
             self.canvas.image = image
+            onReady?()
         }
     }
     private func cancelRecognition() {

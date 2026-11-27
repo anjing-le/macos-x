@@ -15,6 +15,12 @@ let package = Package(
         .executableTarget(
             name: "MacOSX",
             dependencies: ["MacOSXCore", "MenuBarVisibilityBridge", .product(name: "Sparkle", package: "Sparkle")],
+            // Historical proxy-drawer experiments remain for isolated regression
+            // fixtures, but are not part of the native-menu-bar application.
+            exclude: ["MenuBarShelf/MenuBarDrawer.swift", "MenuBarShelf/MenuBarDrawerInput.swift",
+                      "MenuBarShelf/MenuBarCoveredInput.swift", "MenuBarShelf/MenuBarNativeInteraction.swift",
+                      "MenuBarShelf/MenuBarLiveSession.swift", "MenuBarShelf/MenuBarLivePixels.swift",
+                      "MenuBarShelf/MenuBarIconCapture.swift"],
             linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
         ),
         .testTarget(name: "MacOSXCoreTests", dependencies: ["MacOSXCore"])

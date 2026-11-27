@@ -160,6 +160,7 @@ final class NSSavePanel {
 @MainActor final class CaptureSelection {
     enum Mode { case screenshot, recording }
     var onEditorKey: ((AppKit.NSEvent) -> Bool)?, onEditorCopy: (() -> Void)?, onEditorActivate: (() -> Void)?, onEditorRecognize: (() -> Void)?, onEditorCancel: (() -> Void)?, onAdjustmentStarted: (() -> Void)?
+    var onSelectionTranslated: ((CGSize) -> Void)?
     func clearEditorCallbacks() {}
     func setEditing(_ editing: Bool) {}
     func editorDidBecomeReady() -> Bool { false }
@@ -221,6 +222,7 @@ final class NSSavePanel {
     func activateEditing() {}
     func copyRecognizedText() {}
     func beginRegionAdjustment() {}
+    func translateSelection(by delta: CGSize) {}
     var onReselect: (() -> Void)?, colorAtPointer: ((Bool) -> String?)?
     static weak var current: CaptureEditor?
     let image: CGImage

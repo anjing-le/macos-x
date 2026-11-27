@@ -455,6 +455,7 @@ final class CaptureModule: NSObject {
         selection.onEditorRecognize = { [weak editor] in editor?.copyRecognizedText() }
         selection.onEditorCancel = { [weak editor] in editor?.close() }
         selection.onAdjustmentStarted = { [weak editor] in editor?.beginRegionAdjustment() }
+        selection.onSelectionTranslated = { [weak editor] delta in editor?.translateSelection(by: delta) }
         self.editor = editor; editor.present()
         setStatus(AppLanguage.text("Enter / ⌘C 复制"))
     }

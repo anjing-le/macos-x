@@ -44,8 +44,11 @@ struct CaptureAnnotation {
             let size = CaptureTextLayout(annotation: self).size
             return CGRect(x: first.x, y: first.y - size.height, width: size.width, height: size.height)
         }
-        let minX = points.map(\.x).min() ?? first.x, maxX = points.map(\.x).max() ?? first.x
-        let minY = points.map(\.y).min() ?? first.y, maxY = points.map(\.y).max() ?? first.y
+        var minX = first.x, maxX = first.x, minY = first.y, maxY = first.y
+        for point in points.dropFirst() {
+            minX = min(minX, point.x); maxX = max(maxX, point.x)
+            minY = min(minY, point.y); maxY = max(maxY, point.y)
+        }
         let rect = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
         return tool == .mosaic ? rect.insetBy(dx: -width / 2, dy: -width / 2) : rect
     }

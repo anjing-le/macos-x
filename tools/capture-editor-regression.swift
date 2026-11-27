@@ -9,6 +9,52 @@ import AppKit
 // Compiled alongside the real editor/pin source; these helpers only exist in
 // this isolated executable, with injected OCR and no general clipboard writes.
 @MainActor private extension CaptureEditor {
+    func verifyTranslatedAnnotationsFixture() {
+        let pixels = canvas.base
+        let mark = CaptureAnnotation(tool: .rectangle, points: [CGPoint(x: 20,y: 30),CGPoint(x: 90,y: 100)], ink: .red, width: 3)
+        var text = CaptureAnnotation(tool: .text, points: [CGPoint(x: 30,y: 120)], ink: .red, width: 3)
+        text.text = "test"; text.textLayoutWidth = 90
+        let mosaic = CaptureAnnotation(tool: .mosaic, points: [CGPoint(x: 40,y: 40)], ink: .red, width: 24)
+        annotations = [mark,text,mosaic]; undo = [[],[mark]]; redo = [[mark,text]]
+        for delta in [CGSize(width: 350,height: -250),CGSize(width: -600,height: 500)] {
+            let before = window.frame
+            beginRegionAdjustment(); translateSelection(by: delta)
+            replaceSelectionImage(pixels, at: before.offsetBy(dx: delta.width,dy: delta.height))
+            precondition(annotations.map(\.points) == [mark,text,mosaic].map(\.points),"Move all mark kinds with the crop, including negative screen coordinates")
+            precondition(undo.last!.first!.points == mark.points && redo.last!.last!.points == text.points,"Move must preserve undo and redo geometry")
+        }
+        undoAction(); precondition(annotations.count == 1 && annotations[0].points == mark.points)
+        redoAction(); precondition(annotations.count == 3 && annotations[2].width == 24)
+        let before = window.frame
+        let half = CaptureRaster.context(width: pixels.width/2,height: pixels.height/2)!.makeImage()!
+        beginRegionAdjustment(); translateSelection(by: CGSize(width: 100,height: -100))
+        replaceSelectionImage(half, at: before.offsetBy(dx: 100,dy: -100))
+        precondition(annotations[0].points == mark.points.map { CGPoint(x: $0.x/2,y: $0.y/2) } && annotations[0].width == 1.5,"Moving across backing scales preserves point-space shape geometry")
+        precondition(annotations[1].textLayoutWidth == 45 && annotations[1].textFontSize == 10.5)
+        beginRegionAdjustment(); translateSelection(by: CGSize(width: -100,height: 100))
+        replaceSelectionImage(pixels, at: before)
+        precondition(annotations.map(\.points) == [mark,text,mosaic].map(\.points))
+        let enlarged = before.insetBy(dx: -10,dy: -10)
+        let larger = CaptureRaster.context(width: pixels.width+20,height: pixels.height+20)!.makeImage()!
+        beginRegionAdjustment(); replaceSelectionImage(larger, at: enlarged)
+        precondition(annotations[0].points == mark.points.map { CGPoint(x: $0.x+10,y: $0.y+10) },"Resizing edges keeps screen anchoring rather than stretching marks")
+        var exported: CGImage?
+        render { exported = $0 }
+        let deadline = Date().addingTimeInterval(5)
+        while exported == nil && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+        precondition(exported != nil && exported!.width == larger.width && !window.isVisible)
+        let sampler = CapturePixelSampler(image: exported!)!
+        precondition((35...45).contains { x in (55...70).contains { y in (sampler.sample(x:x,y:y)?.red ?? 0) > 180 } },"Exported pixels contain the moved rectangle")
+        let gate = DispatchSemaphore(value: 0)
+        queue.async { _ = gate.wait(timeout: .now() + 5) }
+        beginRegionAdjustment(); regionWasVisible = true
+        replaceSelectionImage(pixels, at: window.frame)
+        precondition(!window.isVisible,"A pending recrop cannot expose pixels before committed redactions are rendered")
+        close(); gate.signal()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        precondition(!window.isVisible,"Closing a pending recrop prevents its completion from reviving the image or tools")
+        print("PASS selection translation: vector/text/mosaic, undo/redo, cross-display scale, resize anchoring and real export pixels")
+    }
     func beginPendingRecognitionFixture() {
         toolbarVisible = false
         recognition = VNRecognizeTextRequest(); recognitionButton.isEnabled = false
@@ -578,6 +624,8 @@ import AppKit
         }
         let spaceEditor = CaptureEditor(image: image,selectionFrame: CGRect(x: 0,y: 0,width: 200,height: 160),defaults: defaults)
         spaceEditor.verifySpaceModeFixture(); spaceEditor.close()
+        let translatedEditor = CaptureEditor(image: image,selectionFrame: CGRect(x: 0,y: 0,width: 200,height: 160),defaults: defaults)
+        translatedEditor.verifyTranslatedAnnotationsFixture(); translatedEditor.close()
         let cursorEditor = CaptureEditor(image: image,selectionFrame: CGRect(x: 0,y: 0,width: 200,height: 160),defaults: defaults)
         cursorEditor.verifyCursorOwnershipFixture()
         CaptureSelection.verifyHoverFixture(image: image)
@@ -1073,15 +1121,16 @@ import AppKit
         let target = CaptureWindow(id: 42,frame: region)
         let snapshot = CaptureFrame(screen: screen,image: image,windows: [region],windowTargets: [target])
         let inside = CGPoint(x: region.midX,y: region.midY)
-        var results = [Result](), copies = 0, adjustments = 0, activations = 0
+        var results = [Result](), copies = 0, adjustments = 0, activations = 0, translation = CGSize.zero
         func make(selected: Bool = false, editor: Bool = false) -> CaptureSelection {
-            results.removeAll(); copies = 0; adjustments = 0; activations = 0
+            results.removeAll(); copies = 0; adjustments = 0; activations = 0; translation = .zero
             let controller = CaptureSelection()
             controller.frames = [snapshot]; controller.candidates = [region]; controller.pointer = inside
             controller.acceptsInput = true; controller.selection = selected ? region : .null
             controller.snappedWindow = selected ? target : nil
             controller.completion = { results.append($0) }
             controller.onAdjustmentStarted = { adjustments += 1 }
+            controller.onSelectionTranslated = { translation.width += $0.width; translation.height += $0.height }
             if editor { controller.onEditorCopy = { copies += 1 }; controller.onEditorActivate = { activations += 1 } }
             return controller
         }
@@ -1122,6 +1171,7 @@ import AppKit
                          "Dragging, including returning to the start, never confirms a click")
             precondition(moved.completedWindow == nil && moved.frames.first?.image === image,
                          "Changed regions keep frozen pixels and cannot retain stale window identity")
+            precondition(translation == (returnsToStart ? .zero : CGSize(width: 10,height: 8)),"Pointer translation carries annotations exactly once, including return gestures")
             moved.dismiss()
         }
         for handle in SelectionView.handles(region) {
@@ -1133,8 +1183,22 @@ import AppKit
             resized.mouseUp(CGPoint(x: edge.x + 8,y: edge.y + 8))
             guard results.count == 1, case .edit = results[0] else { preconditionFailure("All eight borders remain adjustable") }
             precondition(copies == 0 && adjustments == 1)
+            precondition(translation == .zero,"Resizing is not reported as moving annotations")
             resized.dismiss()
         }
+        for (code,delta) in [(UInt16(123),CGSize(width: -1,height: 0)),(124,CGSize(width: 1,height: 0)),(125,CGSize(width: 0,height: -1)),(126,CGSize(width: 0,height: 1))] {
+            let keyboard = make(selected: true,editor: true)
+            precondition(keyboard.keyDown(key(code,"")) && translation == delta,"Keyboard nudging carries annotations by the actual pixel step")
+            keyboard.dismiss()
+        }
+        let mixed = make(selected: true,editor: true)
+        let right = CGPoint(x: region.maxX,y: region.midY)
+        mixed.mouseDown(right); mixed.mouseDragged(CGPoint(x: right.x+6,y: right.y))
+        _ = mixed.keyDown(key(49," "))
+        mixed.mouseDragged(CGPoint(x: right.x+16,y: right.y))
+        mixed.releaseSpace(); mixed.mouseUp(CGPoint(x: right.x+16,y: right.y))
+        precondition(translation == CGSize(width: 10,height: 0),"A resize gesture with Space-movement reports only its actual translation")
+        mixed.dismiss()
         let precise = make(selected: true,editor: true)
         let left = CGPoint(x: region.minX,y: region.midY)
         precise.mouseDown(left); precise.mouseUp(CGPoint(x: left.x - 1,y: left.y))
