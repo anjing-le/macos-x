@@ -27,8 +27,11 @@ import AppKit
                      "Completion disables the existing cancel row instead of replacing the action under the pointer")
         menuDidClose(root); precondition(fileCancel.isHidden)
         precondition(rows == root.items.map(ObjectIdentifier.init),"Status updates preserve the existing menu and row identities")
+        updateFileActions(FileActionFeedback(phase:.processing,input:source)); menuWillOpen(root)
         updateFileActions(nil)
         precondition(fileHeader.isHidden && fileDetail.isHidden && fileCancel.isHidden && fileReveal.isHidden && fileSeparator.isHidden)
+        precondition(!retainCancelRow,"Disabling during a tracked task menu clears reserved controls as well as its badge")
+        menuDidClose(root)
         let hover=MenuBarHoverView(frame:CGRect(x:0,y:0,width:30,height:24))
         func pixels(_ phase:FileActionFeedback.Phase?)->Data {
             hover.feedbackPhase=phase

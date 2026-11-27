@@ -73,7 +73,8 @@ import os
     }
     func updateFileActions(_ feedback: FileActionFeedback?) {
         guard fileFeedback != feedback else { return }
-        if menuIsOpen, fileFeedback?.phase.isBusy == true, feedback?.phase.isBusy != true { retainCancelRow = true }
+        if feedback == nil { retainCancelRow = false }
+        else if menuIsOpen, fileFeedback?.phase.isBusy == true, feedback?.phase.isBusy != true { retainCancelRow = true }
         fileFeedback = feedback
         unreadFileFeedback = !menuIsOpen && (feedback?.phase == .completed || feedback?.phase == .failed)
         refreshFileFeedback()
@@ -88,7 +89,7 @@ import os
         fileCancel.isHidden = fileFeedback == nil || (fileFeedback?.phase.isBusy != true && !retainCancelRow)
         fileCancel.isEnabled = fileFeedback?.phase.isBusy == true
         let reserveResultRow = menuIsOpen && (fileFeedback?.phase.isBusy == true || retainCancelRow)
-        fileReveal.isHidden = fileFeedback?.output == nil && !reserveResultRow
+        fileReveal.isHidden = fileFeedback == nil || (fileFeedback?.output == nil && !reserveResultRow)
         fileReveal.isEnabled = fileFeedback?.output != nil && fileFeedback?.phase.isBusy == false
         let tooltip = fileFeedback.map {
             $0.title + "\n" + $0.detail + "\n" + AppLanguage.text("右键查看文件操作")
