@@ -8,11 +8,13 @@ import Sparkle
 final class UpdateController: NSObject, SPUUpdaterDelegate {
     private let logger = Logger(subsystem: "cc.anjing.macos-x", category: "updates")
     private var updater: SPUUpdater?
+    private let configuration: [String: Any]
     private let driver = UpdateUserDriver()
     private(set) var hasAvailableUpdate = false
     var onAvailabilityChanged: ((Bool) -> Void)?
 
-    override init() {
+    init(configuration: [String: Any] = Bundle.main.infoDictionary ?? [:]) {
+        self.configuration = configuration
         super.init()
         driver.onAvailabilityChanged = { [weak self] available in
             self?.setAvailable(available)
@@ -30,7 +32,7 @@ final class UpdateController: NSObject, SPUUpdaterDelegate {
 
     func start() {
         guard updater == nil else { return }
-        let info = Bundle.main.infoDictionary ?? [:]
+        let info = configuration
         guard info["MacOSXUpdatesEnabled"] as? Bool == true else {
             logger.info("Updates are disabled in this build.")
             return
@@ -61,6 +63,13 @@ final class UpdateController: NSObject, SPUUpdaterDelegate {
         } catch {
             logger.error("Unable to start the updater: \(error.localizedDescription)")
         }
+    }
+
+    // Sparkle gives this delegate priority over its deprecated persisted feed
+    // override. Keep architecture routing tied to the signed package, without
+    // rewriting the user's auto-check/download preferences or standard defaults.
+    func feedURLString(for updater: SPUUpdater) -> String? {
+        configuration["SUFeedURL"] as? String
     }
 
     private func setAvailable(_ available: Bool) {

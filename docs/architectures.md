@@ -15,6 +15,8 @@ GitHub 发布页给出两个明确的 DMG 下载链接。“关于本机”显�
 | Apple Silicon | `macos-x-V-arm64.dmg` | `macos-x-V-arm64.zip` | `appcast.xml` |
 | Intel | `macos-x-V-x86_64.dmg` | `macos-x-V-x86_64.zip` | `appcast-intel.xml` |
 
+更新器通过 Sparkle delegate 明确使用当前签名包的配置，防止旧的 SUFeedURL 偏好覆盖架构路由；不改写用户自动检查设置。真实 Sparkle 的离线回归覆盖两种架构及反向旧偏好。
+
 两个 ZIP、DMG 均附 SHA-256；两个 feed 各自 Ed25519 签名，指向自己的 ZIP。
 `downloads.json` 记录实际文件名、大小、摘要及链接。原有 ARM 更新源 URL 不变，
 旧版可直接升级到新命名的 ARM 包；Intel 使用独立更新源，不依靠一个未支持的

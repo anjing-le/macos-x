@@ -78,6 +78,8 @@ jobs:
         run: zsh tools/run-local-window-regression.sh
       - name: Check quiet update reminders and manual installation choices
         run: zsh tools/run-update-presentation-regression.sh
+      - name: Check real Sparkle architecture feed routing without update requests
+        run: zsh tools/run-update-architecture-feed-regression.sh
       - name: Check shared prompt layouts, preferences and keyboard selection
         run: zsh tools/run-prompt-wheel-regression.sh
       - uses: actions/setup-python@v5
