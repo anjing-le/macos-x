@@ -19,6 +19,9 @@ struct CaptureInk {
 }
 
 struct CaptureAnnotation {
+    // Committed marks are immutable between history snapshots; preserve their
+    // identity when changing the crop's coordinate system.
+    private(set) var identity = UUID()
     let tool: CaptureTool
     var points: [CGPoint]
     let ink: CaptureInk
@@ -33,6 +36,7 @@ struct CaptureAnnotation {
             CGPoint(x: (old.minX + point.x * old.width / oldPixels.width - new.minX) * sx,
                     y: (old.minY + point.y * old.height / oldPixels.height - new.minY) * sy)
         }, ink: ink, width: width * old.width / oldPixels.width * sx)
+        result.identity = identity
         result.text = text
         result.textLayoutWidth = textLayoutWidth.map { $0 * old.width / oldPixels.width * sx }
         if tool == .text { result.textFontSize = (textFontSize ?? max(18, width * 7)) * old.width / oldPixels.width * sx }

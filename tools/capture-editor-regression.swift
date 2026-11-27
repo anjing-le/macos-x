@@ -38,6 +38,10 @@ import AppKit
         let larger = CaptureRaster.context(width: pixels.width+20,height: pixels.height+20)!.makeImage()!
         beginRegionAdjustment(); replaceSelectionImage(larger, at: enlarged)
         precondition(annotations[0].points == mark.points.map { CGPoint(x: $0.x+10,y: $0.y+10) },"Resizing edges keeps screen anchoring rather than stretching marks")
+        precondition(annotations[0].identity == mark.identity && undo.last!.first!.identity == mark.identity)
+        let currentStorage = annotations[0].points.withUnsafeBufferPointer { $0.baseAddress }
+        let historyStorage = undo.last!.first!.points.withUnsafeBufferPointer { $0.baseAddress }
+        precondition(currentStorage == historyStorage,"Resize transforms each unique committed mark once; history retains shared point storage")
         var exported: CGImage?
         render { exported = $0 }
         let deadline = Date().addingTimeInterval(5)
@@ -45,6 +49,11 @@ import AppKit
         precondition(exported != nil && exported!.width == larger.width && !window.isVisible)
         let sampler = CapturePixelSampler(image: exported!)!
         precondition((35...45).contains { x in (55...70).contains { y in (sampler.sample(x:x,y:y)?.red ?? 0) > 180 } },"Exported pixels contain the moved rectangle")
+        let long = CaptureAnnotation(tool: .pen,points: (0..<4096).map { CGPoint(x: $0 % 180,y: $0 % 140) },ink: .red,width: 3)
+        annotations = [long]; undo = Array(repeating: [long],count: 60); redo = Array(repeating: [long],count: 60)
+        beginRegionAdjustment(); replaceSelectionImage(pixels,at: before)
+        let shared = annotations[0].points.withUnsafeBufferPointer { $0.baseAddress }
+        precondition((undo+redo).allSatisfy { $0[0].points.withUnsafeBufferPointer { $0.baseAddress } == shared },"A 4096-point stroke shares one transformed array across 120 history snapshots")
         let gate = DispatchSemaphore(value: 0)
         queue.async { _ = gate.wait(timeout: .now() + 5) }
         beginRegionAdjustment(); regionWasVisible = true

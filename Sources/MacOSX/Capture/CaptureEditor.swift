@@ -381,8 +381,14 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         let old = window.frame.offsetBy(dx: regionTranslation.width, dy: regionTranslation.height)
         let oldPixels = CGSize(width: canvas.base.width, height: canvas.base.height)
         let newPixels = CGSize(width: image.width, height: image.height)
+        var remapped: [UUID: CaptureAnnotation] = [:]
         func remap(_ marks: [CaptureAnnotation]) -> [CaptureAnnotation] {
-            marks.map { $0.reframed(from: old, pixels: oldPixels, to: region, pixels: newPixels) }
+            marks.map { mark in
+                if let cached = remapped[mark.identity] { return cached }
+                let result = mark.reframed(from: old, pixels: oldPixels, to: region, pixels: newPixels)
+                remapped[mark.identity] = result
+                return result
+            }
         }
         if old != region || oldPixels != newPixels {
             annotations = remap(annotations); undo = undo.map(remap); redo = redo.map(remap)
