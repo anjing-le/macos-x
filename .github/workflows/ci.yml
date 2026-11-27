@@ -6,11 +6,24 @@ permissions:
   contents: read
 jobs:
   build:
-    runs-on: macos-15
+    name: Native ${{ matrix.architecture }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: arm64
+            runner: macos-15
+          - architecture: x86_64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
     env:
       MACOSX_TEST_LANGUAGE: zh
     steps:
       - uses: actions/checkout@v4
+      - name: Confirm native runner architecture
+        run: |
+          test "$(uname -m)" = "${{ matrix.architecture }}"
+          test "$(/usr/sbin/sysctl -in sysctl.proc_translated)" != 1
       - uses: dtolnay/rust-toolchain@1.93.1
       - name: Check single-file operations and disposable local engines
         run: |
@@ -72,6 +85,10 @@ jobs:
           python-version: "3.12"
       - name: Build a development app with OTA explicitly disabled
         run: scripts/build.sh --disable-updates
+      - name: Check the application and every bundled executable architecture
+        run: |
+          python3 tools/verify-bundle-architecture.py dist/MacOSX.app --expected "${{ matrix.architecture }}"
+          MACOSX_ARCHITECTURE_TEST_APP="$PWD/dist/MacOSX.app" python3 tools/architecture-distribution-regression.py
       - name: Check packaged localized artwork and privacy descriptions
         run: python3 tools/localization/check-bundle.py dist/MacOSX.app
       - name: Check DMG layout, repeatable mounts and copied application identity

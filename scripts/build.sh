@@ -4,20 +4,21 @@ set -euo pipefail
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 configuration=release
 output_dir="$root_dir/dist"
-version=0.0.166
-build_number=168
+version=0.0.167
+build_number=169
 sign_identity="${MACOSX_SIGN_IDENTITY:-}"
 sign_keychain="${MACOSX_SIGN_KEYCHAIN:-}"
 local_signing=false
 updates_enabled=true
-feed_url="${MACOSX_FEED_URL:-https://github.com/anjing-le/macos-x/releases/latest/download/appcast.xml}"
+target_arch="$(uname -m)"
+feed_url="${MACOSX_FEED_URL:-}"
 
 usage() {
     cat <<'USAGE'
 Usage: scripts/build.sh [--disable-updates] [--configuration debug|release]
-       [--version 0.0.166] [--build-number 168] [--output-dir path]
+       [--version 0.0.167] [--build-number 169] [--output-dir path]
        [--sign-identity pinned-certificate-SHA1 | "Apple Development: ..." | "Developer ID Application: ..."]
-       [--sign-keychain path]
+       [--sign-keychain path] [--arch arm64|x86_64]
 Default: host architecture, OTA enabled; an explicit certificate identity is required.
 Set MACOSX_SIGN_IDENTITY or --sign-identity; OTA builds never fall back to ad hoc.
 Local signing requires the SHA1 of Resources/code-signing-certificate.cer.
@@ -30,7 +31,7 @@ USAGE
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --disable-updates) updates_enabled=false; shift ;;
-        --configuration|--version|--build-number|--output-dir|--sign-identity|--sign-keychain)
+        --configuration|--version|--build-number|--output-dir|--sign-identity|--sign-keychain|--arch)
             [[ $# -ge 2 && -n "$2" ]] || { echo "Missing value for $1" >&2; exit 1; }
             case "$1" in
                 --configuration) configuration="$2" ;;
@@ -39,6 +40,7 @@ while [[ $# -gt 0 ]]; do
                 --output-dir) output_dir="$2" ;;
                 --sign-identity) sign_identity="$2" ;;
                 --sign-keychain) sign_keychain="$2" ;;
+                --arch) target_arch="$2" ;;
             esac
             shift 2 ;;
         -h|--help) usage; exit 0 ;;
@@ -46,6 +48,14 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 [[ "$configuration" == release || "$configuration" == debug ]] || { echo "Invalid configuration" >&2; exit 1; }
+
+case "$target_arch" in
+    arm64) rust_target=aarch64-apple-darwin; default_feed=appcast.xml ;;
+    x86_64) rust_target=x86_64-apple-darwin; default_feed=appcast-intel.xml ;;
+    *) echo 'Supported architectures: arm64 (Apple Silicon), x86_64 (Intel)' >&2; exit 1 ;;
+esac
+[[ -n "$feed_url" ]] || feed_url="https://github.com/anjing-le/macos-x/releases/latest/download/$default_feed"
+swift_args=(--disable-keychain -c "$configuration" --triple "$target_arch-apple-macosx14.0")
 
 if [[ "$updates_enabled" == true && ( -z "$sign_identity" || "$sign_identity" == - ) ]]; then
     echo "OTA requires an explicit pinned certificate SHA1 or Apple certificate identity; ad hoc signing is not allowed." >&2
@@ -122,8 +132,8 @@ fi
 
 cd "$root_dir"
 # Public Sparkle artifacts do not require HTTP credentials from login Keychain.
-swift build --disable-keychain -c "$configuration" --product MacOSX
-bin_dir="$(swift build --disable-keychain -c "$configuration" --show-bin-path)"
+swift build "${swift_args[@]}" --product MacOSX
+bin_dir="$(swift build "${swift_args[@]}" --show-bin-path)"
 sparkle="$root_dir/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
 [[ -x "$bin_dir/MacOSX" && -d "$sparkle" ]] || { echo "Executable or Sparkle framework missing" >&2; exit 1; }
 
@@ -140,11 +150,11 @@ if app.is_symlink():
 elif app.exists():
     shutil.rmtree(app)
 PY
-swift build --disable-keychain -c "$configuration" --product FileActionsWorker
-"$root_dir/scripts/build-file-document-worker.sh"
+swift build "${swift_args[@]}" --product FileActionsWorker
+"$root_dir/scripts/build-file-document-worker.sh" --target "$rust_target"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks" "$app/Contents/Resources" "$app/Contents/Helpers"
 cp "$bin_dir/FileActionsWorker" "$app/Contents/Helpers/FileActionsWorker"
-cp "$root_dir/vendor/file-actions/target/release/file-document-worker" "$app/Contents/Helpers/FileDocumentWorker"
+cp "$root_dir/vendor/file-actions/target/$rust_target/release/file-document-worker" "$app/Contents/Helpers/FileDocumentWorker"
 cp "$root_dir/vendor/file-actions/target/THIRD_PARTY_NOTICES.txt" "$app/Contents/Resources/FileActions-THIRD-PARTY-NOTICES.txt"
 cp "$bin_dir/MacOSX" "$app/Contents/MacOS/MacOSX"
 cp "$root_dir/Resources/Sparkle-LICENSE.txt" "$app/Contents/Resources/Sparkle-LICENSE.txt"
@@ -159,9 +169,9 @@ done
 # ditto preserves framework symlinks and executable permissions.
 /usr/bin/ditto "$sparkle" "$app/Contents/Frameworks/Sparkle.framework"
 
-python3 - "$app/Contents/Info.plist" "$root_dir/Resources/update-public-key.txt" "$feed_url" "$version" "$build_number" "$updates_enabled" <<'PY'
+python3 - "$app/Contents/Info.plist" "$root_dir/Resources/update-public-key.txt" "$feed_url" "$version" "$build_number" "$updates_enabled" "$target_arch" <<'PY'
 import pathlib, plistlib, sys
-destination, key_path, feed, version, build, enabled = sys.argv[1:]
+destination, key_path, feed, version, build, enabled, architecture = sys.argv[1:]
 info = {
     'CFBundleName': 'macos-x',
     'CFBundleDisplayName': 'macos-x',
@@ -180,6 +190,7 @@ info = {
     'NSMicrophoneUsageDescription': 'Microphone audio is saved only in your local video when you enable the microphone and start recording.',
     'NSLocalNetworkUsageDescription': 'Nearby Transfer discovers and connects to a Mac you confirm, to exchange files, text and images on your local network.',
     'NSBonjourServices': ['_macosx-nearby._tcp'],
+    'MacOSXArchitecture': architecture,
     'MacOSXUpdatesEnabled': enabled == 'true',
     'SUEnableAutomaticChecks': enabled == 'true',
     'SUScheduledCheckInterval': 3600,
@@ -255,3 +266,5 @@ elif [[ "$local_signing" == true ]]; then
 else
     echo "Code signed with $sign_identity; notarization is a separate required distribution step."
 fi
+
+python3 "$root_dir/tools/verify-bundle-architecture.py" "$app" --expected "$target_arch"

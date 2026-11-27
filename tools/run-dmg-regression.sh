@@ -8,4 +8,5 @@ trap 'rm -rf "$installer_test"' EXIT
 "$installer_root/scripts/build-dmg.sh" "$installer_app" "$installer_test"
 installer_python="$("$installer_root/scripts/installer/prepare-tools.sh")"
 installer_version="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$installer_app/Contents/Info.plist")"
-"$installer_python" "$installer_root/tools/verify-dmg.py" "$installer_test/macos-x-$installer_version.dmg" "$installer_app"
+installer_arch="$(python3 "$installer_root/tools/verify-bundle-architecture.py" "$installer_app" --print)"
+"$installer_python" "$installer_root/tools/verify-dmg.py" "$installer_test/macos-x-$installer_version-$installer_arch.dmg" "$installer_app"

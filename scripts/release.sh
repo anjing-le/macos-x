@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ "${1:-}" == "--help" ]]; then
-    echo "Usage: scripts/release.sh [MacOSX.app] [output-directory]"
+    echo "Usage: scripts/release.sh [--initial-intel-release] [MacOSX.app] [output-directory]"
     echo "Prepare a complete update archive, signed appcast and SHA-256 file; do not upload."
     echo "Signing key: login Keychain account macos-x (override MACOSX_SPARKLE_ACCOUNT)."
     echo "App must match the pinned local certificate, or use an Apple certificate signature."
@@ -12,10 +12,12 @@ if [[ "${1:-}" == "--help" ]]; then
 fi
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+initial_intel=false
+if [[ "${1:-}" == --initial-intel-release ]]; then initial_intel=true; shift; fi
 app="${1:-$root_dir/dist/MacOSX.app}"
 release_dir="${2:-$root_dir/dist/releases}"
 keychain_account="${MACOSX_SPARKLE_ACCOUNT:-macos-x}"
-[[ $# -le 2 ]] || { echo "Usage: scripts/release.sh [MacOSX.app] [output-directory]" >&2; exit 1; }
+[[ $# -le 2 ]] || { echo "Usage: scripts/release.sh [--initial-intel-release] [MacOSX.app] [output-directory]" >&2; exit 1; }
 [[ -d "$app" && -f "$app/Contents/Info.plist" ]] || { echo "Build MacOSX.app first" >&2; exit 1; }
 
 /usr/bin/codesign --verify --deep --strict "$app"
@@ -85,11 +87,18 @@ if url.scheme != 'https' or not url.hostname or url.username or url.password:
 print(version)
 PY
 )"
-archive_name="macos-x-$version.zip"
+architecture="$(python3 "$root_dir/tools/verify-bundle-architecture.py" "$app" --print)"
+archive_name="macos-x-$version-$architecture.zip"
+feed_name=appcast.xml
+[[ "$architecture" != x86_64 ]] || feed_name=appcast-intel.xml
 if [[ "$version" != 0.0.1 ]]; then
     previous_app="${MACOSX_PREVIOUS_APP:-/Applications/MacOSX.app}"
     [[ -d "$previous_app" ]] || { echo "Set MACOSX_PREVIOUS_APP to the previous signed release for identity verification." >&2; exit 1; }
-    python3 "$root_dir/tools/verify-update-identity.py" "$previous_app" "$app"
+    if [[ "$initial_intel" == true ]]; then
+        python3 "$root_dir/tools/verify-update-identity.py" "$previous_app" "$app" --initial-intel-release
+    else
+        python3 "$root_dir/tools/verify-update-identity.py" "$previous_app" "$app"
+    fi
 fi
 download_prefix="https://github.com/anjing-le/macos-x/releases/download/v$version/"
 tools_dir="$root_dir/.build/artifacts/sparkle/Sparkle/bin"
@@ -106,7 +115,7 @@ swift "$root_dir/scripts/verify-update.swift" "$archive" "$signature" "$root_dir
 
 # A single stable update item is sufficient. Sparkle's official tool owns the
 # feed signature format; this XML writer only describes the signed archive.
-python3 - "$app" "$archive" "$download_prefix$archive_name" "$signature" "$release_dir/appcast.xml" <<'PY'
+python3 - "$app" "$archive" "$download_prefix$archive_name" "$signature" "$release_dir/$feed_name" <<'PY'
 import base64, datetime, email.utils, pathlib, plistlib, re, subprocess, sys
 import xml.etree.ElementTree as ET
 app, archive, download_url, signature, feed_path = sys.argv[1:]
@@ -120,8 +129,11 @@ if not re.fullmatch(r'[0-9]+(?:\.[0-9]+){0,2}', minimum_os):
 minimum_os = '.'.join((minimum_os.split('.') + ['0', '0'])[:3])
 executable = pathlib.Path(app) / 'Contents/MacOS' / info['CFBundleExecutable']
 architectures = subprocess.check_output(['/usr/bin/lipo', '-archs', str(executable)], text=True).split()
-if set(architectures) not in ({'arm64'}, {'arm64', 'x86_64'}):
-    raise SystemExit('Release supports Apple Silicon or universal apps; other architecture feeds need explicit planning')
+if set(architectures) not in ({'arm64'}, {'x86_64'}):
+    raise SystemExit('Release requires a dedicated Apple Silicon or Intel app')
+expected_feed = 'appcast.xml' if architectures == ['arm64'] else 'appcast-intel.xml'
+if pathlib.Path(feed_path).name != expected_feed or info.get('SUFeedURL') != 'https://github.com/anjing-le/macos-x/releases/latest/download/'+expected_feed:
+    raise SystemExit('Packaged app feed does not match its architecture-specific signed feed')
 namespace_url = 'http://www.andymatuschak.org/xml-namespaces/sparkle'
 ET.register_namespace('sparkle', namespace_url)
 namespace = '{' + namespace_url + '}'
@@ -148,11 +160,11 @@ tree = ET.ElementTree(rss)
 ET.indent(tree, space='  ')
 tree.write(feed_path, encoding='utf-8', xml_declaration=True)
 PY
-"$tools_dir/sign_update" --account "$keychain_account" "$release_dir/appcast.xml"
-"$tools_dir/sign_update" --account "$keychain_account" --verify "$release_dir/appcast.xml"
+"$tools_dir/sign_update" --account "$keychain_account" "$release_dir/$feed_name"
+"$tools_dir/sign_update" --account "$keychain_account" --verify "$release_dir/$feed_name"
 (cd "$release_dir" && /usr/bin/shasum -a 256 "$archive_name" > "$archive_name.sha256")
 echo "Prepared and signature-verified: $archive"
-echo "Appcast: $release_dir/appcast.xml"
+echo "Appcast: $release_dir/$feed_name"
 "$root_dir/scripts/build-dmg.sh" "$app" "$release_dir"
-echo "Nothing uploaded. Publish ZIP, DMG, both SHA-256 files and appcast.xml for v$version."
+echo "Nothing uploaded. Publish this architecture ZIP, DMG, both SHA-256 files and its signed feed for v$version."
 echo "Ed25519 archive signing is not Apple Developer ID signing or notarization."

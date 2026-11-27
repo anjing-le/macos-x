@@ -2,7 +2,17 @@
 set -euo pipefail
 file_actions_root="$(cd "$(dirname "$0")/.." && pwd)"
 command -v cargo >/dev/null || { echo "Rust 1.88+ is required to build the pinned local document engine." >&2; exit 1; }
-MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --locked --release --manifest-path "$file_actions_root/vendor/file-actions/Cargo.toml"
+file_actions_target_args=()
+if [[ $# -gt 0 ]]; then
+    [[ $# == 2 && "$1" == --target ]] || { echo 'Usage: build-file-document-worker.sh [--target aarch64-apple-darwin|x86_64-apple-darwin]' >&2; exit 1; }
+    case "$2" in aarch64-apple-darwin|x86_64-apple-darwin) ;; *) echo 'Unsupported document worker target' >&2; exit 1 ;; esac
+    file_actions_target_args=(--target "$2")
+fi
+if [[ ${#file_actions_target_args[@]} == 0 ]]; then
+    MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --locked --release --manifest-path "$file_actions_root/vendor/file-actions/Cargo.toml"
+else
+    MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --locked --release "${file_actions_target_args[@]}" --manifest-path "$file_actions_root/vendor/file-actions/Cargo.toml"
+fi
 python3 - "$file_actions_root" <<'PY'
 import json,pathlib,subprocess,sys
 root=pathlib.Path(sys.argv[1]);manifest=root/'vendor/file-actions/Cargo.toml'

@@ -9,14 +9,17 @@ installer_version="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionStrin
 [[ "$installer_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Unexpected app version' >&2; exit 1; }
 mkdir -p "$2"
 installer_output="$(cd "$2" && pwd)"
-installer_image="$installer_output/macos-x-$installer_version.dmg"
+installer_arch="$(python3 "$installer_root/tools/verify-bundle-architecture.py" "$installer_app" --print)"
+installer_chip='Apple Silicon'
+[[ "$installer_arch" != x86_64 ]] || installer_chip=Intel
+installer_image="$installer_output/macos-x-$installer_version-$installer_arch.dmg"
 [[ ! -e "$installer_image" ]] || { echo 'DMG already exists; choose a fresh output directory.' >&2; exit 1; }
 installer_work="$(mktemp -d "${TMPDIR:-/tmp/}macos-x-installer.XXXXXX")"
 trap 'rm -rf "$installer_work"' EXIT
 installer_python="$("$installer_root/scripts/installer/prepare-tools.sh")"
 xcrun swiftc -parse-as-library "$installer_root/scripts/installer/render.swift" -o "$installer_work/render"
 "$installer_work/render" "$installer_root/Resources" "$installer_root/scripts/installer/layout.json" "$installer_work/artwork"
-"$installer_python" -m dmgbuild -s "$installer_root/scripts/installer/settings.py" -D "app=$installer_app" -D "artwork=$installer_work/artwork" -D "layout=$installer_root/scripts/installer/layout.json" "macos-x 安装" "$installer_work/package.dmg"
+"$installer_python" -m dmgbuild -s "$installer_root/scripts/installer/settings.py" -D "app=$installer_app" -D "artwork=$installer_work/artwork" -D "layout=$installer_root/scripts/installer/layout.json" "macos-x ($installer_chip)" "$installer_work/package.dmg"
 /usr/bin/hdiutil verify "$installer_work/package.dmg" >/dev/null
 mv "$installer_work/package.dmg" "$installer_image"
 (cd "$installer_output" && /usr/bin/shasum -a 256 "$(basename "$installer_image")" > "$(basename "$installer_image").sha256")
