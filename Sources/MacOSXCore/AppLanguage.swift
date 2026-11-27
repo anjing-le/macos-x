@@ -757,5 +757,10 @@ public enum AppLanguage {
         "主板": "Board",
         "散热区域": "Cooling",
         "CPU／GPU 显示平均温度；电池、存储等显示已确认测点的最高温度。仅展示本机可读取的部件，不是机身或室温。散热压力由 macOS 单独评估。": "CPU/GPU show averages; battery, storage and other components show the hottest confirmed point. Only readable components on this Mac are shown, not case or room temperatures. macOS assesses thermal pressure separately.",
+        "正在准备…": "Preparing…",
+        "正在保存…": "Saving…",
+        "已完成": "Completed",
+        "处理失败": "Processing failed",
+        "右键查看文件操作": "Right-click for file actions",
     ]
 }

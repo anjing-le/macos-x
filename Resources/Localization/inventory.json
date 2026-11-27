@@ -6137,5 +6137,45 @@
       "raw": false,
       "multiline": false
     }
+  ],
+  "正在准备…": [
+    {
+      "file": "Sources/MacOSXCore/FileActionFeedback.swift",
+      "line": 10,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "正在保存…": [
+    {
+      "file": "Sources/MacOSXCore/FileActionFeedback.swift",
+      "line": 12,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "已完成": [
+    {
+      "file": "Sources/MacOSXCore/FileActionFeedback.swift",
+      "line": 13,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "处理失败": [
+    {
+      "file": "Sources/MacOSXCore/FileActionFeedback.swift",
+      "line": 15,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "右键查看文件操作": [
+    {
+      "file": "Sources/MacOSX/Shared/MenuBarController.swift",
+      "line": 86,
+      "raw": false,
+      "multiline": false
+    }
   ]
 }

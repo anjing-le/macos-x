@@ -143,7 +143,7 @@ import PDFKit
       precondition(NSApp.sendAction(item.action!, to: item.target, from: item))
     }
     let imageMenu = actions.make(input: source)
-    precondition(imageMenu.items.count == 5) // filename + four applicable operations
+    precondition(imageMenu.items.filter { !$0.isHidden }.count == 5) // filename + four applicable operations
     invoke(imageMenu.items[2])
     precondition(selected?.0 == .png)
     invoke(imageMenu.items[1].submenu!.items[1])
@@ -153,7 +153,7 @@ import PDFKit
     invoke(imageMenu.items[4].submenu!.items[0])
     precondition(selected?.0 == .resize && selected?.1.longestSide == 1280)
     let documentMenu = actions.make(input: doc)
-    precondition(documentMenu.items.count == 3)
+    precondition(documentMenu.items.filter { !$0.isHidden }.count == 3)
     invoke(documentMenu.items[1])
     precondition(selected?.0 == .markdown)
     invoke(documentMenu.items[2])
@@ -169,8 +169,8 @@ import PDFKit
     var cancelled = false
     actions.onCancel = { cancelled = true }
     let busyMenu = actions.make(input: source, busy: true)
-    precondition(busyMenu.items.count == 2)
-    invoke(busyMenu.items[1]); precondition(cancelled)
+    precondition(busyMenu.items.filter { !$0.isHidden }.count == 5)
+    invoke(busyMenu.items.first { $0.title == AppLanguage.text("取消") }!); precondition(cancelled)
     precondition(actions.make(input: nil).items.isEmpty)
     let invalidMenu = actions.make(input: root.appendingPathComponent("unsupported.zip"))
     precondition(invalidMenu.items.isEmpty)
@@ -273,21 +273,90 @@ import PDFKit
     selectionModule.summonSelection()
     let selectionDeadline = Date().addingTimeInterval(5)
     while presented.isEmpty && Date() < selectionDeadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
-    precondition(presented.count == 1 && presented[0].items.count == 5, "Selected image reaches the menu")
+    precondition(presented.count == 1 && presented[0].items.filter { !$0.isHidden }.count == 5, "Selected image reaches the menu")
+    var feedbacks: [FileActionFeedback?] = []
+    selectionModule.onFeedbackChanged = { feedbacks.append($0) }
+    let trackedMenu = presented[0], trackedRows = trackedMenu.items.map(ObjectIdentifier.init)
+    invoke(trackedMenu.items[2])
+    precondition(selectionModule.service.feedback?.phase == .preparing)
+    let liveDeadline = Date().addingTimeInterval(8)
+    while selectionModule.service.busy && Date() < liveDeadline {
+      RunLoop.current.run(mode: .eventTracking, before: Date().addingTimeInterval(0.01))
+    }
+    precondition(selectionModule.service.feedback?.phase == .completed && presented.count == 1,
+                 "Completion is delivered during menu tracking, without opening another menu")
+    precondition(feedbacks.compactMap { $0?.phase } == [.preparing,.processing,.saving,.completed],
+                 "Progress phases correspond to actual worker and commit boundaries")
+    precondition(trackedRows == trackedMenu.items.map(ObjectIdentifier.init) && trackedMenu.items.contains { $0.title == "Finder" && !$0.isHidden },
+                 "An open task menu updates its existing rows and enables explicit result viewing")
+    precondition(trackedMenu.items[2].isHidden && trackedMenu.items.contains { $0.title == AppLanguage.text("取消") && !$0.isHidden && !$0.isEnabled },
+                 "Completion cannot move conversion actions into the pointer's former cancel position")
+    let retained = selectionModule.service.feedback
     selectionModule.selectionProcessFactory = { fakeSelection(doc) }
     selectionModule.summonSelection()
     let documentDeadline = Date().addingTimeInterval(5)
     while presented.count < 2 && Date() < documentDeadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
-    precondition(presented.count == 2 && presented[1].items.count == 3, "Selected document reaches its own operations")
+    precondition(presented.count == 2 && presented[1].items.filter { !$0.isHidden }.count == 3, "Selected document reaches its own operations")
     selectionModule.selectionProcessFactory = { fakeSelection(nil) }
     selectionModule.summonSelection()
     RunLoop.current.run(until: Date().addingTimeInterval(0.15))
     precondition(presented.count == 2, "No selection stays silent")
+    precondition(selectionModule.service.feedback == retained,"Unsupported or empty selections cannot erase the latest task result")
+    var finderFocused = true
+    selectionModule.finderIsFrontmost = { finderFocused }
+    selectionModule.selectionProcessFactory = {
+      let p=Process();p.executableURL=URL(fileURLWithPath:"/bin/sh")
+      p.arguments=["-c","sleep 0.1; printf '%s' \"$1\"","fixture",source.absoluteString];return p
+    }
+    selectionModule.summonSelection(); finderFocused = false
+    RunLoop.current.run(until:Date().addingTimeInterval(0.3))
+    precondition(presented.count == 2,"A late Finder response cannot interrupt another application")
+    finderFocused = true
+    selectionModule.selectionProcessFactory = { fakeSelection(source) }
+    selectionModule.summonSelection()
+    let reopenDeadline=Date().addingTimeInterval(5)
+    while presented.count < 3 && Date() < reopenDeadline { RunLoop.current.run(until:Date().addingTimeInterval(0.01)) }
+    precondition(presented.count == 3)
+    selectionModule.service.run(input:source,operation:.png,options:FileActionOptions(),helperOverride:root.appendingPathComponent("missing-helper"))
+    let failDeadline=Date().addingTimeInterval(5)
+    while selectionModule.service.busy && Date() < failDeadline { RunLoop.current.run(mode:.eventTracking,before:Date().addingTimeInterval(0.01)) }
+    precondition(selectionModule.service.feedback?.phase == .failed && presented.count == 3,
+                 "Worker failure records its reason without popping or reopening a menu")
+    selectionModule.service.run(input:source,operation:.png,options:FileActionOptions(),helperOverride:delayed)
+    let processingDeadline=Date().addingTimeInterval(5)
+    while selectionModule.service.feedback?.phase == .preparing && Date() < processingDeadline { RunLoop.current.run(mode:.eventTracking,before:Date().addingTimeInterval(0.01)) }
+    precondition(selectionModule.service.feedback?.phase == .processing)
+    selectionModule.cancelCurrent()
+    precondition(selectionModule.service.feedback?.phase == .cancelled)
+    selectionModule.service.run(input:source,operation:.png,options:FileActionOptions(),helperOverride:native)
+    let retryDeadline=Date().addingTimeInterval(8)
+    while selectionModule.service.busy && Date() < retryDeadline { RunLoop.current.run(mode:.eventTracking,before:Date().addingTimeInterval(0.01)) }
+    precondition(selectionModule.service.feedback?.phase == .completed && presented.count == 3,
+                 "Cancel and retry reject late phases and never resurrect a closed menu")
     selectionModule.selectionProcessFactory = { fakeSelection(source) }
     selectionModule.summonSelection()
     selectionModule.stop()
     RunLoop.current.run(until: Date().addingTimeInterval(0.15))
-    precondition(presented.count == 2, "Stopping invalidates pending menu presentation")
+    precondition(presented.count == 3 && feedbacks.last! == nil, "Stopping invalidates pending menus and clears global feedback")
+    // Hold main-loop delivery after a real output has committed, then quit.
+    let drainSource=root.appendingPathComponent("drain-input.png")
+    try fm.copyItem(at:source,to:drainSource)
+    let unaccepted=root.appendingPathComponent("drain-input (2).png")
+    let pendingService=FileActionService()
+    pendingService.run(input:drainSource,operation:.png,options:FileActionOptions(),helperOverride:native)
+    let committedDeadline=Date().addingTimeInterval(8)
+    while Date() < committedDeadline {
+      let stages=try fm.contentsOfDirectory(atPath:root.path).filter { $0.hasPrefix(".file-actions-") }
+      if fm.fileExists(atPath:unaccepted.path) && stages.isEmpty { break }
+      Thread.sleep(forTimeInterval:0.01)
+    }
+    precondition(fm.fileExists(atPath:unaccepted.path) && pendingService.busy && pendingService.result == nil)
+    var drained=false
+    pendingService.prepareToTerminate { drained=true }
+    let drainDeadline=Date().addingTimeInterval(5)
+    while !drained && Date() < drainDeadline { RunLoop.current.run(mode:.eventTracking,before:Date().addingTimeInterval(0.01)) }
+    precondition(drained && !fm.fileExists(atPath:unaccepted.path) && fm.fileExists(atPath:drainSource.path),
+                 "Quit waits for main-loop result acknowledgement and stale owned-output cleanup")
     let module = FileActionsModule()
     module.start()
     module.stop()

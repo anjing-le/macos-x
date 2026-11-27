@@ -90,7 +90,8 @@ final class FileActionJob: @unchecked Sendable {
   }
   func run(
     input: URL, operation: FileActionOperation, options: FileActionOptions, helper: URL,
-    parent: URL? = nil, timeout: TimeInterval = 30
+    parent: URL? = nil, timeout: TimeInterval = 30,
+    onPhase: @escaping @Sendable (FileActionFeedback.Phase) -> Void = { _ in }
   ) throws -> FileActionResult {
     let fm = FileManager.default
     let v = try input.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
@@ -137,6 +138,7 @@ final class FileActionJob: @unchecked Sendable {
     lock.unlock()
     if alreadyCancelled { throw FileActionFailure.cancelled }
     try p.run()
+    onPhase(.processing)
     if isCancelled, p.isRunning { p.terminate() }
     let deadline = ProcessInfo.processInfo.systemUptime + max(0.05, timeout)
     var limited = false
@@ -203,6 +205,7 @@ final class FileActionJob: @unchecked Sendable {
     let suffix = single ? "." + files[0].pathExtension : ""
     let conversion = single && [.jpeg, .png, .markdown, .text].contains(operation)
     let basename = stem + (conversion ? "" : "-" + operation.rawValue)
+    onPhase(.saving)
     for n in 1...999 {
       if isCancelled { throw FileActionFailure.cancelled }
       let target = folder.appendingPathComponent(
@@ -230,24 +233,36 @@ final class FileActionJob: @unchecked Sendable {
   private(set) var busy = false
   private(set) var result: FileActionResult?
   private(set) var message = ""
+  private(set) var feedback: FileActionFeedback?
   private var generation = UUID()
   private var job: FileActionJob?
   private let queue = DispatchQueue(label: "macos-x.file-actions", qos: .userInitiated)
+  private let deliveries = DispatchGroup()
   func prepareToTerminate(_ completion: @escaping @MainActor () -> Void) {
     cancel()
-    queue.async { DispatchQueue.main.async { completion() } }
+    let queue = queue, deliveries = deliveries
+    queue.async {
+      deliveries.notify(queue: queue) {
+        RunLoop.main.perform(inModes: [.default, .eventTracking]) {
+          MainActor.assumeIsolated { completion() }
+        }
+      }
+    }
   }
   func reset() {
     guard !busy else { return }
     result = nil
     message = ""
+    feedback = nil
   }
   func cancel() {
+    guard busy else { return }
     generation = UUID()
     job?.cancel()
     job = nil
     busy = false
     message = FileActionFailure.cancelled.message
+    if let input = feedback?.input { feedback = FileActionFeedback(phase: .cancelled, input: input, message: message) }
     onChange?()
   }
   func run(
@@ -266,35 +281,54 @@ final class FileActionJob: @unchecked Sendable {
     generation = epoch
     busy = true
     result = nil
-    message = AppLanguage.text("正在处理…")
+    message = FileActionFeedback.Phase.preparing.title
+    feedback = FileActionFeedback(phase: .preparing, input: input)
+    let deliveries = deliveries
+    deliveries.enter()
     onChange?()
     let cleanup = queue
     queue.async { [weak self] in
       let outcome = Result {
         try next.run(
-          input: input, operation: operation, options: options, helper: helper, parent: parent)
+          input: input, operation: operation, options: options, helper: helper, parent: parent,
+          onPhase: { [weak self] phase in
+            RunLoop.main.perform(inModes: [.default, .eventTracking]) { [weak self] in
+              MainActor.assumeIsolated {
+                guard let self, self.generation == epoch, self.busy else { return }
+                self.feedback = FileActionFeedback(phase: phase, input: input)
+                self.message = phase.title; self.onChange?()
+              }
+            }
+          })
       }
-      DispatchQueue.main.async { [weak self] in
-        guard let self, self.generation == epoch else {
-          if case .success(let result) = outcome {
-            cleanup.async { result.ownership.discard() }
+      RunLoop.main.perform(inModes: [.default, .eventTracking]) { [weak self] in
+        // A stale result enqueues owned-file cleanup before leaving the group.
+        // Termination's queue notification therefore follows that cleanup.
+        defer { deliveries.leave() }
+        MainActor.assumeIsolated {
+          guard let self, self.generation == epoch else {
+            if case .success(let result) = outcome {
+              cleanup.async { result.ownership.discard() }
+            }
+            return
           }
-          return
+          self.busy = false
+          self.job = nil
+          switch outcome {
+          case .success(let result):
+            result.ownership.accept()
+            self.result = result
+            self.message =
+              result.unchanged
+              ? AppLanguage.text("未能进一步缩小，已保留原始文件。") : AppLanguage.text("已完成，原文件未修改。")
+            self.feedback = FileActionFeedback(phase: .completed, input: input, output: result.url, message: self.message)
+          case .failure(let error):
+            self.message =
+              (error as? FileActionFailure)?.message ?? AppLanguage.text("无法保存结果，请确认原文件所在目录可写。")
+            self.feedback = FileActionFeedback(phase: .failed, input: input, message: self.message)
+          }
+          self.onChange?()
         }
-        self.busy = false
-        self.job = nil
-        switch outcome {
-        case .success(let result):
-          result.ownership.accept()
-          self.result = result
-          self.message =
-            result.unchanged
-            ? AppLanguage.text("未能进一步缩小，已保留原始文件。") : AppLanguage.text("已完成，原文件未修改。")
-        case .failure(let error):
-          self.message =
-            (error as? FileActionFailure)?.message ?? AppLanguage.text("无法保存结果，请确认原文件所在目录可写。")
-        }
-        self.onChange?()
       }
     }
   }

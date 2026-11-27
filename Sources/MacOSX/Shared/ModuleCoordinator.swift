@@ -23,6 +23,9 @@ final class ModuleCoordinator {
     private var finishingTransfers: [UUID: NearbyTransferModule] = [:]
     var onNearbySettings: (() -> Void)?
     var onNearbyOpen: (() -> Void)?
+    var onFileActionsFeedbackChanged: ((FileActionFeedback?) -> Void)?
+    func cancelFileAction() { fileActions?.cancelCurrent() }
+    func revealFileActionResult() { fileActions?.revealResult() }
     var menuBarAnchor: (() -> CGRect?)?
     var menuBarCoveredEvent: ((NSEvent) -> Void)?
     func menuBarHover(_ frame: CGRect, inside: Bool) {
@@ -105,7 +108,11 @@ final class ModuleCoordinator {
     private func ensure(_ tool: Tool) {
         switch tool {
         case .fileActions:
-            if fileActions == nil {fileActions=FileActionsModule();fileActions?.beforeOpen={ [weak self] in self?.onNearbyOpen?() }}
+            if fileActions == nil {
+                fileActions=FileActionsModule()
+                fileActions?.beforeOpen={ [weak self] in self?.onNearbyOpen?() }
+                fileActions?.onFeedbackChanged={ [weak self] in self?.onFileActionsFeedbackChanged?($0) }
+            }
         case .nearbyTransfer:
             if nearbyTransfer == nil {
                 let module = NearbyTransferModule()

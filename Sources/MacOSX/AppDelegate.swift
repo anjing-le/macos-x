@@ -16,6 +16,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
         menuBar.start()
+        modules.onFileActionsFeedbackChanged = { [weak self] in self?.menuBar.updateFileActions($0) }
+        menuBar.onCancelFileActions = { [weak self] in self?.modules.cancelFileAction() }
+        menuBar.onRevealFileActions = { [weak self] in self?.modules.revealFileActionResult() }
         modules.menuBarAnchor = { [weak self] in self?.menuBar.screenFrame }
         modules.onNearbyOpen = { [weak self] in self?.client?.window?.orderOut(nil) }
         modules.onNearbySettings = { [weak self] in

@@ -45,16 +45,18 @@ enum FileActionsFinderQuery {
   var finderIsFrontmost: () -> Bool = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder" }
   var selectionProcessFactory: () -> Process = FileActionsFinderQuery.process
   var presentMenuOverride: ((NSMenu) -> Void)?
+  var onFeedbackChanged: ((FileActionFeedback?) -> Void)?
   private let logger = Logger(subsystem: "cc.anjing.macos-x", category: "file-actions-selection")
   func start() {
+    guard !running else { return }
     running = true
+    service.reset()
     service.onChange = { [weak self] in
-      guard let self, self.running, !self.service.busy,
-        self.service.result == nil, !self.service.message.isEmpty,
-        self.service.message != FileActionFailure.cancelled.message else { return }
-      // A failed command must have a visible outcome, never a blank form.
-      self.show()
+      guard let self, self.running else { return }
+      self.onFeedbackChanged?(self.service.feedback)
+      if self.menu != nil { self.updateMenuFeedback() }
     }
+    onFeedbackChanged?(nil)
   }
   func stop() {
     running = false
@@ -67,6 +69,7 @@ enum FileActionsFinderQuery {
     hide()
     menu = nil
     input = nil
+    onFeedbackChanged?(nil)
   }
   func prepareToTerminate(_ completion: @escaping @MainActor () -> Void) {
     stop()
@@ -80,28 +83,40 @@ enum FileActionsFinderQuery {
       guard let self, let input = self.input, self.running, !self.service.busy else { return }
       self.service.run(input: input, operation: operation, options: options)
     }
-    actions.onCancel = { [weak self] in self?.service.cancel() }
-    actions.onReveal = { [weak self] in
-      if let result = self?.service.result { NSWorkspace.shared.activateFileViewerSelecting([result.url]) }
-    }
+    actions.onCancel = { [weak self] in self?.cancelCurrent() }
+    actions.onReveal = { [weak self] in self?.revealResult() }
+    let sameInput = service.feedback?.input == input
     let menu = actions.make(input: input, busy: service.busy,
-      message: service.message, result: service.result?.url)
+      message: sameInput ? currentMessage : "", result: sameInput ? service.result?.url : nil)
     self.menu = menu
     guard !menu.items.isEmpty else { self.menu = nil; return }
     beforeOpen?()
     if let presentMenuOverride { presentMenuOverride(menu) }
-    else { menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil) }
+    else {
+      menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+      if self.menu === menu { self.menu = nil }
+    }
+  }
+  private var currentMessage: String {
+    guard let feedback = service.feedback, feedback.phase.isBusy else { return service.message }
+    return feedback.phase.title
+  }
+  private func updateMenuFeedback() {
+    let sameInput = service.feedback?.input == input
+    actions.update(busy: service.busy, message: sameInput ? currentMessage : "", result: sameInput ? service.result?.url : nil)
+  }
+  func cancelCurrent() { guard running else { return }; service.cancel() }
+  func revealResult() {
+    guard running, let result = service.result else { return }
+    NSWorkspace.shared.activateFileViewerSelecting([result.url])
   }
   func summonSelection() {
     guard running else { return }
     if service.busy { show(); return }
     guard selectionProcess == nil else { return }
+    hide()
     input = nil
-    service.reset()
-    guard finderIsFrontmost() else {
-      show()
-      return
-    }
+    guard finderIsFrontmost() else { return }
     let process = selectionProcessFactory()
     let pipe = Pipe()
     process.standardOutput = pipe
@@ -142,6 +157,7 @@ enum FileActionsFinderQuery {
         guard let self, self.running, self.selectionGeneration == epoch else { return }
         self.selectionProcess = nil
         self.selectionToken = nil
+        guard self.finderIsFrontmost() else { return }
         self.input = result
         self.show()
       }

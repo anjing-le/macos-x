@@ -4,6 +4,7 @@ source "$(dirname "$0")/localization/fixture-core.sh"
 menu_repo="$(cd "$(dirname "$0")/.." && pwd)"
 menu_dir="$(mktemp -d "${TMPDIR:-/tmp/}macos-x-menu-bar.XXXXXX")"
 trap 'rm -rf "$menu_dir"' EXIT
-xcrun swiftc -I "$localization_bin/Modules" "$localization_bin"/MacOSXCore.build/*.swift.o "$menu_repo/Sources/MacOSX/Shared/MenuBarController.swift" \
- "$menu_repo/tools/menu-bar-regression.swift" -o "$menu_dir/menu-bar-regression"
+cat "$menu_repo/Sources/MacOSX/Shared/MenuBarController.swift" "$menu_repo/tools/menu-bar-regression.swift" > "$menu_dir/menu-and-regression.swift"
+xcrun swiftc -parse-as-library -I "$localization_bin/Modules" "$localization_bin"/MacOSXCore.build/*.swift.o \
+ "$menu_dir/menu-and-regression.swift" -o "$menu_dir/menu-bar-regression"
 "$menu_dir/menu-bar-regression"

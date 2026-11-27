@@ -18,11 +18,17 @@ import MacOSXCore
 /// there is no file picker, destination picker, or separate conversion form.
 @MainActor final class FileActionsMenu: NSObject {
   private var commands: [FileActionMenuCommand] = []
+  private weak var currentMenu: NSMenu?
+  private var operationItems: [NSMenuItem] = []
+  private var statusItem: NSMenuItem?, cancelItem: NSMenuItem?, resultItem: NSMenuItem?, resultSeparator: NSMenuItem?
+  private var taskPresentation = false
   var onRun: ((FileActionOperation, FileActionOptions) -> Void)?
   var onCancel: (() -> Void)?
   var onReveal: (() -> Void)?
   func make(input: URL?, busy: Bool = false, message: String = "", result: URL? = nil) -> NSMenu {
     commands.removeAll()
+    currentMenu = nil; operationItems.removeAll()
+    taskPresentation = busy
     let menu = NSMenu()
     menu.autoenablesItems = false
     menu.font = SketchPalette.heading(15)
@@ -33,12 +39,7 @@ import MacOSXCore
       menu.addItem(item)
     }
     guard let input, !FileActionPolicy.operations(extension: input.pathExtension).isEmpty else { return menu }
-    label(input.lastPathComponent)
-    if !message.isEmpty { label(message) }
-    if busy {
-      add(AppLanguage.text("取消"), to: menu) { [weak self] in self?.onCancel?() }
-      return menu
-    }
+    label(FileActionFeedback.compact(input.lastPathComponent))
     let operations = FileActionPolicy.operations(extension: input.pathExtension)
     for operation in operations {
       switch operation {
@@ -76,11 +77,29 @@ import MacOSXCore
         submenu.addItem(item)
       }
     }
-    if result != nil {
-      menu.addItem(.separator())
-      add("Finder", to: menu) { [weak self] in self?.onReveal?() }
-    }
+    operationItems = Array(menu.items.dropFirst())
+    let separator = NSMenuItem.separator(); menu.addItem(separator); resultSeparator = separator
+    let status = NSMenuItem(title: "", action: nil, keyEquivalent: ""); status.isEnabled = false
+    menu.addItem(status); statusItem = status
+    cancelItem = add(AppLanguage.text("取消"), to: menu) { [weak self] in self?.onCancel?() }
+    resultItem = add("Finder", to: menu) { [weak self] in self?.onReveal?() }
+    currentMenu = menu
+    update(busy: busy, message: message, result: result)
     return menu
+  }
+  /// Change existing rows while NSMenu tracks; never reopen or move the menu.
+  func update(busy: Bool, message: String, result: URL?) {
+    guard let menu = currentMenu else { return }
+    taskPresentation = taskPresentation || busy
+    operationItems.forEach { $0.isHidden = taskPresentation; $0.isEnabled = !taskPresentation }
+    let status = message.isEmpty && busy ? FileActionFeedback.Phase.processing.title : message
+    statusItem?.title = FileActionFeedback.compact(status); statusItem?.toolTip = status
+    statusItem?.isHidden = status.isEmpty
+    cancelItem?.isHidden = !taskPresentation; cancelItem?.isEnabled = busy
+    resultItem?.isHidden = !taskPresentation && result == nil; resultItem?.isEnabled = !busy && result != nil
+    resultItem?.toolTip = result?.lastPathComponent
+    resultSeparator?.isHidden = !taskPresentation && result == nil
+    menu.update()
   }
   private func child(_ title: String, in menu: NSMenu) -> NSMenu {
     let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
@@ -92,12 +111,13 @@ import MacOSXCore
                     _ options: FileActionOptions = FileActionOptions(), to menu: NSMenu) {
     add(title, to: menu) { [weak self] in self?.onRun?(operation, options) }
   }
-  private func add(_ title: String, to menu: NSMenu, action: @escaping () -> Void) {
+  @discardableResult private func add(_ title: String, to menu: NSMenu, action: @escaping () -> Void) -> NSMenuItem {
     let command = FileActionMenuCommand(action)
     commands.append(command)
     let item = NSMenuItem(title: title, action: #selector(FileActionMenuCommand.execute), keyEquivalent: "")
     item.target = command
     menu.addItem(item)
+    return item
   }
 }
 @MainActor private final class FileActionMenuCommand: NSObject {
