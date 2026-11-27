@@ -31,7 +31,7 @@ import MacOSXCore
     func start() {
         guard !enabled else { return }; enabled=true
         guard AXIsProcessTrusted() else { updateStatus(AppLanguage.text("需要辅助功能权限")); return }
-        let mask:NSEvent.EventTypeMask=[.leftMouseDown,.leftMouseDragged,.leftMouseUp]
+        let mask:NSEvent.EventTypeMask=[.leftMouseDown,.leftMouseDragged,.leftMouseUp,.keyDown]
         localMonitor=NSEvent.addLocalMonitorForEvents(matching:mask) { [weak self] event in self?.receive(event); return event }
         globalMonitor=NSEvent.addGlobalMonitorForEvents(matching:mask) { [weak self] event in MainActor.assumeIsolated { self?.receive(event) } }
         workspaceObserver=NSWorkspace.shared.notificationCenter.addObserver(forName:NSWorkspace.didActivateApplicationNotification,object:nil,queue:.main) { [weak self] _ in MainActor.assumeIsolated { if NSEvent.pressedMouseButtons & 1 == 0 { self?.cancelDrag() } } }
@@ -49,6 +49,11 @@ import MacOSXCore
         preview?.orderOut(nil); preview?.close(); preview=nil
     }
     private func receive(_ event:NSEvent) {
+        if enabled, event.type == .keyDown {
+            if event.keyCode == 53, event.modifierFlags.intersection([.command,.control,.option,.shift]).isEmpty,
+               target != nil || preview != nil || verifying { cancelDrag() }
+            return // Preserve the original key event for its owning application.
+        }
         guard enabled,AXIsProcessTrusted() else { return }
         let point=NSEvent.mouseLocation
         switch event.type {

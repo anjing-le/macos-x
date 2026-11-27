@@ -40,6 +40,7 @@ import AppKit
     }
     func toggle() { isDrawerVisible ? hide() : show(focus: true) }
     func hide() {
+        view?.dismissTransientContent()
         panel?.orderOut(nil)
         if let localMonitor { NSEvent.removeMonitor(localMonitor); self.localMonitor = nil }
     }
@@ -64,11 +65,16 @@ import AppKit
         if let panel { presentPanel(panel, focus) }
         if localMonitor == nil {
             localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
-                guard let self else { return event }
-                if event.type == .keyDown, event.keyCode == 53, event.window === self.panel { self.hide(); return nil }
-                return event
+                return self?.handleDismissKey(event, sourceWindow: event.window) == true ? nil : event
             }
         }
+    }
+    @discardableResult func handleDismissKey(_ event: NSEvent, sourceWindow: NSWindow?) -> Bool {
+        guard localMonitor != nil, event.type == .keyDown, sourceWindow === panel, panel?.attachedSheet == nil else { return false }
+        let modifiers = event.modifierFlags.intersection([.command,.control,.option,.shift])
+        guard (event.keyCode == 53 && modifiers.isEmpty) || (event.keyCode == 13 && modifiers == .command) else { return false }
+        if event.keyCode == 53, view?.dismissTransientContent() == true { return true }
+        hide(); return true
     }
     private func refresh() {
         if panel?.isVisible == true { view?.refresh() }

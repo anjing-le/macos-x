@@ -1,5 +1,31 @@
 import AppKit
 
+@MainActor private final class VisibilityPinFixture: CapturePinnedItem {
+    let window = NSPanel(contentRect:.zero,styleMask:.borderless,backing:.buffered,defer:true)
+    let image:CGImage
+    var isVisible=true, isActive=false
+    var onClose:(()->Void)?, onStatus:((String)->Void)?
+    var recovery:CapturePinRecovery { .image(PinSnapshot(image:image,baseSize:CGSize(width:1,height:1),frame:.zero,
+        transform:CapturePinTransform(),zoom:1,thumbnail:false,opacity:1)) }
+    init(image:CGImage) { self.image=image }
+    func present(focus:Bool) { precondition(!focus); isVisible=true }
+    func hide() { isVisible=false }
+    func setOutline(_ visible:Bool) {}
+    func applyEditIfKey()->Bool { false }
+    func shelve(_ save:@escaping(CGImage,@escaping(Bool)->Void)->Void) {}
+    func dispose() { isVisible=false; window.close() }
+}
+@MainActor private extension CapturePins {
+    static func verifyGroupVisibilityJourney(image:CGImage) {
+        let pins=CapturePins(), entry=VisibilityPinFixture(image:image)
+        pins.entries=[entry]
+        precondition(!entry.window.isVisible && entry.isVisible,"An edited pin can be visible while its base window is hidden")
+        pins.toggleAll(); precondition(!entry.isVisible,"Group toggle hides edited pins instead of opening duplicate base windows")
+        pins.toggleAll(); precondition(entry.isVisible)
+        pins.closeAll()
+    }
+}
+
 @MainActor private final class RecordingControlReceiver: NSObject {
     var starts = 0, cancels = 0
     @objc func start(_ sender: Any?) { starts += 1 }
@@ -9,6 +35,25 @@ import AppKit
 // Compiled alongside the real editor/pin source; these helpers only exist in
 // this isolated executable, with injected OCR and no general clipboard writes.
 @MainActor private extension CaptureEditor {
+    func verifyHideInputJourney() {
+        canvas.tool = .pen
+        func mouse(_ type:NSEvent.EventType,_ point:CGPoint)->NSEvent {
+            NSEvent.mouseEvent(with:type,location:point,modifierFlags:[],timestamp:0,windowNumber:window.windowNumber,
+                context:nil,eventNumber:1,clickCount:1,pressure:1)!
+        }
+        canvas.mouseDown(with:mouse(.leftMouseDown,CGPoint(x:20,y:30)))
+        canvas.mouseDragged(with:mouse(.leftMouseDragged,CGPoint(x:80,y:60)))
+        hide(); canvas.mouseUp(with:mouse(.leftMouseUp,CGPoint(x:100,y:90)))
+        precondition(annotations.count == 1 && !canvas.inputEnabled && localMonitor == nil,"Hide commits a draft once and releases input")
+        present(focus:false)
+        precondition(canvas.inputEnabled && annotations.count == 1)
+        let input = beginTextFixture(point:CGPoint(x:30,y:100),width:3,ink:.red)
+        input.insertText("unfinished",replacementRange:NSRange(location:0,length:0))
+        hide(); present(focus:false)
+        precondition(textInput === input && input.string == "unfinished" && window.firstResponder === input,
+                     "Non-focusing restore keeps unfinished text and its native responder")
+        close()
+    }
     func verifyTranslatedAnnotationsFixture() {
         let pixels = canvas.base
         let mark = CaptureAnnotation(tool: .rectangle, points: [CGPoint(x: 20,y: 30),CGPoint(x: 90,y: 100)], ink: .red, width: 3)
@@ -404,6 +449,39 @@ import AppKit
 }
 
 @MainActor private extension PinEntry {
+    static func verifyVisibilityJourney(image: CGImage, defaults: UserDefaults) {
+        let board = NSPasteboard.withUniqueName(); defer { board.releaseGlobally() }
+        for applyWhileHidden in [false,true] {
+            let queue = DispatchQueue(label: "pin-hidden-edit-fixture"), gate = DispatchSemaphore(value: 0)
+            var shown: [(NSWindow,Bool)] = []
+            let pin = PinEntry(image: image,frame: CGRect(x: 20,y: 30,width: 200,height: 160),queue: queue,clipboard: board,
+                presentWindow: { shown.append(($0,$1)) },defaults: defaults)
+            pin.present(focus: false)
+            queue.async { _ = gate.wait(timeout: .now()+5) }
+            pin.editImage(); pin.hide(); gate.signal()
+            let deadline = Date().addingTimeInterval(5)
+            while pin.editor == nil && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+            guard let editor = pin.editor else { preconditionFailure("Editor preparation completes while hidden") }
+            precondition(pin.hidden && shown.count == 1 && !pin.preparingEditor && !editor.window.isVisible,
+                         "Hiding during editor preparation cannot resurrect its image or tools")
+            let canvas = editor.window.contentView as! CaptureCanvas
+            canvas.onAnnotation?(CaptureAnnotation(tool: .rectangle,points: [CGPoint(x: 20,y: 20),CGPoint(x: 80,y: 80)],ink: .red,width: 3))
+            pin.present(focus: false)
+            precondition(shown.count == 2 && shown.last!.0 === editor.window && !shown.last!.1,
+                         "Showing an edited pin resumes only its editor, preserving non-focusing presentation")
+            pin.hide()
+            if applyWhileHidden { editor.pinCurrentImage() }
+            else { editor.close() }
+            let closedDeadline = Date().addingTimeInterval(5)
+            while pin.editor != nil && Date() < closedDeadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+            precondition(pin.editor == nil && shown.count == 2 && !pin.window.isVisible,
+                         "Cancel or an in-flight apply cannot revive a globally hidden pin")
+            pin.present(focus: false)
+            precondition(shown.count == 3 && shown.last!.0 === pin.window)
+            pin.dispose()
+        }
+        print("PASS pin visibility journey: hide during preparation, resume editor without duplicate base/focus, hidden cancel/apply and explicit reshow; no onscreen windows")
+    }
     func performFixture(_ command: PinCommand) { perform(command) }
     func applyRenderedEditFixture() { applyEdit(transform.render(image)!) }
     var fixtureZoom: CGFloat { zoom }
@@ -624,6 +702,10 @@ import AppKit
         let context = CaptureRaster.context(width: 200, height: 160)!
         context.setFillColor(CGColor(gray: 1, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 200, height: 160))
         let image = context.makeImage()!
+        PinEntry.verifyVisibilityJourney(image: image,defaults: defaults)
+        CapturePins.verifyGroupVisibilityJourney(image:image)
+        let hiddenEditor = CaptureEditor(image:image,editingPin:true,defaults:defaults,presentWindow:{ _,focus in precondition(!focus) })
+        hiddenEditor.verifyHideInputJourney()
         let mosaicUndo = CaptureEditor(image: image,selectionFrame: CGRect(x: 0,y: 0,width: 200,height: 160),defaults: defaults)
         mosaicUndo.verifyMosaicUndoFixture(); mosaicUndo.close()
         CaptureSelection.verifySessionCopyFixture(image: image)

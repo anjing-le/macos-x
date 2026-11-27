@@ -103,8 +103,8 @@ final class CapturePins {
         return true
     }
     func applyActiveEdit() -> Bool { entries.contains { $0.applyEditIfKey() } }
-    func toggleAll() { entries.contains(where: { $0.window.isVisible }) ? hideAll() : showAll() }
-    func hideAll() { entries.forEach { $0.window.orderOut(nil) }; onStatus?(AppLanguage.text("贴图已隐藏 · ⇧F3 显示")) }
+    func toggleAll() { entries.contains(where: { $0.isVisible }) ? hideAll() : showAll() }
+    func hideAll() { entries.forEach { $0.hide() }; onStatus?(AppLanguage.text("贴图已隐藏 · ⇧F3 显示")) }
     func showAll() {
         entries.forEach { $0.present(focus: false) }
         onStatus?(AppLanguage.text("已显示贴图。"))
@@ -148,6 +148,9 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
     private var savePanel: NSSavePanel?
     private var editor: CaptureEditor?
     private var preparingEditor = false
+    private var hidden = false
+    private let presentWindow: ((NSWindow, Bool) -> Void)?
+    private let defaults: UserDefaults
     var onClose: (() -> Void)?
     var onStatus: ((String) -> Void)?
     var snapshot: PinSnapshot {
@@ -156,7 +159,9 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
     }
     var recovery: CapturePinRecovery { .image(snapshot) }
 
-    init(image: CGImage, frame: CGRect?, queue: DispatchQueue, clipboard: NSPasteboard = .general, textRecognizer: @escaping (CGImage, VNRecognizeTextRequest) throws -> String = CaptureTextRecognition.recognize) {
+    init(image: CGImage, frame: CGRect?, queue: DispatchQueue, clipboard: NSPasteboard = .general, textRecognizer: @escaping (CGImage, VNRecognizeTextRequest) throws -> String = CaptureTextRecognition.recognize, presentWindow: ((NSWindow, Bool) -> Void)? = nil, defaults: UserDefaults = .standard) {
+        self.presentWindow = presentWindow
+        self.defaults = defaults
         self.image = image; view = PinView(image: image); self.queue = queue; self.clipboard = clipboard; self.textRecognizer = textRecognizer
         let validFrame = frame.flatMap { rect -> CGRect? in
             guard [rect.minX, rect.minY, rect.width, rect.height].allSatisfy({ $0.isFinite }),
@@ -197,6 +202,7 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
         view.transform = transform; view.needsDisplay = true
     }
     var isActive: Bool { window.isKeyWindow || editor?.window.isKeyWindow == true }
+    var isVisible: Bool { window.isVisible || editor?.window.isVisible == true }
     func shelve(_ save: @escaping (CGImage, @escaping (Bool) -> Void) -> Void) {
         guard !closed, !exporting, !preparingEditor else { return }
         if let editor {
@@ -228,9 +234,17 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
     func setOutline(_ visible: Bool) { view.showsOutline = visible }
     func present(focus: Bool = true) {
         guard !closed else { return }
-        if focus { window.makeKeyAndOrderFront(nil); window.makeFirstResponder(view) }
+        hidden = false
+        if let editor { editor.present(focus: focus); return }
+        if let presentWindow { presentWindow(window, focus) }
+        else if focus { window.makeKeyAndOrderFront(nil); window.makeFirstResponder(view) }
         else { window.orderFrontRegardless() }
         window.displayIfNeeded()
+    }
+    func hide() {
+        guard !closed else { return }
+        hidden = true; cancelRecognition(); samplingTicket?.cancel(); view.sampler = nil
+        view.pauseSampling(); editor?.hide(); window.orderOut(nil)
     }
     func applyEditIfKey() -> Bool {
         guard !closed, let editor, editor.window.isKeyWindow else { return false }
@@ -346,7 +360,7 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
                 guard let self, !self.closed, lifetime.valid else { return }
                 self.preparingEditor = false
                 guard let rendered else { self.onStatus?(AppLanguage.text("贴图编辑失败。")); return }
-                let editor = CaptureEditor(image: rendered, selectionFrame: self.window.frame, editingPin: true, clipboard: self.clipboard, textRecognizer: self.textRecognizer)
+                let editor = CaptureEditor(image: rendered, selectionFrame: self.window.frame, editingPin: true, defaults: self.defaults, clipboard: self.clipboard, textRecognizer: self.textRecognizer, presentWindow: self.presentWindow)
                 self.editor = editor
                 editor.onApply = { [weak self] result in
                     guard let self, !self.closed else { return }
@@ -354,9 +368,10 @@ private final class PinEntry: NSObject, NSWindowDelegate, CapturePinnedItem {
                 }
                 editor.onClose = { [weak self] in
                     guard let self, !self.closed else { return }
-                    self.editor = nil; self.present()
+                    self.editor = nil
+                    if !self.hidden { self.present() }
                 }
-                editor.present()
+                if !self.hidden { editor.present() }
                 self.window.orderOut(nil)
             }
         }

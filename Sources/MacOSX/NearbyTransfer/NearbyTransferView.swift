@@ -143,6 +143,10 @@ import MacOSXCore
     }
     @objc func paste(_ sender: Any?) { service.paste() }
     @objc private func selectDevice() { deviceMenu == nil ? openDeviceMenu() : closeDeviceMenu() }
+    @discardableResult func dismissTransientContent() -> Bool {
+        guard deviceMenu != nil else { return false }
+        closeDeviceMenu(); return true
+    }
     private func closeDeviceMenu() { deviceMenu?.removeFromSuperview(); deviceMenu = nil; deviceButtons.removeAll() }
     private func openDeviceMenu() {
         let menu = SketchSurface(); menu.radius = 10

@@ -3,10 +3,12 @@ import AppKit
 @MainActor protocol CapturePinnedItem: AnyObject {
     var window: NSPanel { get }
     var isActive: Bool { get }
+    var isVisible: Bool { get }
     var recovery: CapturePinRecovery { get }
     var onClose: (() -> Void)? { get set }
     var onStatus: ((String) -> Void)? { get set }
     func present(focus: Bool)
+    func hide()
     func setOutline(_ visible: Bool)
     func applyEditIfKey() -> Bool
     func shelve(_ save: @escaping (CGImage, @escaping (Bool) -> Void) -> Void)

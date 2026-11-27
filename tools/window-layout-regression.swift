@@ -1,6 +1,22 @@
 import AppKit
 import MacOSXCore
 
+@MainActor private extension WindowLayoutModule {
+    func verifyEscapeJourney(window:NSWindow) {
+        enabled=true; target = .local(window,window.frame)
+        verified=true; verifying=true; pendingAction = .left; preview=LayoutPreviewPanel()
+        let frame=window.frame, before=generation
+        let escape=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:0,windowNumber:window.windowNumber,
+            context:nil,characters:"",charactersIgnoringModifiers:"",isARepeat:false,keyCode:53)!
+        receive(escape)
+        precondition(target == nil && preview == nil && !verified && !verifying && pendingAction == nil && generation > before,
+                     "Escape cancels drag preview and invalidates late target replies")
+        let cancelled=generation; receive(escape)
+        precondition(generation == cancelled && window.frame == frame,"Idle Escape is harmless and cancellation never applies a snap")
+        stop()
+    }
+}
+
 @main struct Check {
     @MainActor static func main() throws {
         _ = NSApplication.shared
@@ -21,6 +37,7 @@ import MacOSXCore
         WindowLayoutNative.apply(window,frame:CGRect(x:0,y:0,width:200,height:100))
         precondition(window.frame.size == CGSize(width:360,height:240))
         let module=WindowLayoutModule()
+        module.verifyEscapeJourney(window:window)
         let settings=module.settingsView
         settings.frame.size=CGSize(width:840,height:300); settings.layoutSubtreeIfNeeded()
         if let path=ProcessInfo.processInfo.environment["MACOSX_SETTINGS_PREVIEW"],let bitmap=settings.bitmapImageRepForCachingDisplay(in:settings.bounds) {

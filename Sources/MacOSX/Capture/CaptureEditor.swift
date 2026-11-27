@@ -120,6 +120,7 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
     private let defaults: UserDefaults
     private let clipboard: NSPasteboard
     private let textRecognizer: (CGImage, VNRecognizeTextRequest) throws -> String
+    private let presentWindow: ((NSWindow, Bool) -> Void)?
     private var colorIndex: Int
     var onApply: ((CGImage) -> Void)?
     private var annotations: [CaptureAnnotation] = []
@@ -148,11 +149,12 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
     var onReselect: (() -> Void)?
     var colorAtPointer: ((Bool) -> String?)?
 
-    init(image: CGImage, selectionFrame: CGRect? = nil, editingPin: Bool = false, defaults: UserDefaults = .standard, clipboard: NSPasteboard = .general, textRecognizer: @escaping (CGImage, VNRecognizeTextRequest) throws -> String = CaptureTextRecognition.recognize) {
+    init(image: CGImage, selectionFrame: CGRect? = nil, editingPin: Bool = false, defaults: UserDefaults = .standard, clipboard: NSPasteboard = .general, textRecognizer: @escaping (CGImage, VNRecognizeTextRequest) throws -> String = CaptureTextRecognition.recognize, presentWindow: ((NSWindow, Bool) -> Void)? = nil) {
         self.editingPin = editingPin
         self.defaults = defaults
         self.clipboard = clipboard
         self.textRecognizer = textRecognizer
+        self.presentWindow = presentWindow
         let savedColor = (defaults.object(forKey: "capture.editor.color") as? NSNumber)?.intValue ?? 1
         colorIndex = Self.colors.indices.contains(savedColor) ? savedColor : 1
         canvas = CaptureCanvas(image: image)
@@ -230,11 +232,13 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
         }
     }
 
-    func present() {
+    func present(focus: Bool = true) {
         guard !closed else { return }
         window.displayIfNeeded()
-        window.makeKeyAndOrderFront(nil); window.makeFirstResponder(canvas); positionToolbar()
-        NSApp.activate(ignoringOtherApps: true)
+        if let presentWindow { presentWindow(window, focus) }
+        else if focus { window.makeKeyAndOrderFront(nil); window.makeFirstResponder(textInput ?? canvas); NSApp.activate(ignoringOtherApps: true) }
+        else { window.orderFrontRegardless() }
+        positionToolbar()
         updateSelectionInput()
         if localMonitor == nil {
             localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .scrollWheel]) { [weak self] event in
@@ -246,6 +250,14 @@ final class CaptureEditor: NSObject, NSWindowDelegate, NSTextViewDelegate {
                 return handled ? nil : event
             }
         }
+    }
+    func hide() {
+        guard !closed else { return }
+        canvas.commitDraft()
+        cancelRecognition(); colorPopover?.close()
+        canvas.inputEnabled = false; canvas.pointerActive = false; window.acceptsMouseMovedEvents = false
+        toolbar.orderOut(nil); window.orderOut(nil)
+        if let localMonitor { NSEvent.removeMonitor(localMonitor); self.localMonitor = nil }
     }
     // Selection backdrop owns pointer input while no annotation tool is active.
     @discardableResult func handleSelectionKey(_ event: NSEvent) -> Bool {

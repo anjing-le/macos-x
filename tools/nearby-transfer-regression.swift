@@ -199,6 +199,27 @@ import MacOSXCore
         precondition(auto.state == .off, "hidden drawer does not mutate its controls on background updates")
         module.show(focus: true)
         precondition(auto.state == .on, "drawer refreshes latest model immediately when reopened")
+        for code:UInt16 in [53,13] {
+            let other = NSPanel(contentRect:.zero,styleMask:.borderless,backing:.buffered,defer:true)
+            func key(_ window:NSWindow,flags:NSEvent.ModifierFlags)->NSEvent {
+                NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:flags,timestamp:0,windowNumber:window.windowNumber,
+                    context:nil,characters:code == 13 ? "w" : "",charactersIgnoringModifiers:code == 13 ? "w" : "",isARepeat:false,keyCode:code)!
+            }
+            let flags:NSEvent.ModifierFlags = code == 13 ? .command : []
+            precondition(!module.handleDismissKey(key(other,flags:flags),sourceWindow:other),"Other windows retain Escape/Command-W")
+            if code == 53 {
+                let view = shown!.contentView as! NearbyTransferView
+                let count = view.subviews.count
+                view.subviews.compactMap { $0 as? NSButton }.first { $0.title.hasSuffix("⌄") }!.performClick(nil)
+                precondition(view.subviews.count == count+1)
+                precondition(module.handleDismissKey(key(shown!,flags:flags),sourceWindow:shown) && view.subviews.count == count,
+                             "First Escape closes the device picker, preserving the drawer")
+            }
+            precondition(module.handleDismissKey(key(shown!,flags:flags),sourceWindow:shown) && surfaceService.running && surfaceService.autoCopy,
+                         "Closing the drawer preserves its connection and receive options")
+            precondition(!module.handleDismissKey(key(shown!,flags:flags),sourceWindow:shown),"Closed drawer releases its key listener")
+            module.show(focus:true)
+        }
         var settingsRequested = false
         module.onSettings = { settingsRequested = true }
         (shown?.contentView as? NearbyTransferView)?.onSettings?()
