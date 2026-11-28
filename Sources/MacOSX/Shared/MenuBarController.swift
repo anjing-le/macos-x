@@ -7,6 +7,7 @@ import os
     private var item: NSStatusItem?
     var onHover: ((CGRect, Bool) -> Void)?
     var onSingleClick: (() -> Void)?
+    var onAbout: (() -> Void)?
     var onCancelFileActions: (() -> Void)?
     var onRevealFileActions: (() -> Void)?
     private var fileFeedback: FileActionFeedback?
@@ -35,7 +36,7 @@ import os
         fileCancel.title = AppLanguage.text("取消"); fileCancel.action = #selector(cancelFileTask); fileCancel.target = self
         fileReveal.action = #selector(revealFileResult); fileReveal.target = self
         refreshFileFeedback()
-        for (title, action) in [(AppLanguage.text("打开 macos-x"), #selector(openClient)), (AppLanguage.text("检查更新…"), #selector(checkUpdates))] {
+        for (title, action) in [(AppLanguage.text("打开 macos-x"), #selector(openClient)), (AppLanguage.text("检查更新…"), #selector(checkUpdates)), (AppLanguage.text("关于 macos-x"), #selector(showAbout))] {
             let entry = NSMenuItem(title: title, action: action, keyEquivalent: "")
             entry.target = self; menu.addItem(entry)
         }
@@ -134,6 +135,7 @@ import os
             } else { lastLeftClick = now; onSingleClick?() }
         } else if event.type == .keyDown { lastLeftClick = nil; onOpen() }
     }
+    @objc private func showAbout() { onAbout?() }
     @objc private func openClient() { onOpen() }
     @objc private func checkUpdates() { onCheckUpdates() }
     @objc private func quit() { onQuit() }

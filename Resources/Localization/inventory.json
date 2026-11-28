@@ -6185,5 +6185,93 @@
       "raw": false,
       "multiline": false
     }
+  ],
+  "关于 macos-x": [
+    {
+      "file": "Sources/MacOSX/Shared/AboutWindowController.swift",
+      "line": 1,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "版本 {0} · 构建 {1}": [
+    {
+      "file": "Sources/MacOSX/Shared/AboutWindowController.swift",
+      "line": 1,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "开发版本": [
+    {
+      "file": "Sources/MacOSX/Shared/AboutWindowController.swift",
+      "line": 1,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "作者 GitHub": [
+    {
+      "file": "Sources/MacOSX/Shared/AboutWindowController.swift",
+      "line": 1,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "项目与反馈": [
+    {
+      "file": "Sources/MacOSX/Shared/AboutWindowController.swift",
+      "line": 1,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "让 Mac 上的常用操作，顺手一点。": [
+    {
+      "file": "Sources/MacOSX/Shared/AboutWindowController.swift",
+      "line": 1,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "截图贴图、窗口管理、菜单栏收纳、电脑状态、提示词与文件互传和处理。把日常需要的小工具，放在一起。": [
+    {
+      "file": "Sources/MacOSX/Shared/AboutWindowController.swift",
+      "line": 1,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "少一点打断，多一点专注": [
+    {
+      "file": "Sources/MacOSX/Shared/AboutWindowController.swift",
+      "line": 1,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "希望它安静地待在你需要的地方，少一些步骤，少占一些注意力，把时间留给真正想做的事。": [
+    {
+      "file": "Sources/MacOSX/Shared/AboutWindowController.swift",
+      "line": 1,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "来自作者的一点心意": [
+    {
+      "file": "Sources/MacOSX/Shared/AboutWindowController.swift",
+      "line": 1,
+      "raw": false,
+      "multiline": false
+    }
+  ],
+  "我是 anjing-le，喜欢把日常的小麻烦做成顺手的工具。macos-x 也会从真实使用里的反馈出发，一点点打磨。谢谢你愿意使用它，也欢迎告诉我哪里还不好用。": [
+    {
+      "file": "Sources/MacOSX/Shared/AboutWindowController.swift",
+      "line": 1,
+      "raw": false,
+      "multiline": false
+    }
   ]
 }

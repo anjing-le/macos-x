@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private let updates = UpdateController()
     private let modules = ModuleCoordinator()
     private var client: ToolboxWindowController?
+    private var about: AboutWindowController?
     private lazy var menuBar = MenuBarController(
         onOpen: { [weak self] in self?.modules.dismissMenuBarDrawer(); self?.showClient() },
         onCheckUpdates: { [weak self] in self?.checkUpdates() },
@@ -15,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
+        menuBar.onAbout = { [weak self] in self?.showAbout() }
         menuBar.start()
         modules.onFileActionsFeedbackChanged = { [weak self] in self?.menuBar.updateFileActions($0) }
         menuBar.onCancelFileActions = { [weak self] in self?.modules.cancelFileAction() }
@@ -67,6 +69,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let menuBar = NSMenu()
         let appItem = NSMenuItem()
         let appMenu = NSMenu(title: "macos-x")
+        let about = NSMenuItem(title: AppLanguage.text("关于 macos-x"), action: #selector(showAbout), keyEquivalent: "")
+        about.target = self; appMenu.addItem(about)
+        appMenu.addItem(.separator())
         let update = NSMenuItem(title: AppLanguage.text("检查更新…"), action: #selector(checkUpdates), keyEquivalent: "")
         update.target = self
         appMenu.addItem(update)
@@ -93,6 +98,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         windowItem.submenu = windowMenu; menuBar.addItem(windowItem)
         NSApp.windowsMenu = windowMenu
         NSApp.mainMenu = menuBar
+    }
+
+    @objc private func showAbout() {
+        if about == nil { about = AboutWindowController() }
+        about?.present()
     }
 
     @objc private func checkUpdates() { updates.checkForUpdates(self) }

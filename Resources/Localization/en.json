@@ -722,5 +722,16 @@
   "已完成": "Completed",
   "处理失败": "Processing failed",
   "右键查看文件操作": "Right-click for file actions",
-  "连接已结束，请重新连接。": "Connection ended. Please reconnect."
+  "连接已结束，请重新连接。": "Connection ended. Please reconnect.",
+  "关于 macos-x": "About macos-x",
+  "版本 {0} · 构建 {1}": "Version {0} · Build {1}",
+  "开发版本": "Development build",
+  "作者 GitHub": "Author on GitHub",
+  "项目与反馈": "Project & Feedback",
+  "让 Mac 上的常用操作，顺手一点。": "Make everyday Mac tasks a little easier.",
+  "截图贴图、窗口管理、菜单栏收纳、电脑状态、提示词与文件互传和处理。把日常需要的小工具，放在一起。": "Capture and pin, manage windows and menu bar icons, check your Mac, keep prompts, and transfer or convert files. Everyday tools, together.",
+  "少一点打断，多一点专注": "Fewer interruptions. More focus.",
+  "希望它安静地待在你需要的地方，少一些步骤，少占一些注意力，把时间留给真正想做的事。": "A quiet tool, ready when you need it. Fewer steps and less to think about, so you have more time for what matters to you.",
+  "来自作者的一点心意": "A note from the author",
+  "我是 anjing-le，喜欢把日常的小麻烦做成顺手的工具。macos-x 也会从真实使用里的反馈出发，一点点打磨。谢谢你愿意使用它，也欢迎告诉我哪里还不好用。": "I'm anjing-le. I like turning everyday annoyances into useful little tools. macos-x grows through real use and feedback, one improvement at a time. Thanks for giving it a try. If something feels awkward, I'd love to hear about it."
 }

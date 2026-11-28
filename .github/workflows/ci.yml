@@ -30,7 +30,10 @@ jobs:
           zsh tools/run-file-actions-regression.sh
           MACOSX_TEST_LANGUAGE=en zsh tools/run-file-actions-regression.sh
       - name: Check menu bar interaction
-        run: zsh tools/run-menu-bar-regression.sh
+        run: |
+          zsh tools/run-menu-bar-regression.sh
+          zsh tools/run-about-regression.sh
+          MACOSX_TEST_LANGUAGE=en zsh tools/run-about-regression.sh
       - name: Check menu-bar shelf cancellation, restoration and dashboard
         run: zsh tools/run-menu-bar-shelf-regression.sh
       - name: Check native menu-bar visibility lifecycle without proxy input

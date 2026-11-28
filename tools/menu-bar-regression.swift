@@ -1,6 +1,11 @@
 import AppKit
 
 @MainActor private extension MenuBarController {
+    func verifyAboutMenu() -> Bool {
+        let entries = menu.items.filter { $0.action == #selector(showAbout) }
+        precondition(entries.count == 1 && entries[0].title == AppLanguage.text("关于 macos-x"))
+        return NSApp.sendAction(entries[0].action!, to: entries[0].target, from: entries[0])
+    }
     func verifyFileFeedbackJourney() {
         var cancelled=0,revealed=0
         onCancelFileActions={ cancelled += 1 };onRevealFileActions={ revealed += 1 }
@@ -89,6 +94,9 @@ import AppKit
         precondition(controller.validateMenuItem(update), "Ready updater enables manual check")
         precondition(NSImage(systemSymbolName: "apple.logo", accessibilityDescription: nil) != nil,
                      "Menu bar apple symbol must exist on supported macOS")
+        var aboutOpened = 0
+        controller.onAbout = { aboutOpened += 1 }
+        precondition(controller.verifyAboutMenu() && aboutOpened == 1, "About routes once without opening the client or changing modules")
         controller.stop(); controller.stop()
         controller.verifyFileFeedbackJourney()
         print("PASS menu bar: single-count double actions, slow clicks, tracked mouse-down actions, right-click reset, update availability, native icon and idempotent shutdown; no status item, window or permissions created")
