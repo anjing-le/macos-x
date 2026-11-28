@@ -41,6 +41,9 @@ struct NearbyTransferRecord: Identifiable {
     private let io = DispatchQueue(label: "cc.anjing.macos-x.nearby.prepare", qos: .utility)
     private let cleanup = DispatchGroup()
     private var cipher: NearbyCipher?
+    private let makeCipher: () -> NearbyCipher
+    private var connectionAuthorized = false
+    var needsPairingConfirmation: Bool { cipher?.code != nil && cipher?.usesSingleApproval == false && !ready }
     private var generation = UUID()
     private var pairingTimeout: DispatchWorkItem?
     private var sendTimeout: DispatchWorkItem?
@@ -66,8 +69,8 @@ struct NearbyTransferRecord: Identifiable {
     private var wakeObserver: NSObjectProtocol?
     private var sleeping = false
 
-    init(link: any NearbyLink, clipboard: NSPasteboard = .general, receiveFolder: URL? = nil) {
-        self.link = link; self.clipboard = clipboard
+    init(link: any NearbyLink, clipboard: NSPasteboard = .general, receiveFolder: URL? = nil, makeCipher: @escaping () -> NearbyCipher = { NearbyCipher() }) {
+        self.link = link; self.clipboard = clipboard; self.makeCipher = makeCipher
         self.receiveFolder = receiveFolder ?? FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("macos-x", isDirectory: true).appendingPathComponent("Nearby", isDirectory: true)
         link.onDevices = { [weak self] value in self?.devices = value; self?.changed() }
@@ -119,16 +122,18 @@ struct NearbyTransferRecord: Identifiable {
     }
     func connect(_ device: NearbyDevice) {
         guard running, self.device == nil else { return }
+        connectionAuthorized = true
         self.device = device; status = AppLanguage.text("正在连接…"); armPairingTimeout(); link.invite(device); changed()
     }
     func answer(_ accept: Bool) {
         guard incomingInvitation else { return }
+        connectionAuthorized = accept
         incomingInvitation = false; link.answer(accept)
         if accept { armPairingTimeout() } else { reset() }
         changed()
     }
     func confirmPairing() {
-        guard let cipher, cipher.code != nil, !cipher.localConfirmed else { return }
+        guard connectionAuthorized, let cipher, cipher.code != nil, !cipher.localConfirmed else { return }
         do { try link.send(cipher.confirm()); pairedIfReady(); changed() }
         catch { failConnection() }
     }
@@ -144,11 +149,11 @@ struct NearbyTransferRecord: Identifiable {
         scopedURL?.stopAccessingSecurityScopedResource(); scopedURL = nil
         preparing = false; preparingClipboard = false; incomingBusy = false; waitingOffset = nil; pendingText = nil; pendingCopy = nil
         awaitingAcceptance = false; awaitingDone = false
-        cipher = nil; device = nil; incomingInvitation = false; autoCopy = false; status = ""; changed()
+        connectionAuthorized = false; cipher = nil; device = nil; incomingInvitation = false; autoCopy = false; status = ""; changed()
     }
     private func connected(_ device: NearbyDevice) {
-        guard running, self.device?.id == device.id, cipher == nil else { return }
-        incomingInvitation = false; cipher = NearbyCipher(); armPairingTimeout()
+        guard running, connectionAuthorized, !incomingInvitation, self.device?.id == device.id, cipher == nil else { return }
+        incomingInvitation = false; cipher = makeCipher(); armPairingTimeout()
         do { try link.send(cipher!.hello()) } catch { failConnection() }
         changed()
     }
@@ -160,12 +165,20 @@ struct NearbyTransferRecord: Identifiable {
     private func pairedIfReady() {
         if ready { pairingTimeout?.cancel(); pairingTimeout = nil; status = AppLanguage.text("已连接"); startNext() }
     }
-    private func failConnection() { disconnect(); status = AppLanguage.text("连接已结束，请重新连接并核对配对码。"); changed() }
+    private func failConnection() { disconnect(); status = AppLanguage.text("连接已结束，请重新连接。"); changed() }
     private func receive(_ data: Data) {
         guard running, let cipher else { return }
         do {
             if cipher.code == nil {
-                try cipher.receiveHello(data); status = AppLanguage.text("请核对两台 Mac 的配对码"); changed(); onAttention?(); return
+                try cipher.receiveHello(data)
+                if cipher.usesSingleApproval {
+                    // Selection / accepting the invitation is consent; never inferred from a hello.
+                    guard connectionAuthorized else { throw NearbyFailure.unpaired }
+                    confirmPairing()
+                } else {
+                    status = AppLanguage.text("请核对两台 Mac 的配对码"); changed(); onAttention?()
+                }
+                return
             }
             let message = try cipher.open(data)
             if message.type == "confirm" { pairedIfReady(); changed(); return }

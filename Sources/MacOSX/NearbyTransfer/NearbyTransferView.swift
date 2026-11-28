@@ -76,12 +76,12 @@ import MacOSXCore
             devices.isEnabled = service.running; disconnectButton.isHidden = true
             if !service.running { closeDeviceMenu() }
         }
-        let pairing = service.pairingCode != nil && !service.ready
+        let pairing = service.needsPairingConfirmation
         let invitation = service.incomingInvitation
         accept.isHidden = !(pairing || invitation); reject.isHidden = accept.isHidden
         accept.title = invitation ? AppLanguage.text("允许连接") : (service.confirmed ? AppLanguage.text("等待对方确认") : AppLanguage.text("配对码一致"))
         accept.isEnabled = invitation || !service.confirmed
-        if let code = service.pairingCode, !service.ready {
+        if let code = service.pairingCode, pairing {
             connection.stringValue = AppLanguage.text("配对码 {0} · 请核对另一台 Mac", code)
         } else if invitation { connection.stringValue = AppLanguage.text("对方请求连接，是否允许？") }
         else { connection.stringValue = service.ready ? AppLanguage.text("已连接 · 同一网络内互传") : AppLanguage.text("两台 Mac 均需开启附近互传") }

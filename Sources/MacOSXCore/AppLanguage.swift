@@ -762,5 +762,6 @@ public enum AppLanguage {
         "已完成": "Completed",
         "处理失败": "Processing failed",
         "右键查看文件操作": "Right-click for file actions",
+        "连接已结束，请重新连接。": "Connection ended. Please reconnect.",
     ]
 }

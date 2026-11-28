@@ -52,10 +52,11 @@ public struct NearbyMessage: Codable {
 public enum NearbyFailure: Error { case invalid, unpaired, replay, authentication }
 
 public final class NearbyCipher {
-    private struct Hello: Codable { let version: Int; let key: Data; let nonce: Data; let binaryRecords: Bool? }
+    private struct Hello: Codable { let version: Int; let key: Data; let nonce: Data; let binaryRecords: Bool?; let singleApproval: Bool? }
     private struct Record: Codable { let sequence: UInt64; let payload: Data }
     private static let binaryMagic = Data([0x4d, 0x58, 0x4e, 0x32])
     private let supportsBinaryRecords: Bool
+    private let supportsSingleApproval: Bool
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     private let privateKey = Curve25519.KeyAgreement.PrivateKey()
@@ -67,11 +68,14 @@ public final class NearbyCipher {
     public private(set) var localConfirmed = false
     public private(set) var remoteConfirmed = false
     public private(set) var usesBinaryRecords = false
+    public private(set) var usesSingleApproval = false
     public var ready: Bool { localConfirmed && remoteConfirmed && key != nil }
-    public init(supportsBinaryRecords: Bool = true) { self.supportsBinaryRecords = supportsBinaryRecords }
+    public init(supportsBinaryRecords: Bool = true, supportsSingleApproval: Bool = true) {
+        self.supportsBinaryRecords = supportsBinaryRecords; self.supportsSingleApproval = supportsSingleApproval
+    }
     public func hello() throws -> Data {
         try encoder.encode(Hello(version: 1, key: privateKey.publicKey.rawRepresentation, nonce: nonce,
-                                 binaryRecords: supportsBinaryRecords ? true : nil))
+                                 binaryRecords: supportsBinaryRecords ? true : nil, singleApproval: supportsSingleApproval ? true : nil))
     }
     public func receiveHello(_ data: Data) throws {
         guard key == nil, data.count <= 512 else { throw NearbyFailure.invalid }
@@ -84,8 +88,10 @@ public final class NearbyCipher {
         let transcript = local.lexicographicallyPrecedes(remote) ? local + remote : remote + local
         let salt = Data(SHA256.hash(data: transcript))
         usesBinaryRecords = supportsBinaryRecords && peer.binaryRecords == true
-        let domain = usesBinaryRecords ? "macos-x-nearby-binary-v1" : "macos-x-nearby-v1"
-        let sasDomain = usesBinaryRecords ? "macos-x-nearby-sas-binary-v1" : "macos-x-nearby-sas-v1"
+        usesSingleApproval = supportsSingleApproval && peer.singleApproval == true
+        let consentDomain = usesSingleApproval ? "-single-approval" : ""
+        let domain = (usesBinaryRecords ? "macos-x-nearby-binary-v1" : "macos-x-nearby-v1") + consentDomain
+        let sasDomain = (usesBinaryRecords ? "macos-x-nearby-sas-binary-v1" : "macos-x-nearby-sas-v1") + consentDomain
         key = secret.hkdfDerivedSymmetricKey(using: SHA256.self, salt: salt,
                                             sharedInfo: Data(domain.utf8), outputByteCount: 32)
         let check = secret.hkdfDerivedSymmetricKey(using: SHA256.self, salt: salt,

@@ -20,7 +20,8 @@ import MacOSXCore
     func stop() { stops += 1; connected = false }
     func invite(_ device: NearbyDevice) { other?.onInvitation?(self.device) }
     func answer(_ accept: Bool) {
-        guard accept, let other else { return }
+        guard let other else { return }
+        guard accept else { other.onDisconnected?(); return }
         connected = true; other.connected = true
         onConnected?(other.device); other.onConnected?(device)
     }
@@ -45,11 +46,10 @@ import MacOSXCore
     }
     @MainActor private static func pair(_ a: NearbyTransferService, _ b: NearbyTransferService, _ link: FixtureLink) {
         a.connect(link.device); precondition(b.incomingInvitation)
-        b.answer(true); wait("both peers show pairing code") { a.pairingCode != nil && b.pairingCode != nil }
-        precondition(a.pairingCode == b.pairingCode && !a.ready && !b.ready)
-        a.confirmPairing(); wait("first confirmation reaches peer") { b.pairingCode != nil }
-        precondition(!a.ready && !b.ready)
-        b.confirmPairing(); wait("both confirmations required") { a.ready && b.ready }
+        precondition(!a.ready && !b.ready && !link.connected, "no transport or content before receiver consent")
+        b.answer(true)
+        wait("selection and one receiver approval connect both peers") { a.ready && b.ready }
+        precondition(!a.needsPairingConfirmation && !b.needsPairingConfirmation)
     }
     @MainActor private static func finalizedCancellation(_ root: URL, commit: Bool, replace: Bool) throws {
         let folder = root.appendingPathComponent(UUID().uuidString)
@@ -90,7 +90,28 @@ import MacOSXCore
         let b = NearbyTransferService(link: lb, clipboard: clipB, receiveFolder: root.appendingPathComponent("B"))
         precondition(la.starts == 0 && lb.starts == 0, "unadded module does not discover")
         a.start(); a.start(); b.start(); precondition(la.starts == 1 && lb.starts == 1)
+        a.connect(lb.device); precondition(b.incomingInvitation)
+        // Unsolicited transport events cannot bypass the receiver's consent.
+        lb.onConnected?(la.device)
+        precondition(b.pairingCode == nil && !b.ready)
+        b.answer(false)
+        precondition(a.device == nil && b.device == nil && !a.ready && !b.ready)
         pair(a, b, lb)
+        do {
+            let oldLink = FixtureLink("Previous release"), newLink = FixtureLink("Current release")
+            oldLink.other = newLink; newLink.other = oldLink
+            let old = NearbyTransferService(link: oldLink, clipboard: clipA, receiveFolder: root,
+                                            makeCipher: { NearbyCipher(supportsSingleApproval: false) })
+            let current = NearbyTransferService(link: newLink, clipboard: clipB, receiveFolder: root)
+            old.start(); current.start(); current.connect(oldLink.device); old.answer(true)
+            wait("legacy consent UI") { old.needsPairingConfirmation && current.needsPairingConfirmation }
+            precondition(!old.ready && !current.ready)
+            current.confirmPairing()
+            wait("legacy first confirmation") { old.pairingCode != nil }
+            precondition(!old.ready && !current.ready)
+            old.confirmPairing(); wait("legacy mutual confirmation") { old.ready && current.ready }
+            old.stop(); current.stop()
+        }
         clipB.setString("existing", forType: .string)
         clipA.setString("Clipboard fixture 123", forType: .string); a.paste()
         wait("text delivered and acknowledged") { b.records.first?.text == "Clipboard fixture 123" && a.records.first?.state == .sent }
@@ -226,7 +247,7 @@ import MacOSXCore
         precondition(settingsRequested && !module.isDrawerVisible && surfaceService.running, "settings route dismisses drawer without disconnecting service")
         module.stop(); let countBefore = presentations.count; module.show(focus: true)
         precondition(presentations.count == countBefore, "disabled module cannot show a drawer")
-        print("PASS nearby: mutual pairing, encrypted acknowledged text/files/images, session auto-copy, same-name and empty files, cancellation, teardown and native offscreen layout; no discovery, live windows or general clipboard")
+        print("PASS nearby: selection + single receiver approval, rejection and legacy fallback, encrypted acknowledged text/files/images, session auto-copy, same-name and empty files, cancellation, teardown and native offscreen layout; no discovery, live windows or general clipboard")
         print("PASS single drawer: settings guide only, main hides before presentation, one reusable panel, settings route dismisses drawer; presentation injected, no live windows")
     }
 }

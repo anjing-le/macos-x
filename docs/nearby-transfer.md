@@ -1,7 +1,7 @@
 # Nearby Transfer
 
 An opt-in native module for two Macs running a compatible macos-x version.
-Add it from the module pool, enable it on both Macs, and allow Local Network
+Enable it on both Macs, and allow Local Network
 access when macOS asks. Single-click the existing menu-bar apple to open the
 drawer. Hover still belongs to menu-bar storage; double-click opens the client.
 The home card also opens that same drawer. Opening it orders out the main client
@@ -11,8 +11,10 @@ surface. These visibility changes do not disconnect the service.
 The drawer remains open while selecting files in Finder; click the apple again
 or press Esc in the drawer to dismiss it. Closing the drawer does not disconnect.
 
-Choose a device, accept its connection request, compare the six-digit pairing
-codes on the two screens, and confirm on both Macs. Names are labels, not trust.
+Choose a device; the other Mac accepts the request once, then both are connected.
+There is no additional code-confirmation step when both Macs support single approval.
+With an older version, compare the six-digit codes and confirm on both screens.
+Names are labels, not verified identities.
 There is no saved trust, account, automatic reconnection or cloud relay. Each
 connection has new ephemeral keys and needs confirmation again. Sleep,
 disabling/removing the module, and quitting revoke the connection. Turning off
@@ -46,10 +48,19 @@ MultipeerConnectivity approach explored in BitBun. This module uses a distinct
 `macosx-nearby` Bonjour service and its own v1 protocol; BitBun v0.0.1 is not a
 compatible peer. The protocol requires an encrypted MCSession plus ephemeral
 Curve25519 key agreement. HKDF derives a transcript-bound session key and human
-comparison code. Both people confirm before any application content is accepted.
+comparison code. Selecting a device and accepting its invitation authorize the
+new session; application content is blocked until both encrypted confirmations arrive.
 All subsequent control messages, text and file chunks use AES-GCM with ordered,
 authenticated sequence numbers; tampering, replay or protocol errors disconnect.
-The human comparison authenticates the session and must actually be performed.
+Single approval deliberately removes mandatory human code comparison: encrypted
+transport does not by itself verify a device owner or prevent active impersonation.
+Legacy sessions retain mandatory human comparison for session authentication.
+
+New peers advertise optional single-approval and binary-record capabilities in the
+v1 handshake. Single approval requires mutual support and uses a separate key/SAS
+domain to prevent silent capability stripping. Consent is never inferred from
+transport connection or a received hello; an unaccepted invitation cannot proceed.
+The existing 30-second invitation and 60-second handshake timeouts still apply.
 
 New peers advertise an optional binary-record capability in the v1 handshake.
 Only mutual support enables the compact encrypted envelope and a separate key/SAS

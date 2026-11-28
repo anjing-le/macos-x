@@ -6177,5 +6177,13 @@
       "raw": false,
       "multiline": false
     }
+  ],
+  "连接已结束，请重新连接。": [
+    {
+      "file": "Sources/MacOSX/NearbyTransfer/NearbyTransferService.swift",
+      "line": 174,
+      "raw": false,
+      "multiline": false
+    }
   ]
 }

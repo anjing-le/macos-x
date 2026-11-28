@@ -152,8 +152,9 @@ extension NearbyMultipeerLink: MCNearbyServiceBrowserDelegate, MCNearbyServiceAd
     }
     nonisolated func session(_ session: MCSession, didReceiveCertificate certificate: [Any]?, fromPeer peerID: MCPeerID,
                             certificateHandler: @escaping (Bool) -> Void) {
-        // This channel is additionally authenticated by user-compared ECDH SAS;
-        // all application data, including file chunks, is AEAD encrypted.
+        // MCSession encryption is required. New peers authorize by selection / acceptance;
+        // legacy peers additionally compare ECDH SAS. Names are not verified identities.
+        // All application data, including file chunks, is AEAD encrypted.
         certificateHandler(true)
     }
     nonisolated func session(_ session: MCSession, didReceive stream: InputStream, withName streamName: String, fromPeer peerID: MCPeerID) { stream.close() }

@@ -20,6 +20,26 @@ final class NearbyProtocolTests: XCTestCase {
         XCTAssertThrowsError(try b.seal(NearbyMessage("text", id: UUID(), text: "private")))
         _ = try a.open(b.confirm()); XCTAssertTrue(a.ready && b.ready)
     }
+    func testSingleApprovalIsNegotiatedWithoutBypassingContentGate() throws {
+        let a = NearbyCipher(), b = NearbyCipher()
+        try a.receiveHello(b.hello()); try b.receiveHello(a.hello())
+        XCTAssertTrue(a.usesSingleApproval && b.usesSingleApproval)
+        XCTAssertFalse(a.ready || b.ready)
+        XCTAssertThrowsError(try a.seal(NearbyMessage("text", id: UUID(), text: "before consent")))
+        let old = NearbyCipher(supportsSingleApproval: false), current = NearbyCipher()
+        try old.receiveHello(current.hello()); try current.receiveHello(old.hello())
+        XCTAssertFalse(old.usesSingleApproval || current.usesSingleApproval)
+        XCTAssertEqual(old.code, current.code)
+    }
+    func testStrippedApprovalCapabilityCannotSilentlyChangeConsentMode() throws {
+        let a = NearbyCipher(), b = NearbyCipher()
+        var hello = try XCTUnwrap(JSONSerialization.jsonObject(with: b.hello()) as? [String: Any])
+        hello.removeValue(forKey: "singleApproval")
+        try a.receiveHello(JSONSerialization.data(withJSONObject: hello))
+        try b.receiveHello(a.hello())
+        XCTAssertFalse(a.usesSingleApproval); XCTAssertTrue(b.usesSingleApproval)
+        XCTAssertThrowsError(try b.open(a.confirm()), "consent mode is bound to the session key")
+    }
     func testEncryptedTextAndFileChunksRoundTrip() throws {
         let (a, b) = try paired()
         let text = "private clipboard"
@@ -56,7 +76,7 @@ final class NearbyProtocolTests: XCTestCase {
     func testLegacyReleaseStillPairsAndTransfersBothWays() throws {
         let current = NearbyCipher(), old = LegacyNearbyCipherFixture()
         try current.receiveHello(old.hello()); try old.receiveHello(current.hello())
-        XCTAssertFalse(current.usesBinaryRecords); XCTAssertEqual(current.code, old.code)
+        XCTAssertFalse(current.usesSingleApproval); XCTAssertFalse(current.usesBinaryRecords); XCTAssertEqual(current.code, old.code)
         let a = try current.confirm(), b = try old.confirm()
         _ = try current.open(b); _ = try old.open(a)
         XCTAssertTrue(current.ready && old.ready)
